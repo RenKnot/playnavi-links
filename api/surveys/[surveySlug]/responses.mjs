@@ -9,7 +9,11 @@ import {
 } from "../../_lib/http.mjs";
 import { clearSurveySession, getSurveySession } from "../../_lib/survey-session.mjs";
 import { UpstreamError, callSurveyFunction } from "../../_lib/upstream.mjs";
-import { VOICE_V3_ANSWER_KEYS, VOICE_V4_ANSWER_KEYS } from "../../../assets/survey-contract.mjs";
+import {
+  VOICE_V3_ANSWER_KEYS,
+  VOICE_V4_ANSWER_KEYS,
+  VOICE_V5_ANSWER_KEYS,
+} from "../../../assets/survey-contract.mjs";
 
 const MAX_ANSWERS = 100;
 const MAX_ANSWER_BYTES = 64 * 1024;
@@ -51,6 +55,13 @@ export function validAnswers(value) {
     return false;
   }
   if (Buffer.byteLength(serialized, "utf8") > MAX_ANSWER_BYTES) return false;
+  const isVoiceV5 = [
+    "play_frequency_1m", "usage_1m", "valuable_feature_reasons", "unused_features", "answer_notes",
+  ].some((key) => Object.hasOwn(value, key));
+  if (isVoiceV5) {
+    if (entries.length !== VOICE_V5_ANSWER_KEYS.length || entries.some(([key]) => !VOICE_V5_ANSWER_KEYS.includes(key))) return false;
+    return boundedJson(value);
+  }
   const isVoiceV4 = [
     "reference_period_end_on", "play_time_4w", "primary_play_device_4w",
     "info_seek_days_4w", "recording_preference",
