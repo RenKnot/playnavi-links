@@ -36,6 +36,91 @@ export const VOICE_V3_ANSWER_KEYS = [
   "future_display_order",
 ];
 const ID_PATTERN = /^[a-z][a-z0-9_]{0,39}$/;
+const VOICE_V3_STABLE_IDS = {
+  usage: ["days_15_plus", "days_5_14", "days_1_4", "inactive_30d", "never_used", "unknown"],
+  overallSatisfaction: [
+    "very_satisfied", "somewhat_satisfied", "neutral", "somewhat_dissatisfied", "very_dissatisfied", "unknown",
+  ],
+  categoryFeatures: {
+    news_deals: ["game_news", "events", "subscriptions", "sales"],
+    research: ["catalog_coverage", "game_summary", "game_videos"],
+    discovery: ["for_you", "rankings", "featured_games", "upcoming_games"],
+    library: ["play_log", "wishlist", "bulk_edit", "external_import"],
+    social_creation: ["social", "catalog_creation", "custom_rankings"],
+    reflection_share: ["my_best", "game_poster", "gamer_diagnosis", "profile_stats"],
+    profile: ["profile_games", "profile_wishlist", "honor_titles", "avatar_cover"],
+  },
+  q4Exclusive: ["none", "unknown"],
+  unusedReason: [
+    "not_needed", "alternative", "no_opportunity", "dont_know_how", "hard_to_use", "newly_discovered", "other", "unknown",
+  ],
+  problem: [
+    "slow", "errors", "navigation", "not_found", "bad_data", "library_input", "discovery", "social", "overloaded",
+    "other", "none", "unknown",
+  ],
+  dormantReason: [
+    "less_gaming", "finished", "alternative", "missing", "confusing", "quality", "forgot", "other", "none", "unknown",
+  ],
+  problemOutcome: ["completed", "alternative", "abandoned", "forgot"],
+  futureRole: [
+    "news", "recommend", "research", "record", "wishlist", "read_posts", "publish", "discuss", "other", "none", "unknown",
+  ],
+  future: [
+    "news_curation", "game_database", "game_achievements", "playnavi_challenges", "discover_user_posts",
+    "promote_own_posts", "creator_discovery", "creator_originals", "game_communities", "pc_web", "guide_ai", "library_ai",
+  ],
+  futureExclusive: ["none", "unknown"],
+  futureDetails: {
+    news_curation: {
+      a: ["aggregate", "personalize", "digest", "reactions", "save", "other", "unknown"],
+      b: ["media", "video", "social", "news_app", "playnavi", "none", "other", "unknown"],
+    },
+    game_database: {
+      a: ["coverage", "aliases", "editions", "accuracy", "corrections", "other", "unknown"],
+      b: ["multiple", "once", "none", "forgot", "other", "unknown"],
+    },
+    game_achievements: {
+      a: ["earned", "remaining", "platforms", "profile", "other", "unknown"],
+      b: ["manual_ok", "automatic_only", "other", "unknown"],
+    },
+    playnavi_challenges: {
+      a: ["personal", "theme", "streak", "limited", "other", "unknown"],
+      b: ["private", "share", "together", "compete", "other", "unknown"],
+    },
+    discover_user_posts: {
+      a: ["similar", "reviews", "catalogs", "rankings", "fanart", "other", "unknown"],
+      b: ["playnavi", "social", "video", "blog", "store", "none", "other", "unknown"],
+    },
+    promote_own_posts: {
+      a: ["same_game", "similar", "collection", "reactions", "external", "other", "unknown"],
+      b: ["playnavi", "social", "video", "blog", "never", "other", "unknown"],
+    },
+    creator_discovery: {
+      a: ["following", "discover", "compare", "themes", "other", "unknown"],
+      b: ["video", "social", "article", "audio", "playnavi", "none", "other", "unknown"],
+    },
+    creator_originals: {
+      a: ["themes", "deep_review", "interview", "compare", "participatory", "other", "unknown"],
+      b: ["multiple", "once", "none", "forgot", "other", "unknown"],
+    },
+    game_communities: {
+      a: ["read", "discuss", "questions", "match", "other", "unknown"],
+      b: ["spoilers", "moderation", "mute", "privacy", "none", "other", "unknown"],
+    },
+    pc_web: {
+      a: ["bulk_edit_logs", "bulk_edit_wishlist", "long_text", "compare_research", "profile_posts", "other", "unknown"],
+      b: ["smartphone", "pc", "both", "other", "unknown"],
+    },
+    guide_ai: {
+      a: ["hint", "next", "build", "completion", "other", "unknown"],
+      b: ["site", "video", "social", "ai", "self", "none", "other", "unknown"],
+    },
+    library_ai: {
+      a: ["add_log", "summarize", "add_wishlist", "organize", "other", "unknown"],
+      b: ["text", "voice", "both", "other", "unknown"],
+    },
+  },
+};
 
 export class SurveyContractError extends Error {
   constructor(message) {
@@ -101,6 +186,11 @@ function normalizeNamedOptions(options, expectedLength = null, description = fal
   return normalized;
 }
 
+function hasStableIds(options, expectedIds) {
+  return options.length === expectedIds.length &&
+    options.every((option) => expectedIds.includes(option.id));
+}
+
 function normalizeVoiceV3Categories(categories) {
   if (!Array.isArray(categories) || categories.length !== 7) return null;
   const normalized = categories.map((category) => {
@@ -113,10 +203,16 @@ function normalizeVoiceV3Categories(categories) {
   });
   if (normalized.some((category) => !category)) return null;
   const features = normalized.flatMap((category) => category.features);
+  const stableCategoryIds = Object.keys(VOICE_V3_STABLE_IDS.categoryFeatures);
   if (
     new Set(normalized.map((category) => category.id)).size !== 7 ||
     features.length !== 26 ||
-    new Set(features.map((feature) => feature.id)).size !== 26
+    new Set(features.map((feature) => feature.id)).size !== 26 ||
+    !hasStableIds(normalized, stableCategoryIds) ||
+    normalized.some((category) => !hasStableIds(
+      category.features,
+      VOICE_V3_STABLE_IDS.categoryFeatures[category.id] || [],
+    ))
   ) return null;
   return { categories: normalized, features };
 }
@@ -132,7 +228,11 @@ function normalizeVoiceV3Details(details, futureIds) {
     const bPrompt = text(detail.b_prompt, 500);
     const aOptions = normalizeNamedOptions(detail.a_options);
     const bOptions = normalizeNamedOptions(detail.b_options);
-    if (!aPrompt || !bPrompt || !aOptions || !bOptions) return null;
+    const stableDetail = VOICE_V3_STABLE_IDS.futureDetails[id];
+    if (
+      !aPrompt || !bPrompt || !aOptions || !bOptions || !stableDetail ||
+      !hasStableIds(aOptions, stableDetail.a) || !hasStableIds(bOptions, stableDetail.b)
+    ) return null;
     normalized[id] = { aPrompt, bPrompt, aOptions, bOptions };
   }
   return normalized;
@@ -163,6 +263,16 @@ function normalizeVoiceV3Definition(questions) {
     !usageOptions || !overallSatisfactionOptions || !categoryResult || !q4ExclusiveOptions ||
     !unusedReasonOptions || !problemOptions || !dormantReasonOptions || !problemOutcomeOptions ||
     !futureRoleOptions || !futureOptions || !futureExclusiveOptions ||
+    !hasStableIds(usageOptions, VOICE_V3_STABLE_IDS.usage) ||
+    !hasStableIds(overallSatisfactionOptions, VOICE_V3_STABLE_IDS.overallSatisfaction) ||
+    !hasStableIds(q4ExclusiveOptions, VOICE_V3_STABLE_IDS.q4Exclusive) ||
+    !hasStableIds(unusedReasonOptions, VOICE_V3_STABLE_IDS.unusedReason) ||
+    !hasStableIds(problemOptions, VOICE_V3_STABLE_IDS.problem) ||
+    !hasStableIds(dormantReasonOptions, VOICE_V3_STABLE_IDS.dormantReason) ||
+    !hasStableIds(problemOutcomeOptions, VOICE_V3_STABLE_IDS.problemOutcome) ||
+    !hasStableIds(futureRoleOptions, VOICE_V3_STABLE_IDS.futureRole) ||
+    !hasStableIds(futureOptions, VOICE_V3_STABLE_IDS.future) ||
+    !hasStableIds(futureExclusiveOptions, VOICE_V3_STABLE_IDS.futureExclusive) ||
     questions.unprompted_max_length !== 400 || questions.problem_comment_max_length !== 300 ||
     questions.other_max_length !== 400 || questions.valuable_feature_max !== 3 ||
     questions.future_candidate_max !== 3

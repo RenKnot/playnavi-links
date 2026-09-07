@@ -85,6 +85,34 @@ test("parses only the exact reviewed schema-v3 definition", () => {
   }, SLUG), SurveyContractError);
 });
 
+test("rejects v3 definition ID typos and reserved future-ID collisions", () => {
+  const revisedWording = structuredClone(surveyV3Payload);
+  revisedWording.survey.questions.future_options[0].label = "改訂した表示名";
+  revisedWording.survey.questions.future_options[0].description = "改訂した説明文";
+  assert.doesNotThrow(() => parseSurveyRead(revisedWording, SLUG));
+
+  const typo = structuredClone(surveyV3Payload);
+  typo.survey.questions.usage_options[0].id = "days_15_pluss";
+  assert.throws(() => parseSurveyRead(typo, SLUG), SurveyContractError);
+
+  const movedFeature = structuredClone(surveyV3Payload);
+  const moved = movedFeature.survey.questions.categories[0].features.pop();
+  movedFeature.survey.questions.categories[1].features.push(moved);
+  assert.throws(() => parseSurveyRead(movedFeature, SLUG), SurveyContractError);
+
+  const reserved = structuredClone(surveyV3Payload);
+  const previousFutureId = reserved.survey.questions.future_options[0].id;
+  reserved.survey.questions.future_options[0].id = "other";
+  reserved.survey.questions.future_detail_options.other =
+    reserved.survey.questions.future_detail_options[previousFutureId];
+  delete reserved.survey.questions.future_detail_options[previousFutureId];
+  assert.throws(() => parseSurveyRead(reserved, SLUG), SurveyContractError);
+
+  const detailTypo = structuredClone(surveyV3Payload);
+  detailTypo.survey.questions.future_detail_options.pc_web.a_options[0].id = "bulk_edit_log";
+  assert.throws(() => parseSurveyRead(detailTypo, SLUG), SurveyContractError);
+});
+
 test("validates the exact 22-key current-user route and display orders", () => {
   const voice = parseSurveyRead(surveyV3Payload, SLUG).voice;
   const result = validateVoiceV3Answers(voice, currentAnswers(voice));
