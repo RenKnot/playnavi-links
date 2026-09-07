@@ -241,9 +241,17 @@ test("v2 UI preserves auth transport while providing dynamic low-burden pages", 
   assert.match(source, /category_top/);
   assert.match(source, /future_top/);
   assert.match(source, /prefers-reduced-motion/);
-  assert.match(source, /!values\.category_top\[0\]/);
-  assert.match(source, /!values\.future_top\[rank - 1\]/);
+  assert.match(source, /voiceTapRanking/);
+  assert.match(source, /updateOrderedSelection\(selected, rankIndex, "", maxLength\)/);
+  assert.match(source, /updateOrderedSelection\(selected, selected\.length, option\.id, maxLength\)/);
   assert.match(source, /このアンケートには別の回答がすでに保存されています/);
+  assert.match(source, /moveToNextVoiceQuestion\(fieldset\.dataset\.errorId\)/);
+  assert.match(source, /"detail-options"/);
+  assert.match(source, /aria-describedby", "survey-error"/);
+  assert.match(source, /aria-valuetext/);
+  assert.match(source, /survey-in-progress/);
+  assert.match(source, /heading\.tabIndex = -1/);
+  assert.doesNotMatch(source, /pageIntro\(survey\.title, survey\.description\)/);
   assert.doesNotMatch(source, /category_top\s*=.*filter\(|future_top\s*=.*filter\(/);
   const voiceSubmit = source.slice(
     source.indexOf("async function submitVoiceSurvey"),
@@ -267,6 +275,19 @@ test("v2 UI preserves auth transport while providing dynamic low-burden pages", 
   assert.match(v1ConflictBranch, /showSubmitConflict/);
   const start = source.slice(source.indexOf("export async function startSurvey"));
   assert.ok(start.indexOf("await exchangeHandoff") < start.indexOf("return loadSurvey"));
+});
+
+test("mobile survey styling keeps tap targets readable and clear of sticky navigation", async () => {
+  const css = await readFile(new URL("../assets/site.css", import.meta.url), "utf8");
+  assert.match(css, /--primary:\s*#08788a/);
+  assert.match(css, /#survey-questions\s*\{[^}]*padding-bottom:/s);
+  assert.match(css, /\.question-card\s*\{[^}]*scroll-margin-block:/s);
+  assert.match(css, /\.rating-label/);
+  assert.match(css, /\.detail-options/);
+  assert.match(css, /\.ranking-option\[aria-pressed="true"\]/);
+  assert.match(css, /\.ranking-option:focus-visible/);
+  assert.match(css, /\.survey-in-progress > #survey-title/);
+  assert.doesNotMatch(css, /\.compact-options\s*\{[^}]*overflow-x:\s*auto/s);
 });
 
 test("ordered ranks never promote a lower choice and clear dependent choices", () => {
