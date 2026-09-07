@@ -1,12 +1,12 @@
 # PlayNavi Voice 2026 アンケート設計書
 
-> 文書状態: セグメント分析追加レビュー反映。schema v4コード実装・主要ローカル検証済み、STG適用前
+> 文書状態: セグメント分析追加レビュー反映。schema v4をSTGへ適用し、guest実画面経路まで検証済み。認証3経路とproduction gateは未完了
 > 対象タスク: TASK-20260831-003
 > 初版: 2026-09-07
 > 改訂: 2026-09-07
 > 正本範囲: 設問、分岐、回答保存、報酬、集計、公開文言、公開後の凍結
 
-本書は PlayNavi_Voice_2026_review_and_revision.md と、その追加改訂 PlayNavi_Voice_2026_review_and_revision_v2_segments.md を採用し、operatorの追加要件を優先して実装仕様へ確定したものである。Q1〜Q12を凍結したschema v3は変更せず、プレイ量・主な機器・情報収集頻度・記録希望を追加したschema v4を新しいslugへ実装する。production DB、production Web、称号、お知らせには未反映である。
+本書は PlayNavi_Voice_2026_review_and_revision.md と、その追加改訂 PlayNavi_Voice_2026_review_and_revision_v2_segments.md を採用し、operatorの追加要件を優先して実装仕様へ確定したものである。Q1〜Q12を凍結したschema v3は変更せず、プレイ量・主な機器・情報収集頻度・記録希望を追加したschema v4を新しいslugへ実装する。Web PR #9は`1da00c5392bba65cd6740104bc7e672ffc43bdc4`でmainへmergeされ、STG DB、STG Edge、固定STG Webへ反映済みである。production Webにはmainの静的資産が自動配備されたが、production DB、Edge、campaign、称号、お知らせは未反映であり、Survey APIは503を返すためproduction URLは告知しない。
 
 ## 1. 用語と状態の定義
 
@@ -1150,7 +1150,9 @@ schema v4はschema v3の成功経路をそのまま使い、次の最小差分�
 - schema v1／v2のread、validator、保存、集計経路は残し、schema v3のslugと回答を混ぜない。
 - schema v4は新slugに隔離し、Webのv1／v2／v3 parser、validator、画面、visual baselineを変更せず維持する。
 - Webは`npm test` 77件、MJS構文検査、schema v3／v4それぞれのiPhone 390×844／Android 412×915実Chrome検査を通過した。
-- DBはDocker上でforward verify、fixture、v3 STG migrationの集計assert、copy guardを通過した。Denoで定義した7件は実行環境未導入のため、STG適用前の残検証とする。
+- DBはDocker上でforward verify、fixture、v3／v4 STG migrationの集計assert、copy guardを通過した。2026-09-07にv4 one-shotをSTGへ適用し、STG称号と制御された7日間の受付期間を設定した。6本のSurvey Edge Functionはmerged mainから再配備済みである。
+- 固定STG Webの`survey-contract.mjs`と`survey-app.mjs`はmerged mainとbyte単位で一致する。Android幅のlive guest経路は送信まで完了し、回答本体が厳密な27キーで`user_id`を含まないこと、横スクロールがないこと、完了後に一時session cookieが消去されることを確認した。
+- Google、Apple、アプリ認証引継ぎの人手E2Eは未完了である。schema v4はWeb／Backendのみの変更でアプリコードを変更していないため、新しいnative STG buildは不要であり、既存のSTGアプリで引継ぎ経路を確認する。
 
 ## 12. 公開後の凍結
 
@@ -1217,8 +1219,10 @@ schema v4はschema v3の成功経路をそのまま使い、次の最小差分�
 
 ### 13.3 STG E2E
 
-- 新STG slugだけを使用する
-- アプリ認証引継ぎ、Google、Apple、guestを確認する
+- [x] 新STG slugだけを使用する
+- [x] Android幅のguest経路で、全画面、厳密な27回答キー、送信完了を確認する
+- [x] guest payloadに`user_id`がなく、横スクロールがなく、完了後に一時session cookieが消えることを確認する
+- [ ] アプリ認証引継ぎ、Google、Appleをそれぞれ人手で確認する
 - S1の0時間、各正時間帯、不明、辞退と、S2の表示／非表示を確認する
 - S3、S4の通常、不明、辞退を確認する
 - 現在利用（days_1_4等）、休眠（inactive_30d）、未利用（never_used）、不明（unknown）を少なくとも1件ずつ送信する
@@ -1230,7 +1234,7 @@ schema v4はschema v3の成功経路をそのまま使い、次の最小差分�
 
 ## 14. 公開前の未確定事項
 
-- operatorによる本書の確定承認と実装後のコード対応表は2026-09-07に完了。STG SQL適用とSTG E2E承認は未完了
+- operatorによる本書の確定承認、実装後のコード対応表、STG SQL適用、Android幅guest実画面確認は2026-09-07に完了。Google、Apple、アプリ認証引継ぎの人手E2EとSTG最終承認は未完了
 - production開始・終了日時
 - 最終UIで実測した所要時間と表示可否
 - title ID、icon_url、最終画像
@@ -1267,7 +1271,8 @@ schema v4はschema v3の成功経路をそのまま使い、次の最小差分�
 - [x] 14日間の実施条件
 - [ ] 称号名、rarity、title ID、icon_url
 - [x] schema v2との隔離
-- [ ] STG E2Eとproduction gate
+- [x] STG v4適用、固定Web／Edge反映、guest実画面経路
+- [ ] Google／Apple／アプリ認証引継ぎE2Eとproduction gate
 - [x] 公開後の凍結
 
 チェック完了だけで配備を許可しない。STG E2Eとproduction gateの実出力を別途必要とする。
@@ -1302,7 +1307,8 @@ schema v4はschema v3の成功経路をそのまま使い、次の最小差分�
 | 0.3a | 2026-09-07 | operator要件を優先し、PC固有UIを具体化。回答とUIDを分離し、UIDを称号付与だけに限定 | 確定候補 |
 | 0.4 | 2026-09-07 | operator承認を反映。回答本体を実装と同じ22キーへ固定し、UID・respondent_kind・submission_tokenの保存境界と実STG slugを確定 | 承認済み実装仕様 |
 | 0.5 | 2026-09-07 | Web・Edge・DBの実装対応表、F10の5用途分離、匿名集計4行列、fixture／STG seed完全一致と主要ローカル検証結果を反映 | 実装・主要ローカル検証済み |
-| 0.6 | 2026-09-07 | 実装後の最終照合。POST外枠、DB物理列、回答者区分、送信日、一時認証セッションを明記し、「完全匿名」「UID即時消去」と誤読される表現を限定 | ローカル実装・検証済み、STG適用前 |
-| 0.7 | 2026-09-07 | S1〜S4、JST前日基準の28日間、セグメント別分母を追加。schema v3を凍結し、27キーのschema v4と新STG slugへ分離 | Web実装・主要ローカル検証済み、STG適用前 |
+| 0.6 | 2026-09-07 | 実装後の最終照合。POST外枠、DB物理列、回答者区分、送信日、一時認証セッションを明記し、「完全匿名」「UID即時消去」と誤読される表現を限定 | 当時のローカル実装・検証段階 |
+| 0.7 | 2026-09-07 | S1〜S4、JST前日基準の28日間、セグメント別分母を追加。schema v3を凍結し、27キーのschema v4と新STG slugへ分離 | 当時のWeb実装・主要ローカル検証段階 |
+| 0.8 | 2026-09-07 | PR #9のmain merge、STG v4／称号／7日間window、6 Edge、固定STG Webの反映を記録。Android幅guest経路の27キー・UID非包含・横幅・cookie消去を確認 | STG guest経路確認済み。認証3経路とproduction gate待ち |
 
-次回はSTG適用・E2E実出力と、production公開版の凍結情報を追記する。
+次回はGoogle、Apple、アプリ認証引継ぎのSTG E2E実出力と、production公開版の凍結情報を追記する。

@@ -106,6 +106,14 @@ async function assertLayout(page) {
   assert.ok(layout.scrollWidth <= layout.clientWidth, `horizontal overflow ${layout.scrollWidth}/${layout.clientWidth}`);
 }
 
+async function settleAtPageTop(page) {
+  await page.evaluate(() => new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  }));
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForFunction(() => window.scrollY === 0);
+}
+
 async function next(page) {
   const before = await page.locator("#survey-step").textContent();
   await page.locator("#survey-next").click();
@@ -151,8 +159,7 @@ async function runFlow(browser, fixture, device) {
     await page.locator('input[name="v4-gameplay-hours"][value="h3_lt7"]').click();
     await page.locator('input[name="v4-primary-device"][value="pc"]').click();
     if (device.snapshot === "play") {
-      await page.evaluate(() => window.scrollTo(0, 0));
-      await page.waitForTimeout(20);
+      await settleAtPageTop(page);
       await assertSnapshot(page, `${device.name}-v4-play-segment`);
     }
     await assertLayout(page);
@@ -167,8 +174,7 @@ async function runFlow(browser, fixture, device) {
     await page.locator('input[name="v4-info-seeking"][value="days_5_14"]').click();
     await page.locator('input[name="v4-record-detail"][value="simple"]').click();
     if (device.snapshot === "style") {
-      await page.evaluate(() => window.scrollTo(0, 0));
-      await page.waitForTimeout(20);
+      await settleAtPageTop(page);
       await assertSnapshot(page, `${device.name}-v4-style-segment`);
     }
     await assertLayout(page);
