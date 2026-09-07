@@ -169,6 +169,25 @@ p { margin: 0 0 24px; color: var(--muted); font-size: 14px; line-height: 1.7; }
 .choice input { flex: 0 0 auto; width: 22px; height: 22px; margin: 0; accent-color: var(--primary-dark); }
 .choice-grid { display: grid; gap: 8px; }
 .choice-grid .choice { margin: 0; }
+.described-choice > span { display: grid; gap: 3px; min-width: 0; }
+.described-choice small { color: var(--muted); font-size: 12px; font-weight: 400; line-height: 1.45; }
+.option-section { display: grid; gap: 8px; margin-top: 16px; }
+.option-section:first-of-type { margin-top: 0; }
+.option-section h3 { margin: 0; color: var(--primary-dark); font-size: 14px; line-height: 1.5; }
+.question-hint { margin: -4px 0 12px; font-size: 12px; }
+.optional-panel { padding: 0 16px 16px; }
+.optional-panel > summary {
+  display: flex;
+  min-height: 54px;
+  align-items: center;
+  color: var(--primary-dark);
+  font-weight: 700;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.optional-panel[open] > summary { border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+.text-button { min-height: 44px; padding: 8px 0; border: 0; color: var(--primary-dark); background: transparent; font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }
+.privacy-note { padding: 12px; border-radius: 12px; color: var(--primary-dark); background: #eaf7f9; font-weight: 700; }
 .compact-options { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
 .compact-options .choice { position: relative; justify-content: center; min-height: 58px; padding: 6px 2px; font-size: 14px; font-weight: 800; text-align: center; }
 .compact-options .choice input { position: absolute; width: 1px; height: 1px; opacity: 0; }

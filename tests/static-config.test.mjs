@@ -155,13 +155,13 @@ test("survey code loads only on survey routes and login copy matches stored-data
   );
   assert.match(
     html,
-    /回答内容は他のユーザーには公開されず、個人が分からない形で集計・利用します。/,
+    /回答データにUIDを保存しません。UIDは称号付与だけに使い、回答内容とは紐づけません。/,
   );
   const loginNotice = html.match(/<ul class="login-notice">([\s\S]*?)<\/ul>/)?.[1] || "";
   const noticeItems = [...loginNotice.matchAll(/<li(?: [^>]*)?>(.*?)<\/li>/g)].map((match) => match[1].trim());
   assert.deepEqual(noticeItems, [
     "アカウントに紐づく報酬をご提供するため、ログインをお願いします。",
-    "回答内容は他のユーザーには公開されず、個人が分からない形で集計・利用します。",
+    "回答データにUIDを保存しません。UIDは称号付与だけに使い、回答内容とは紐づけません。回答内容は個人が分からない形で集計・利用します。",
     "",
   ]);
   assert.match(html, /<li id="survey-guide" class="hidden"><\/li>/);

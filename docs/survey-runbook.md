@@ -125,12 +125,15 @@ retried idempotently.
 
 ```text
 POST survey-read { survey_slug }
-POST survey-submit { survey_slug, answers }
+POST survey-submit { survey_slug, answers, submission_token }
 ```
 
 `answers` is an object keyed by question ID. Values are a string for single
 choice/short text and a unique string array for multiple choice. The server
 contract and client parser are covered by `tests/survey-contract.test.mjs`.
+`submission_token` is a browser-generated 32-byte base64url value kept beside
+the draft in `sessionStorage`. The same token is reused for a retry, only its
+SHA-256 hash is stored, and it contains no UID or answer data.
 
 ### PlayNavi Voice schema v2
 
@@ -169,12 +172,25 @@ at least 48px high, optional comments are collapsed, drafts stay in
 `sessionStorage`, the first invalid control receives focus, and reduced-motion
 preferences disable step transitions.
 
-The login notice must match the storage contract. Answers are directly linked
-to a PlayNavi user ID so reward grant and one-response enforcement can commit
-atomically. They are not shown to other users, and the reporting API returns
-aggregates without user IDs, comments or raw answers. Do not describe the raw
-stored response as anonymous; disclose the account-linked storage while saying
-that results are aggregated.
+### PlayNavi Voice reviewed schema v3
+
+Schema v3 (`questions.kind = "playnavi_voice_2026_reviewed"`) is additive: v1
+generic surveys and the frozen v2 campaign continue to parse and render with
+their existing question and answer contracts. V3 implements the reviewed Q1–Q12
+flow, including usage-based branches, optional needs and unused-feature fields,
+unordered maximum-three selections, an explicit single priority, candidate-
+specific detail questions, and the conditional improvement/candidate
+comparison. Feature and future-candidate display orders are randomized once,
+persisted in the draft, and submitted for order-effect analysis; scale and
+exclusive options stay fixed.
+
+The login notice must match the anonymous storage contract. The response row
+stores answers and the hash of `submission_token`, but no UID and no join to the
+reward record. For an authenticated response the UID is used only inside the
+same transaction to grant the campaign title, then is not retained with or
+linked from the answer. Guest responses use the same anonymous response shape
+and receive no title. Reporting returns aggregates without comments, raw
+answers, token hashes, or identity data.
 
 ## External authentication setup
 
@@ -213,8 +229,10 @@ npm test
 npm run validate:android
 ```
 
-Then deploy to an isolated Preview only after the Supabase Functions are
-available. Do not use a production handoff code in Preview.
+Deploy in this order: Backend schema/RPC and Supabase Functions first, then the
+Web client, then create and activate a new schema-v3 staging slug. A v3 slug
+must never be exposed while either side still rejects its contract. Use an
+isolated Preview and do not use a production handoff code in Preview.
 
 Test all of the following before production promotion:
 

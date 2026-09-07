@@ -1,5 +1,6 @@
 const QUESTION_TYPES = new Set(["single_choice", "multiple_choice", "short_text"]);
 const VOICE_KIND = "playnavi_voice_2026";
+const VOICE_V3_KIND = "playnavi_voice_2026_reviewed";
 const VOICE_ANSWER_KEYS = [
   "usage_frequency",
   "overall_satisfaction",
@@ -9,6 +10,30 @@ const VOICE_ANSWER_KEYS = [
   "feature_details",
   "future_interest",
   "future_top",
+];
+export const VOICE_V3_ANSWER_KEYS = [
+  "usage_30d",
+  "overall_satisfaction",
+  "unprompted_need",
+  "valuable_features",
+  "unused_feature",
+  "unused_reason",
+  "primary_problem",
+  "dormant_reason",
+  "problem_comment",
+  "problem_outcome",
+  "future_role",
+  "future_role_other",
+  "future_candidates",
+  "future_other",
+  "future_priority",
+  "future_priority_mode",
+  "future_detail_a",
+  "future_detail_b",
+  "future_detail_other",
+  "improvement_vs_candidate",
+  "feature_display_order",
+  "future_display_order",
 ];
 const ID_PATTERN = /^[a-z][a-z0-9_]{0,39}$/;
 
@@ -74,6 +99,99 @@ function normalizeNamedOptions(options, expectedLength = null, description = fal
     new Set(normalized.map((option) => option.id)).size !== normalized.length
   ) return null;
   return normalized;
+}
+
+function normalizeVoiceV3Categories(categories) {
+  if (!Array.isArray(categories) || categories.length !== 7) return null;
+  const normalized = categories.map((category) => {
+    if (!hasOnlyKeys(category, ["id", "label", "features"])) return null;
+    const id = text(category.id, 40);
+    const label = text(category.label, 120);
+    const features = normalizeNamedOptions(category.features, null, true);
+    if (!id || !ID_PATTERN.test(id) || !label || !features || features.length < 3 || features.length > 4) return null;
+    return { id, label, features };
+  });
+  if (normalized.some((category) => !category)) return null;
+  const features = normalized.flatMap((category) => category.features);
+  if (
+    new Set(normalized.map((category) => category.id)).size !== 7 ||
+    features.length !== 26 ||
+    new Set(features.map((feature) => feature.id)).size !== 26
+  ) return null;
+  return { categories: normalized, features };
+}
+
+function normalizeVoiceV3Details(details, futureIds) {
+  if (!details || typeof details !== "object" || Array.isArray(details)) return null;
+  if (Object.keys(details).length !== futureIds.length || !futureIds.every((id) => Object.hasOwn(details, id))) return null;
+  const normalized = {};
+  for (const id of futureIds) {
+    const detail = details[id];
+    if (!hasOnlyKeys(detail, ["a_prompt", "b_prompt", "a_options", "b_options"])) return null;
+    const aPrompt = text(detail.a_prompt, 500);
+    const bPrompt = text(detail.b_prompt, 500);
+    const aOptions = normalizeNamedOptions(detail.a_options);
+    const bOptions = normalizeNamedOptions(detail.b_options);
+    if (!aPrompt || !bPrompt || !aOptions || !bOptions) return null;
+    normalized[id] = { aPrompt, bPrompt, aOptions, bOptions };
+  }
+  return normalized;
+}
+
+function normalizeVoiceV3Definition(questions) {
+  const keys = [
+    "kind", "usage_options", "overall_satisfaction_options", "categories",
+    "q4_exclusive_options", "unused_reason_options", "problem_options",
+    "dormant_reason_options", "problem_outcome_options", "future_role_options",
+    "future_options", "future_exclusive_options", "future_detail_options",
+    "unprompted_max_length", "problem_comment_max_length", "other_max_length",
+    "valuable_feature_max", "future_candidate_max",
+  ];
+  if (!hasOnlyKeys(questions, keys) || Object.keys(questions).length !== keys.length || questions.kind !== VOICE_V3_KIND) return null;
+  const usageOptions = normalizeNamedOptions(questions.usage_options, 6);
+  const overallSatisfactionOptions = normalizeNamedOptions(questions.overall_satisfaction_options, 6);
+  const categoryResult = normalizeVoiceV3Categories(questions.categories);
+  const q4ExclusiveOptions = normalizeNamedOptions(questions.q4_exclusive_options, 2);
+  const unusedReasonOptions = normalizeNamedOptions(questions.unused_reason_options, 8);
+  const problemOptions = normalizeNamedOptions(questions.problem_options, 12);
+  const dormantReasonOptions = normalizeNamedOptions(questions.dormant_reason_options, 10);
+  const problemOutcomeOptions = normalizeNamedOptions(questions.problem_outcome_options, 4);
+  const futureRoleOptions = normalizeNamedOptions(questions.future_role_options, 11);
+  const futureOptions = normalizeNamedOptions(questions.future_options, 12, true);
+  const futureExclusiveOptions = normalizeNamedOptions(questions.future_exclusive_options, 2);
+  if (
+    !usageOptions || !overallSatisfactionOptions || !categoryResult || !q4ExclusiveOptions ||
+    !unusedReasonOptions || !problemOptions || !dormantReasonOptions || !problemOutcomeOptions ||
+    !futureRoleOptions || !futureOptions || !futureExclusiveOptions ||
+    questions.unprompted_max_length !== 400 || questions.problem_comment_max_length !== 300 ||
+    questions.other_max_length !== 400 || questions.valuable_feature_max !== 3 ||
+    questions.future_candidate_max !== 3
+  ) return null;
+  const futureDetailOptions = normalizeVoiceV3Details(
+    questions.future_detail_options,
+    futureOptions.map((option) => option.id),
+  );
+  if (!futureDetailOptions) return null;
+  return {
+    kind: VOICE_V3_KIND,
+    usageOptions,
+    overallSatisfactionOptions,
+    ...categoryResult,
+    q4ExclusiveOptions,
+    unusedReasonOptions,
+    problemOptions,
+    dormantReasonOptions,
+    problemOutcomeOptions,
+    futureRoleOptions,
+    futureOptions,
+    futureExclusiveOptions,
+    futureDetailOptions,
+    unpromptedMaxLength: 400,
+    problemCommentMaxLength: 300,
+    otherMaxLength: 400,
+    valuableFeatureMax: 3,
+    futureCandidateMax: 3,
+  };
 }
 
 function normalizeVoiceDefinition(questions) {
@@ -155,8 +273,23 @@ export function parseSurveyRead(payload, expectedSlug) {
   if (payload.status !== "ok" || !payload.survey || payload.survey.slug !== expectedSlug) {
     throw new SurveyContractError("invalid survey status");
   }
-  if (![undefined, 1, 2].includes(payload.survey.schema_version)) {
+  if (![undefined, 1, 2, 3].includes(payload.survey.schema_version)) {
     throw new SurveyContractError("unsupported schema version");
+  }
+  if (payload.survey.schema_version === 3) {
+    const voice = normalizeVoiceV3Definition(payload.survey.questions);
+    if (!voice) throw new SurveyContractError("invalid reviewed voice questions");
+    return {
+      status: payload.response ? "already_answered" : "ok",
+      schemaVersion: 3,
+      title: text(payload.survey.title, 500),
+      description: typeof payload.survey.description === "string"
+        ? payload.survey.description.slice(0, 2_000)
+        : "",
+      voice,
+      titleName: payload.response ? text(payload.survey.reward?.name_ja, 200) : null,
+      titleAwarded: false,
+    };
   }
   if (payload.survey.schema_version === 2) {
     const voice = normalizeVoiceDefinition(payload.survey.questions);
@@ -308,6 +441,127 @@ export function validateVoiceAnswers(voice, rawValues) {
   ) structurallyInvalid = true;
   answers.future_top = answers.future_interest === "yes" ? [...new Set(futureTop)].slice(0, 3) : [];
 
+  return { answers, missing, structurallyInvalid };
+}
+
+const cleanText = (value, maxLength) => typeof value === "string" && value.length <= maxLength ? value.trim() : null;
+const idsEqual = (actual, expected) =>
+  Array.isArray(actual) && actual.length === expected.length &&
+  new Set(actual).size === actual.length && actual.every((id) => expected.includes(id));
+
+export function validateVoiceV3Answers(voice, rawValues) {
+  const values = objectValue(rawValues);
+  const answers = Object.fromEntries(VOICE_V3_ANSWER_KEYS.map((key) => [key, [
+    "valuable_features", "feature_display_order", "future_candidates", "future_display_order",
+  ].includes(key) ? [] : ""]));
+  const missing = [];
+  let structurallyInvalid = Object.keys(values).length !== VOICE_V3_ANSWER_KEYS.length ||
+    !exactKeys(values, VOICE_V3_ANSWER_KEYS);
+  const featureIds = voice.features.map((feature) => feature.id);
+  const q4ExclusiveIds = voice.q4ExclusiveOptions.map((option) => option.id);
+  const futureIds = voice.futureOptions.map((option) => option.id);
+  const futureExclusiveIds = voice.futureExclusiveOptions.map((option) => option.id);
+  const optionValue = (options, key, { required = false } = {}) => {
+    const value = typeof values[key] === "string" && optionHas(options, values[key]) ? values[key] : "";
+    if (required && !value) missing.push(key);
+    else if (values[key] !== value) structurallyInvalid = true;
+    answers[key] = value;
+    return value;
+  };
+  const textValue = (key, maxLength) => {
+    const value = cleanText(values[key], maxLength);
+    if (value === null) structurallyInvalid = true;
+    answers[key] = value || "";
+    return answers[key];
+  };
+
+  const usage = optionValue(voice.usageOptions, "usage_30d", { required: true });
+  const current = ["days_15_plus", "days_5_14", "days_1_4"].includes(usage);
+  const dormant = usage === "inactive_30d";
+  const never = usage === "never_used";
+  const hasExperience = Boolean(usage) && !never;
+  optionValue(voice.overallSatisfactionOptions, "overall_satisfaction", { required: hasExperience });
+  if (!hasExperience && values.overall_satisfaction !== "") structurallyInvalid = true;
+  textValue("unprompted_need", voice.unpromptedMaxLength);
+
+  const valuable = Array.isArray(values.valuable_features) ? values.valuable_features : [];
+  const validValuable = valuable.every((id) => [...featureIds, ...q4ExclusiveIds].includes(id));
+  if (hasExperience && valuable.length === 0) missing.push("valuable_features");
+  if (
+    !hasExperience && valuable.length > 0 || !validValuable || valuable.length > voice.valuableFeatureMax ||
+    new Set(valuable).size !== valuable.length ||
+    (valuable.some((id) => q4ExclusiveIds.includes(id)) && valuable.length !== 1)
+  ) structurallyInvalid = true;
+  answers.valuable_features = validValuable ? [...valuable] : [];
+
+  const unusedFeature = typeof values.unused_feature === "string" && featureIds.includes(values.unused_feature)
+    ? values.unused_feature : "";
+  if (values.unused_feature !== unusedFeature || (!hasExperience && unusedFeature)) structurallyInvalid = true;
+  answers.unused_feature = unusedFeature;
+  optionValue(voice.unusedReasonOptions, "unused_reason", { required: Boolean(unusedFeature) });
+  if (!unusedFeature && values.unused_reason !== "") structurallyInvalid = true;
+
+  const problem = optionValue(voice.problemOptions, "primary_problem", { required: hasExperience && !dormant });
+  const dormantReason = optionValue(voice.dormantReasonOptions, "dormant_reason", { required: dormant });
+  if (dormant && problem || !dormant && dormantReason) structurallyInvalid = true;
+  textValue("problem_comment", voice.problemCommentMaxLength);
+  const concreteProblem = Boolean(problem) && !["none", "unknown"].includes(problem);
+  if (!concreteProblem && answers.problem_comment) structurallyInvalid = true;
+  optionValue(voice.problemOutcomeOptions, "problem_outcome", { required: concreteProblem && !dormant });
+  if ((!concreteProblem || dormant) && values.problem_outcome !== "") structurallyInvalid = true;
+
+  const futureRole = optionValue(voice.futureRoleOptions, "future_role", { required: true });
+  textValue("future_role_other", voice.otherMaxLength);
+  if (futureRole !== "other" && answers.future_role_other) structurallyInvalid = true;
+
+  const futureCandidates = Array.isArray(values.future_candidates) ? values.future_candidates : [];
+  const allowedFuture = [...futureIds, "other", ...futureExclusiveIds];
+  const validFuture = futureCandidates.every((id) => allowedFuture.includes(id));
+  if (futureCandidates.length === 0) missing.push("future_candidates");
+  if (
+    !validFuture || futureCandidates.length > voice.futureCandidateMax ||
+    new Set(futureCandidates).size !== futureCandidates.length ||
+    (futureCandidates.some((id) => futureExclusiveIds.includes(id)) && futureCandidates.length !== 1)
+  ) structurallyInvalid = true;
+  answers.future_candidates = validFuture ? [...futureCandidates] : [];
+  textValue("future_other", voice.otherMaxLength);
+  if (!futureCandidates.includes("other") && answers.future_other) structurallyInvalid = true;
+
+  const rankableFuture = futureCandidates.filter((id) => futureIds.includes(id) || id === "other");
+  const expectedPriority = rankableFuture.length === 1 ? rankableFuture[0] : values.future_priority;
+  if (rankableFuture.length === 0) {
+    if (values.future_priority !== "" || values.future_priority_mode !== "") structurallyInvalid = true;
+  } else if (rankableFuture.length === 1) {
+    if (values.future_priority !== expectedPriority || values.future_priority_mode !== "inherited") structurallyInvalid = true;
+    answers.future_priority = expectedPriority;
+    answers.future_priority_mode = "inherited";
+  } else {
+    if (!rankableFuture.includes(values.future_priority)) missing.push("future_priority");
+    if (values.future_priority_mode !== "explicit") structurallyInvalid = true;
+    answers.future_priority = rankableFuture.includes(values.future_priority) ? values.future_priority : "";
+    answers.future_priority_mode = "explicit";
+  }
+  const priority = answers.future_priority;
+  const detail = voice.futureDetailOptions[priority];
+  if (detail) {
+    optionValue(detail.aOptions, "future_detail_a");
+    optionValue(detail.bOptions, "future_detail_b");
+  } else if (values.future_detail_a !== "" || values.future_detail_b !== "") structurallyInvalid = true;
+  textValue("future_detail_other", voice.otherMaxLength);
+  if (priority !== "other" && answers.future_detail_other) structurallyInvalid = true;
+
+  const compareRequired = current && concreteProblem && futureIds.includes(priority);
+  const comparison = typeof values.improvement_vs_candidate === "string" &&
+    ["improvement", "candidate", "tie"].includes(values.improvement_vs_candidate)
+    ? values.improvement_vs_candidate : "";
+  if (compareRequired && !comparison) missing.push("improvement_vs_candidate");
+  if (!compareRequired && values.improvement_vs_candidate !== "") structurallyInvalid = true;
+  answers.improvement_vs_candidate = compareRequired ? comparison : "";
+
+  if (!idsEqual(values.feature_display_order, featureIds)) structurallyInvalid = true;
+  else answers.feature_display_order = [...values.feature_display_order];
+  if (!idsEqual(values.future_display_order, futureIds)) structurallyInvalid = true;
+  else answers.future_display_order = [...values.future_display_order];
   return { answers, missing, structurallyInvalid };
 }
 

@@ -9,6 +9,7 @@ import {
 } from "../../_lib/http.mjs";
 import { clearSurveySession, getSurveySession } from "../../_lib/survey-session.mjs";
 import { UpstreamError, callSurveyFunction } from "../../_lib/upstream.mjs";
+import { VOICE_V3_ANSWER_KEYS } from "../../../assets/survey-contract.mjs";
 
 const MAX_ANSWERS = 100;
 const MAX_ANSWER_BYTES = 64 * 1024;
@@ -22,6 +23,7 @@ const VOICE_KEYS = [
   "future_interest",
   "future_top",
 ];
+const SUBMISSION_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
 
 function boundedJson(value, depth = 0, budget = { entries: 0 }) {
   if (typeof value === "string") return value.length <= 2_000;
@@ -49,6 +51,14 @@ export function validAnswers(value) {
     return false;
   }
   if (Buffer.byteLength(serialized, "utf8") > MAX_ANSWER_BYTES) return false;
+  const isVoiceV3 = [
+    "usage_30d", "unprompted_need", "future_candidates",
+    "feature_display_order", "future_priority_mode", "improvement_vs_candidate",
+  ].some((key) => Object.hasOwn(value, key));
+  if (isVoiceV3) {
+    if (entries.length !== VOICE_V3_ANSWER_KEYS.length || entries.some(([key]) => !VOICE_V3_ANSWER_KEYS.includes(key))) return false;
+    return boundedJson(value);
+  }
   const isVoice = VOICE_KEYS.every((key) => Object.hasOwn(value, key));
   if (isVoice) {
     if (entries.length !== VOICE_KEYS.length || entries.some(([key]) => !VOICE_KEYS.includes(key))) return false;
@@ -65,6 +75,15 @@ export function validAnswers(value) {
     );
   });
 }
+
+export function validSubmission(value) {
+  return Boolean(
+    value && typeof value === "object" && !Array.isArray(value) &&
+    Object.keys(value).length === 2 && Object.hasOwn(value, "answers") &&
+    Object.hasOwn(value, "submission_token") && validAnswers(value.answers) &&
+    typeof value.submission_token === "string" && SUBMISSION_TOKEN_RE.test(value.submission_token),
+  );
+}
 export default async function handler(request, response) {
   if (request.method !== "POST") return methodNotAllowed(response, ["POST"]);
   const surveySlug = firstQueryValue(request.query.surveySlug);
@@ -80,15 +99,16 @@ export default async function handler(request, response) {
     return sendJson(response, 403, { status: "forbidden" });
   }
 
-  const answers = parseJsonBody(request)?.answers;
-  if (!validAnswers(answers)) return sendJson(response, 400, { status: "invalid_answers" });
+  const submission = parseJsonBody(request);
+  if (!validSubmission(submission)) return sendJson(response, 400, { status: "invalid_answers" });
+  const { answers, submission_token: submissionToken } = submission;
 
   try {
     const surveySession = getSurveySession(request);
     if (!surveySession) return sendJson(response, 401, { status: "authentication_required" });
 
     const payload = await callSurveyFunction(config, "submit", {
-      body: { survey_slug: surveySlug, answers },
+      body: { survey_slug: surveySlug, answers, submission_token: submissionToken },
       surveySession,
     });
     if (
