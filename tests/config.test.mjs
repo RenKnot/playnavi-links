@@ -3,10 +3,13 @@ import test from "node:test";
 
 import { getConfig, getProviderConfig } from "../api/_lib/config.mjs";
 
-function withConfigEnvironment(webOrigin, callback) {
+const PRODUCTION_SUPABASE_URL = "https://irbtguncoatqfikctreq.supabase.co";
+const STAGING_SUPABASE_URL = "https://wffhdhdxdrmobgojxddo.supabase.co";
+
+function withConfigEnvironment(webOrigin, callback, supabaseUrl = STAGING_SUPABASE_URL) {
   const names = ["SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY", "PLAYNAVI_WEB_ORIGIN"];
   const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
-  process.env.SUPABASE_URL = "https://staging-project.supabase.co";
+  process.env.SUPABASE_URL = supabaseUrl;
   process.env.SUPABASE_PUBLISHABLE_KEY = "publishable-test-key";
   process.env.PLAYNAVI_WEB_ORIGIN = webOrigin;
   try {
@@ -55,6 +58,40 @@ test("accepts only a PlayNavi-controlled Web origin", () => {
       assert.throws(() => getConfig(), /PlayNavi-controlled https origin/);
     });
   }
+});
+
+test("accepts only the reviewed Web origin and Supabase project pairs", () => {
+  for (const [webOrigin, supabaseUrl] of [
+    ["https://links.playnavilab.com", PRODUCTION_SUPABASE_URL],
+    ["https://survey-stg.playnavilab.com", STAGING_SUPABASE_URL],
+  ]) {
+    withConfigEnvironment(webOrigin, () => {
+      assert.equal(getConfig().supabaseUrl, supabaseUrl);
+    }, `${supabaseUrl}/`);
+  }
+
+  for (const [webOrigin, supabaseUrl] of [
+    ["https://links.playnavilab.com", STAGING_SUPABASE_URL],
+    ["https://survey-stg.playnavilab.com", PRODUCTION_SUPABASE_URL],
+    ["https://survey-stg.playnavilab.com", `${STAGING_SUPABASE_URL}/rest/v1`],
+    ["https://survey-stg.playnavilab.com", "https://unreviewed-project.supabase.co"],
+  ]) {
+    withConfigEnvironment(webOrigin, () => {
+      assert.throws(
+        () => getConfig(),
+        /SUPABASE_URL does not match the approved project/,
+      );
+    }, supabaseUrl);
+  }
+});
+
+test("rejects unapproved PlayNavi subdomains even with an approved project", () => {
+  withConfigEnvironment("https://survey-preview.playnavilab.com", () => {
+    assert.throws(
+      () => getConfig(),
+      /PLAYNAVI_WEB_ORIGIN is not an approved Survey deployment origin/,
+    );
+  });
 });
 
 test("accepts Apple signing material and normalizes Windows line endings", () => {

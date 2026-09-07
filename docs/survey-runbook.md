@@ -38,9 +38,9 @@ Never prefix them with `PUBLIC_` or expose them to browser assets.
 
 | Variable | Required value |
 | --- | --- |
-| `SUPABASE_URL` | PlayNavi Supabase project HTTPS URL |
+| `SUPABASE_URL` | Exact project URL paired with `PLAYNAVI_WEB_ORIGIN`; production: `https://irbtguncoatqfikctreq.supabase.co`, staging: `https://wffhdhdxdrmobgojxddo.supabase.co` |
 | `SUPABASE_PUBLISHABLE_KEY` | Publishable/anon project key; never the service-role key |
-| `PLAYNAVI_WEB_ORIGIN` | `https://links.playnavilab.com` in production |
+| `PLAYNAVI_WEB_ORIGIN` | Exact reviewed origin; production: `https://links.playnavilab.com`, staging: `https://survey-stg.playnavilab.com` |
 | `GOOGLE_WEB_CLIENT_ID` | Dedicated Google Web OAuth client ID |
 | `GOOGLE_WEB_CLIENT_SECRET` | Dedicated Google Web OAuth client secret |
 | `APPLE_WEB_SERVICES_ID` | Apple Services ID associated with the existing primary App ID |
@@ -55,6 +55,12 @@ Never prefix them with `PUBLIC_` or expose them to browser assets.
 
 Provider private keys and broker secrets are server-only Vercel variables. Never put them
 in `vercel.json`, browser assets, Preview comments, or source control.
+
+`api/_lib/config.mjs` treats the two origin/project combinations above as a
+single environment identity. It rejects production-to-staging swaps, staging-to-production
+swaps, other PlayNavi subdomains, and unreviewed Supabase projects. A new domain or project
+therefore requires a reviewed source change in addition to a Vercel environment-variable
+change.
 
 ## Recipient-facing deployment protection boundary
 

@@ -4,9 +4,14 @@
   "engines": { "node": ">=20" },
   "scripts": {
     "test": "node --test tests/*.test.mjs",
+    "test:visual": "node --test tests/survey-visual.test.mjs",
     "validate:android": "node scripts/validate-android-fingerprint.mjs"
   },
   "dependencies": {
     "jose": "^6.1.3"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.55.1",
+    "pngjs": "^7.0.0"
   }
 }

@@ -6,6 +6,21 @@ const DEFAULT_FUNCTIONS = {
   submit: "survey-submit",
 };
 
+// Keep the public Web origin and its backend project as one fail-closed pair.
+// Adding another deployment environment must be an explicit, reviewed code
+// change; a syntactically valid PlayNavi hostname must never be enough to
+// select a Supabase project.
+const SUPABASE_URL_BY_WEB_ORIGIN = new Map([
+  [
+    "https://links.playnavilab.com",
+    "https://irbtguncoatqfikctreq.supabase.co",
+  ],
+  [
+    "https://survey-stg.playnavilab.com",
+    "https://wffhdhdxdrmobgojxddo.supabase.co",
+  ],
+]);
+
 function required(name) {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`Missing required environment variable: ${name}`);
@@ -32,6 +47,13 @@ export function getConfig() {
     !parsedWebOrigin.hostname.endsWith(".playnavilab.com")
   ) {
     throw new Error("PLAYNAVI_WEB_ORIGIN must be a PlayNavi-controlled https origin");
+  }
+  const expectedSupabaseUrl = SUPABASE_URL_BY_WEB_ORIGIN.get(webOrigin);
+  if (!expectedSupabaseUrl) {
+    throw new Error("PLAYNAVI_WEB_ORIGIN is not an approved Survey deployment origin");
+  }
+  if (supabaseUrl !== expectedSupabaseUrl) {
+    throw new Error("SUPABASE_URL does not match the approved project for PLAYNAVI_WEB_ORIGIN");
   }
   return {
     supabaseUrl,

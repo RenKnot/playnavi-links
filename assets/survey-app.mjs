@@ -42,6 +42,15 @@ const setVisible = (element, visible) => element?.classList.toggle("hidden", !vi
 const draftKey = (slug) => `pn_survey_draft:${slug}`;
 const QUESTIONS_PER_STEP = 4;
 const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
+const compactPriorityLabels = ["最優先", "優先", "急がない", "現状", "不明"];
+let lastPointerInteractionAt = 0;
+
+window.addEventListener("pointerdown", () => {
+  lastPointerInteractionAt = Date.now();
+}, { capture: true, passive: true });
+window.addEventListener("keydown", () => {
+  lastPointerInteractionAt = 0;
+}, { capture: true });
 
 function setPage({ title, description, loading = false, descriptionTone = "default" }) {
   if (elements.title) elements.title.textContent = title;
@@ -55,6 +64,7 @@ function setPage({ title, description, loading = false, descriptionTone = "defau
 }
 
 function hideStates() {
+  elements.view?.classList.remove("survey-in-progress");
   for (const element of [elements.login, elements.form, elements.result, elements.retry]) {
     setVisible(element, false);
   }
@@ -259,11 +269,12 @@ function missingOnPage(page, values) {
 function markMissing(missing) {
   for (const fieldset of elements.questions.querySelectorAll(".question")) {
     fieldset.removeAttribute("aria-invalid");
+    fieldset.removeAttribute("aria-describedby");
   }
   for (const id of missing) {
-    elements.questions
-      .querySelector(`[data-question-id="${CSS.escape(id)}"]`)
-      ?.setAttribute("aria-invalid", "true");
+    const fieldset = elements.questions.querySelector(`[data-question-id="${CSS.escape(id)}"]`);
+    fieldset?.setAttribute("aria-invalid", "true");
+    fieldset?.setAttribute("aria-describedby", "survey-error");
   }
 }
 
@@ -373,6 +384,7 @@ function voiceFieldset(errorId, label, { required = true, className = "" } = {})
   const fieldset = document.createElement("fieldset");
   fieldset.className = `question question-card ${className}`.trim();
   fieldset.dataset.errorId = errorId;
+  fieldset.dataset.required = String(required);
   const legend = document.createElement("legend");
   legend.textContent = label;
   if (required) appendRequired(legend);
@@ -380,9 +392,48 @@ function voiceFieldset(errorId, label, { required = true, className = "" } = {})
   return fieldset;
 }
 
-function voiceChoiceGroup(fieldset, name, options, value, onChange, compact = false) {
+function fieldsetHasAnswer(fieldset) {
+  const radio = fieldset.querySelector('input[type="radio"]:checked');
+  if (radio) return true;
+  if (fieldset.querySelector('[aria-pressed="true"]')) return true;
+  const select = fieldset.querySelector("select");
+  if (select) return select.disabled || Boolean(select.value);
+  return false;
+}
+
+function moveToVoiceTarget(target) {
+  if (!target) return;
+  target.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "center" });
+  const control = target.matches?.("button, input, select, textarea, [tabindex]")
+    ? target
+    : target.querySelector?.("input, select, textarea, button, [tabindex]");
+  control?.focus({ preventScroll: true });
+}
+
+function moveToNextVoiceQuestion(currentErrorId) {
+  // Preserve native radio/select keyboard behavior. Automatic movement is a
+  // convenience for taps/clicks, while keyboard and assistive-tech users keep
+  // explicit control of focus with Tab/arrow keys.
+  if (Date.now() - lastPointerInteractionAt > 3000) return;
+  // Let callbacks finish any small DOM rebuild (rank selectors) before resolving
+  // the next target. One tap should lead naturally to the next unanswered item.
+  window.requestAnimationFrame(() => {
+    const fields = [...elements.questions.querySelectorAll("[data-error-id]")];
+    const current = fields.findIndex((field) => field.dataset.errorId === currentErrorId);
+    const next = fields.slice(Math.max(0, current + 1)).find((field) => !fieldsetHasAnswer(field));
+    if (next) {
+      moveToVoiceTarget(next);
+      return;
+    }
+    elements.next?.classList.add("ready");
+    moveToVoiceTarget(elements.next);
+    window.setTimeout(() => elements.next?.classList.remove("ready"), 700);
+  });
+}
+
+function voiceChoiceGroup(fieldset, name, options, value, onChange, compact = false, className = "") {
   const choices = document.createElement("div");
-  choices.className = compact ? "choice-grid compact-options" : "choice-grid";
+  choices.className = `${compact ? "choice-grid compact-options" : "choice-grid"} ${className}`.trim();
   options.forEach((option, index) => {
     const label = document.createElement("label");
     label.className = "choice";
@@ -393,11 +444,20 @@ function voiceChoiceGroup(fieldset, name, options, value, onChange, compact = fa
     input.value = option.id;
     input.checked = value === option.id;
     if (compact) input.setAttribute("aria-label", option.label);
-    input.addEventListener("change", () => onChange(option.id));
+    input.addEventListener("change", () => {
+      onChange(option.id);
+      moveToNextVoiceQuestion(fieldset.dataset.errorId);
+    });
     const copy = document.createElement("span");
     if (compact) {
-      copy.className = "rating-number";
-      copy.textContent = String(index + 1);
+      copy.className = "rating-copy";
+      const number = document.createElement("span");
+      number.className = "rating-number";
+      number.textContent = String(index + 1);
+      const shortLabel = document.createElement("span");
+      shortLabel.className = "rating-label";
+      shortLabel.textContent = compactPriorityLabels[index] || option.label;
+      copy.append(number, shortLabel);
     } else {
       copy.textContent = option.label;
     }
@@ -416,23 +476,6 @@ function voiceScaleKey(options) {
     key.append(item);
   });
   return key;
-}
-
-function voiceDropdown(fieldset, options, selected, onChange) {
-  const select = document.createElement("select");
-  const placeholder = document.createElement("option");
-  placeholder.value = "";
-  placeholder.textContent = "選んでください";
-  select.append(placeholder);
-  for (const option of options) {
-    const item = document.createElement("option");
-    item.value = option.id;
-    item.textContent = option.label;
-    item.selected = selected === option.id;
-    select.append(item);
-  }
-  select.addEventListener("change", () => onChange(select.value));
-  fieldset.append(select);
 }
 
 function voiceComment(feature, values, save, reused = false) {
@@ -462,16 +505,17 @@ function voiceComment(feature, values, save, reused = false) {
   return details;
 }
 
-function pageIntro(title, description) {
+function pageIntro() {
   const section = document.createElement("section");
   section.className = "voice-intro question-card";
   const heading = document.createElement("h2");
-  heading.textContent = title;
+  heading.tabIndex = -1;
+  heading.textContent = "ご回答の前に";
   const copy = document.createElement("p");
-  copy.textContent = description;
+  copy.textContent = "選択式の質問が中心です。タップすると次の未回答項目へ進みます。";
   const list = document.createElement("ul");
   for (const message of [
-    "今後の改善・開発優先度を決めるためのアンケートです",
+    "全26機能は、各機能につき1回のタップで回答できます",
     "任意コメントを書かなくても、回答完了と称号の受取に影響しません",
     "入力内容はこの端末のタブ内に一時保存されます",
   ]) {
@@ -483,24 +527,46 @@ function pageIntro(title, description) {
   return section;
 }
 
-function voiceSelect(errorId, labelText, options, selected, optional, onChange, disabled = false) {
-  const fieldset = voiceFieldset(errorId, labelText, { required: !optional, className: "ranking-card" });
-  const select = document.createElement("select");
-  select.setAttribute("aria-label", labelText);
-  select.disabled = disabled;
-  const placeholder = document.createElement("option");
-  placeholder.value = "";
-  placeholder.textContent = optional ? "選択しない" : "選んでください";
-  select.append(placeholder);
+function voiceTapRanking(errorId, labelText, options, selected, maxLength, onChange) {
+  const fieldset = voiceFieldset(errorId, labelText, { className: "ranking-card" });
+  const hint = document.createElement("p");
+  hint.className = "ranking-hint";
+  hint.textContent = `候補を希望順にタップ（最大${maxLength}件）。選択済みを再タップすると、その順位以降を解除します。`;
+  const choices = document.createElement("div");
+  choices.className = "ranking-options";
   for (const option of options) {
-    const item = document.createElement("option");
-    item.value = option.id;
-    item.textContent = option.label;
-    item.selected = selected === option.id;
-    select.append(item);
+    const rankIndex = selected.indexOf(option.id);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ranking-option";
+    button.dataset.optionId = option.id;
+    button.disabled = rankIndex < 0 && selected.length >= maxLength;
+    button.setAttribute("aria-pressed", String(rankIndex >= 0));
+    button.setAttribute("aria-label", rankIndex >= 0
+      ? `${option.label}、${rankIndex + 1}位。再タップでこの順位以降を解除`
+      : `${option.label}、未選択`);
+    const label = document.createElement("span");
+    label.className = "ranking-option-copy";
+    label.textContent = option.label;
+    if (option.description) {
+      const description = document.createElement("small");
+      description.textContent = option.description;
+      label.append(description);
+    }
+    const badge = document.createElement("span");
+    badge.className = "rank-badge";
+    badge.textContent = rankIndex >= 0 ? `${rankIndex + 1}位` : "+";
+    button.append(label, badge);
+    button.addEventListener("click", () => {
+      const next = rankIndex >= 0
+        ? updateOrderedSelection(selected, rankIndex, "", maxLength)
+        : updateOrderedSelection(selected, selected.length, option.id, maxLength);
+      if (next.length === selected.length && next.every((id, index) => id === selected[index])) return;
+      onChange(next, option.id);
+    });
+    choices.append(button);
   }
-  select.addEventListener("change", () => onChange(select.value));
-  fieldset.append(select);
+  fieldset.append(hint, choices);
   return fieldset;
 }
 
@@ -508,6 +574,7 @@ function voicePageTitle(title, description = "") {
   const fragment = document.createDocumentFragment();
   const heading = document.createElement("h2");
   heading.className = "voice-page-title";
+  heading.tabIndex = -1;
   heading.textContent = title;
   fragment.append(heading);
   if (description) {
@@ -534,7 +601,7 @@ function buildVoicePages(slug, survey, values) {
   const pages = [
     {
       key: "intro",
-      render: (page) => page.append(pageIntro(survey.title, survey.description)),
+      render: (page) => page.append(pageIntro()),
       validate: () => [],
     },
     {
@@ -596,21 +663,23 @@ function buildVoicePages(slug, survey, values) {
       const options = voice.categories.map(({ id, label }) => ({ id, label }));
       const rankings = document.createElement("div");
       rankings.className = "category-rankings";
-      const renderRankings = () => {
-        rankings.replaceChildren(
-          voiceSelect("category_top:0", "1位", options, values.category_top[0] || "", false, (id) => {
-            values.category_top = updateOrderedSelection(values.category_top, 0, id, 2);
+      const renderRankings = (focusOptionId = "") => {
+        rankings.replaceChildren(voiceTapRanking(
+          "category_top:0",
+          "希望するカテゴリ",
+          options,
+          values.category_top,
+          2,
+          (next, changedOptionId) => {
+            values.category_top = next;
             pruneVoiceDetails(voice, values);
             save();
-            renderRankings();
-          }),
-          voiceSelect("category_top:1", "2位（任意）", options, values.category_top[1] || "", true, (id) => {
-            values.category_top = updateOrderedSelection(values.category_top, 1, id, 2);
-            pruneVoiceDetails(voice, values);
-            save();
-            renderRankings();
-          }, !values.category_top[0]),
-        );
+            renderRankings(changedOptionId);
+          },
+        ));
+        if (focusOptionId) {
+          rankings.querySelector(`[data-option-id="${CSS.escape(focusOptionId)}"]`)?.focus();
+        }
       };
       page.append(rankings);
       renderRankings();
@@ -640,15 +709,31 @@ function buildVoicePages(slug, survey, values) {
           const heading = document.createElement("h3");
           heading.textContent = feature.label;
           const importance = voiceFieldset(`importance:${feature.id}`, "あなたにとっての重要度", { className: "nested-question" });
-          voiceDropdown(importance, voice.importanceOptions, detail.importance, (id) => {
-            detail.importance = id;
-            save();
-          });
+          voiceChoiceGroup(
+            importance,
+            `importance-${feature.id}`,
+            voice.importanceOptions,
+            detail.importance,
+            (id) => {
+              detail.importance = id;
+              save();
+            },
+            false,
+            "detail-options",
+          );
           const satisfaction = voiceFieldset(`satisfaction:${feature.id}`, "現在の満足度", { className: "nested-question" });
-          voiceDropdown(satisfaction, voice.detailSatisfactionOptions, detail.satisfaction, (id) => {
-            detail.satisfaction = id;
-            save();
-          });
+          voiceChoiceGroup(
+            satisfaction,
+            `satisfaction-${feature.id}`,
+            voice.detailSatisfactionOptions,
+            detail.satisfaction,
+            (id) => {
+              detail.satisfaction = id;
+              save();
+            },
+            false,
+            "detail-options",
+          );
           card.append(heading, importance, satisfaction, voiceComment(feature, values, save, true));
           page.append(card);
         }
@@ -676,37 +761,25 @@ function buildVoicePages(slug, survey, values) {
       });
       const rankings = document.createElement("div");
       rankings.className = "future-rankings";
-      const renderRankings = () => {
+      const renderRankings = (focusOptionId = "") => {
         rankings.replaceChildren();
         setVisible(rankings, values.future_interest === "yes");
         if (values.future_interest !== "yes") return;
-        [0, 1, 2].forEach((rank) => {
-          rankings.append(voiceSelect(
-            `future_top:${rank}`,
-            `${rank + 1}位${rank === 0 ? "" : "（任意）"}`,
-            voice.futureOptions,
-            values.future_top[rank] || "",
-            rank > 0,
-            (id) => {
-              values.future_top = updateOrderedSelection(values.future_top, rank, id, 3);
-              save();
-              renderRankings();
-            },
-            rank > 0 && !values.future_top[rank - 1],
-          ));
-        });
-        const candidates = document.createElement("div");
-        candidates.className = "future-candidates";
-        for (const option of voice.futureOptions) {
-          const item = document.createElement("article");
-          const heading = document.createElement("strong");
-          heading.textContent = option.label;
-          const description = document.createElement("p");
-          description.textContent = option.description;
-          item.append(heading, description);
-          candidates.append(item);
+        rankings.append(voiceTapRanking(
+          "future_top:0",
+          "期待する機能",
+          voice.futureOptions,
+          values.future_top,
+          3,
+          (next, changedOptionId) => {
+            values.future_top = next;
+            save();
+            renderRankings(changedOptionId);
+          },
+        ));
+        if (focusOptionId) {
+          rankings.querySelector(`[data-option-id="${CSS.escape(focusOptionId)}"]`)?.focus();
         }
-        rankings.append(candidates);
       };
       page.append(interest, rankings);
       renderRankings();
@@ -752,9 +825,12 @@ function buildVoicePages(slug, survey, values) {
 function markVoiceMissing(missing) {
   for (const fieldset of elements.questions.querySelectorAll("[data-error-id]")) {
     fieldset.removeAttribute("aria-invalid");
+    fieldset.removeAttribute("aria-describedby");
   }
   for (const id of missing) {
-    elements.questions.querySelector(`[data-error-id="${CSS.escape(id)}"]`)?.setAttribute("aria-invalid", "true");
+    const fieldset = elements.questions.querySelector(`[data-error-id="${CSS.escape(id)}"]`);
+    fieldset?.setAttribute("aria-invalid", "true");
+    fieldset?.setAttribute("aria-describedby", "survey-error");
   }
 }
 
@@ -780,7 +856,7 @@ function pageKeyForVoiceError(voice, values, id) {
 
 function createVoiceController(slug, survey, values) {
   let currentKey = "intro";
-  const render = (requestedKey = currentKey) => {
+  const render = (requestedKey = currentKey, { focusHeading = true } = {}) => {
     const pages = buildVoicePages(slug, survey, values);
     let current = pages.findIndex((page) => page.key === requestedKey);
     if (current < 0) current = Math.max(0, pages.findIndex((page) => page.key === currentKey));
@@ -791,18 +867,28 @@ function createVoiceController(slug, survey, values) {
     container.dataset.step = currentKey;
     pages[current].render(container);
     elements.questions.replaceChildren(container);
+    elements.view?.classList.toggle("survey-in-progress", currentKey !== "intro");
     const stepNumber = current + 1;
     elements.step.textContent = `${stepNumber} / ${pages.length}`;
     elements.progressLabel.textContent = currentKey === "review" ? "入力完了" : "回答の進捗";
     elements.progressBar.style.width = `${Math.round((stepNumber / pages.length) * 100)}%`;
     elements.progressTrack.setAttribute("aria-valuemax", String(pages.length));
     elements.progressTrack.setAttribute("aria-valuenow", String(stepNumber));
+    elements.progressTrack.setAttribute("aria-valuetext", `${pages.length}ステップ中${stepNumber}ステップ目`);
     setVisible(elements.back, current > 0);
     setVisible(elements.next, current < pages.length - 1);
     setVisible(elements.submit, currentKey === "review");
     elements.next.textContent = currentKey === "intro" ? "回答を始める" : "次へ";
     elements.error.textContent = "";
     setVisible(elements.error, false);
+
+    if (focusHeading) {
+      window.requestAnimationFrame(() => {
+        const heading = container.querySelector(".voice-page-title, .voice-intro h2");
+        heading?.focus({ preventScroll: true });
+        window.scrollTo({ top: 0, behavior: reducedMotion ? "auto" : "smooth" });
+      });
+    }
 
     elements.back.onclick = () => render(pages[Math.max(0, current - 1)].key);
     elements.next.onclick = () => {
@@ -826,7 +912,7 @@ function createVoiceController(slug, survey, values) {
   return {
     showError(id, message) {
       currentKey = pageKeyForVoiceError(survey.voice, values, id);
-      render(currentKey);
+      render(currentKey, { focusHeading: false });
       elements.error.textContent = message;
       setVisible(elements.error, true);
       markVoiceMissing([id]);
