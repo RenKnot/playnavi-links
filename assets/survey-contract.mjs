@@ -1,6 +1,7 @@
 const QUESTION_TYPES = new Set(["single_choice", "multiple_choice", "short_text"]);
 const VOICE_KIND = "playnavi_voice_2026";
 const VOICE_V3_KIND = "playnavi_voice_2026_reviewed";
+const VOICE_V4_KIND = "playnavi_voice_2026_reviewed_segments";
 const VOICE_ANSWER_KEYS = [
   "usage_frequency",
   "overall_satisfaction",
@@ -15,6 +16,35 @@ export const VOICE_V3_ANSWER_KEYS = [
   "usage_30d",
   "overall_satisfaction",
   "unprompted_need",
+  "valuable_features",
+  "unused_feature",
+  "unused_reason",
+  "primary_problem",
+  "dormant_reason",
+  "problem_comment",
+  "problem_outcome",
+  "future_role",
+  "future_role_other",
+  "future_candidates",
+  "future_other",
+  "future_priority",
+  "future_priority_mode",
+  "future_detail_a",
+  "future_detail_b",
+  "future_detail_other",
+  "improvement_vs_candidate",
+  "feature_display_order",
+  "future_display_order",
+];
+export const VOICE_V4_ANSWER_KEYS = [
+  "play_time_4w",
+  "primary_play_device_4w",
+  "reference_period_end_on",
+  "usage_30d",
+  "overall_satisfaction",
+  "unprompted_need",
+  "info_seek_days_4w",
+  "recording_preference",
   "valuable_features",
   "unused_feature",
   "unused_reason",
@@ -121,6 +151,16 @@ const VOICE_V3_STABLE_IDS = {
     },
   },
 };
+const VOICE_V4_SEGMENT_IDS = {
+  playTime: [
+    "none", "lt_1h", "h1_lt3", "h3_lt7", "h7_lt14", "h14_plus", "unknown", "prefer_not",
+  ],
+  primaryPlayDevice: [
+    "nintendo", "playstation", "xbox", "pc", "mobile", "other", "tie", "unknown", "prefer_not",
+  ],
+  infoSeekDays: ["days_0", "days_1_4", "days_5_14", "days_15_plus", "unknown", "prefer_not"],
+  recordingPreference: ["none", "simple", "detailed", "depends", "unknown", "prefer_not"],
+};
 
 export class SurveyContractError extends Error {
   constructor(message) {
@@ -191,6 +231,11 @@ function hasStableIds(options, expectedIds) {
     options.every((option) => expectedIds.includes(option.id));
 }
 
+function hasStableIdOrder(options, expectedIds) {
+  return options.length === expectedIds.length &&
+    options.every((option, index) => option.id === expectedIds[index]);
+}
+
 function normalizeVoiceV3Categories(categories) {
   if (!Array.isArray(categories) || categories.length !== 7) return null;
   const normalized = categories.map((category) => {
@@ -238,16 +283,21 @@ function normalizeVoiceV3Details(details, futureIds) {
   return normalized;
 }
 
+const VOICE_V3_DEFINITION_KEYS = [
+  "kind", "usage_options", "overall_satisfaction_options", "categories",
+  "q4_exclusive_options", "unused_reason_options", "problem_options",
+  "dormant_reason_options", "problem_outcome_options", "future_role_options",
+  "future_options", "future_exclusive_options", "future_detail_options",
+  "unprompted_max_length", "problem_comment_max_length", "other_max_length",
+  "valuable_feature_max", "future_candidate_max",
+];
+
 function normalizeVoiceV3Definition(questions) {
-  const keys = [
-    "kind", "usage_options", "overall_satisfaction_options", "categories",
-    "q4_exclusive_options", "unused_reason_options", "problem_options",
-    "dormant_reason_options", "problem_outcome_options", "future_role_options",
-    "future_options", "future_exclusive_options", "future_detail_options",
-    "unprompted_max_length", "problem_comment_max_length", "other_max_length",
-    "valuable_feature_max", "future_candidate_max",
-  ];
-  if (!hasOnlyKeys(questions, keys) || Object.keys(questions).length !== keys.length || questions.kind !== VOICE_V3_KIND) return null;
+  if (
+    !hasOnlyKeys(questions, VOICE_V3_DEFINITION_KEYS) ||
+    Object.keys(questions).length !== VOICE_V3_DEFINITION_KEYS.length ||
+    questions.kind !== VOICE_V3_KIND
+  ) return null;
   const usageOptions = normalizeNamedOptions(questions.usage_options, 6);
   const overallSatisfactionOptions = normalizeNamedOptions(questions.overall_satisfaction_options, 6);
   const categoryResult = normalizeVoiceV3Categories(questions.categories);
@@ -301,6 +351,47 @@ function normalizeVoiceV3Definition(questions) {
     otherMaxLength: 400,
     valuableFeatureMax: 3,
     futureCandidateMax: 3,
+  };
+}
+
+function normalizeVoiceV4Definition(questions) {
+  const segmentKeys = [
+    "play_time_options", "primary_device_options", "info_seek_options",
+    "recording_preference_options", "reference_period_days", "reference_period_timezone",
+    "reference_period_end_offset_days",
+  ];
+  const keys = [...VOICE_V3_DEFINITION_KEYS, ...segmentKeys];
+  if (
+    !hasOnlyKeys(questions, keys) || Object.keys(questions).length !== keys.length ||
+    questions.kind !== VOICE_V4_KIND
+  ) return null;
+  const baseQuestions = Object.fromEntries(VOICE_V3_DEFINITION_KEYS.map((key) => [key, questions[key]]));
+  baseQuestions.kind = VOICE_V3_KIND;
+  const base = normalizeVoiceV3Definition(baseQuestions);
+  const playTimeOptions = normalizeNamedOptions(questions.play_time_options, 8);
+  const primaryDeviceOptions = normalizeNamedOptions(questions.primary_device_options, 9);
+  const infoSeekOptions = normalizeNamedOptions(questions.info_seek_options, 6);
+  const recordingPreferenceOptions = normalizeNamedOptions(questions.recording_preference_options, 6);
+  if (
+    !base || !playTimeOptions || !primaryDeviceOptions || !infoSeekOptions ||
+    !recordingPreferenceOptions ||
+    !hasStableIdOrder(playTimeOptions, VOICE_V4_SEGMENT_IDS.playTime) ||
+    !hasStableIdOrder(primaryDeviceOptions, VOICE_V4_SEGMENT_IDS.primaryPlayDevice) ||
+    !hasStableIdOrder(infoSeekOptions, VOICE_V4_SEGMENT_IDS.infoSeekDays) ||
+    !hasStableIdOrder(recordingPreferenceOptions, VOICE_V4_SEGMENT_IDS.recordingPreference) ||
+    questions.reference_period_days !== 28 || questions.reference_period_timezone !== "Asia/Tokyo" ||
+    questions.reference_period_end_offset_days !== 1
+  ) return null;
+  return {
+    ...base,
+    kind: VOICE_V4_KIND,
+    playTimeOptions,
+    primaryDeviceOptions,
+    infoSeekOptions,
+    recordingPreferenceOptions,
+    referencePeriodDays: 28,
+    referencePeriodTimezone: "Asia/Tokyo",
+    referencePeriodEndOffsetDays: 1,
   };
 }
 
@@ -383,8 +474,23 @@ export function parseSurveyRead(payload, expectedSlug) {
   if (payload.status !== "ok" || !payload.survey || payload.survey.slug !== expectedSlug) {
     throw new SurveyContractError("invalid survey status");
   }
-  if (![undefined, 1, 2, 3].includes(payload.survey.schema_version)) {
+  if (![undefined, 1, 2, 3, 4].includes(payload.survey.schema_version)) {
     throw new SurveyContractError("unsupported schema version");
+  }
+  if (payload.survey.schema_version === 4) {
+    const voice = normalizeVoiceV4Definition(payload.survey.questions);
+    if (!voice) throw new SurveyContractError("invalid segmented voice questions");
+    return {
+      status: payload.response ? "already_answered" : "ok",
+      schemaVersion: 4,
+      title: text(payload.survey.title, 500),
+      description: typeof payload.survey.description === "string"
+        ? payload.survey.description.slice(0, 2_000)
+        : "",
+      voice,
+      titleName: payload.response ? text(payload.survey.reward?.name_ja, 200) : null,
+      titleAwarded: false,
+    };
   }
   if (payload.survey.schema_version === 3) {
     const voice = normalizeVoiceV3Definition(payload.survey.questions);
@@ -673,6 +779,45 @@ export function validateVoiceV3Answers(voice, rawValues) {
   if (!idsEqual(values.future_display_order, futureIds)) structurallyInvalid = true;
   else answers.future_display_order = [...values.future_display_order];
   return { answers, missing, structurallyInvalid };
+}
+
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const validIsoDate = (value) => {
+  if (typeof value !== "string" || !ISO_DATE_PATTERN.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value;
+};
+
+export function validateVoiceV4Answers(voice, rawValues) {
+  const values = objectValue(rawValues);
+  const baseValues = Object.fromEntries(VOICE_V3_ANSWER_KEYS.map((key) => [key, values[key]]));
+  const base = validateVoiceV3Answers(voice, baseValues);
+  const answers = Object.fromEntries(VOICE_V4_ANSWER_KEYS.map((key) => [key, [
+    "valuable_features", "feature_display_order", "future_candidates", "future_display_order",
+  ].includes(key) ? [] : ""]));
+  for (const key of VOICE_V3_ANSWER_KEYS) answers[key] = base.answers[key];
+  const missing = [...base.missing];
+  let structurallyInvalid = base.structurallyInvalid ||
+    Object.keys(values).length !== VOICE_V4_ANSWER_KEYS.length || !exactKeys(values, VOICE_V4_ANSWER_KEYS);
+  const optionValue = (options, key, { required = false } = {}) => {
+    const value = typeof values[key] === "string" && optionHas(options, values[key]) ? values[key] : "";
+    if (required && !value) missing.push(key);
+    else if (values[key] !== value) structurallyInvalid = true;
+    answers[key] = value;
+    return value;
+  };
+
+  if (validIsoDate(values.reference_period_end_on)) answers.reference_period_end_on = values.reference_period_end_on;
+  else if (!values.reference_period_end_on) missing.push("reference_period_end_on");
+  else structurallyInvalid = true;
+  const playTime = optionValue(voice.playTimeOptions, "play_time_4w", { required: true });
+  const playedRecently = ["lt_1h", "h1_lt3", "h3_lt7", "h7_lt14", "h14_plus"].includes(playTime);
+  optionValue(voice.primaryDeviceOptions, "primary_play_device_4w", { required: playedRecently });
+  if (!playedRecently && values.primary_play_device_4w !== "") structurallyInvalid = true;
+  optionValue(voice.infoSeekOptions, "info_seek_days_4w", { required: true });
+  optionValue(voice.recordingPreferenceOptions, "recording_preference", { required: true });
+
+  return { answers, missing: [...new Set(missing)], structurallyInvalid };
 }
 
 export function updateOrderedSelection(current, index, value, maxLength) {

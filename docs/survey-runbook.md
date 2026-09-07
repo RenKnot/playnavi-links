@@ -192,6 +192,49 @@ linked from the answer. Guest responses use the same anonymous response shape
 and receive no title. Reporting returns aggregates without comments, raw
 answers, token hashes, or identity data.
 
+### PlayNavi Voice segmented schema v4
+
+Schema v4 (`questions.kind = "playnavi_voice_2026_reviewed_segments"`) uses the
+new staging slug `playnavi-voice-2026-stg-review-v2`. Do not overwrite the v3
+definition or reuse its slug. The v1, v2, and v3 read, draft, validation, and
+rendering branches remain available unchanged.
+
+V4 retains the complete v3 Q1–Q12 contract and adds four segment questions:
+
+```text
+S1 play_time_4w             required for everyone
+S2 primary_play_device_4w   required only for a positive S1 time band; otherwise ""
+S3 info_seek_days_4w        required for everyone
+S4 recording_preference     required for everyone
+```
+
+The answer object has exactly 27 keys: all 22 v3 keys plus those four keys and
+`reference_period_end_on`. The reference period is 28 days in `Asia/Tokyo` and
+ends one day before the v4 draft is first created. The browser stores that ISO
+date with the same-tab draft and must not recalculate it on reload. A changed S1
+clears only a now-hidden S2 value; it must not alter S3, S4, or Q1–Q12.
+
+The exact definition metadata is:
+
+```text
+reference_period_days = 28
+reference_period_timezone = Asia/Tokyo
+reference_period_end_offset_days = 1
+```
+
+The Web proxy continues to accept only `{ answers, submission_token }` and
+forwards the existing `{ survey_slug, answers, submission_token }` envelope.
+It detects v4-only keys before v3 so that a 27-key body cannot fall through to
+the v3 or generic validator. The anonymous response/reward separation, PC Web
+candidate copy and its five detailed uses, 64 KiB limit, retry token, and
+same-origin/session boundaries are unchanged.
+
+Before a v4 rollout, run `npm test` and confirm both v4 real-Chrome snapshots,
+the fixed-period reload test, S2 pruning, the exact 27-key payload, and all v1,
+v2, and v3 regression tests. Deploy Web, Edge, and the inactive v4 campaign in
+a coordinated staging window; stop if any layer reports a different definition
+key, answer key, stable option ID, schema version, or slug.
+
 ## External authentication setup
 
 1. Register exact callback `https://links.playnavilab.com/api/auth/callback`

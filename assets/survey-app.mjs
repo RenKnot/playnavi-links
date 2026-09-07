@@ -7,6 +7,7 @@ import {
   validateAnswers,
   validateVoiceAnswers,
   validateVoiceV3Answers,
+  validateVoiceV4Answers,
 } from "./survey-contract.mjs";
 
 const elements = {
@@ -210,10 +211,10 @@ function shuffled(values) {
   return result;
 }
 
-function saveVoiceV3Draft(slug, submissionToken, values) {
+function saveVoiceV3Draft(slug, submissionToken, values, schemaVersion = 3) {
   try {
     sessionStorage.setItem(draftKey(slug), JSON.stringify({
-      schema_version: 3,
+      schema_version: schemaVersion,
       submission_token: submissionToken,
       values,
     }));
@@ -867,9 +868,37 @@ function buildVoicePages(slug, survey, values) {
   return pages;
 }
 
-function voiceV3Values(slug, voice) {
+function validIsoDate(value) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.valueOf()) && date.toISOString().slice(0, 10) === value;
+}
+
+function referencePeriodEndInJst(offsetDays = 1, now = new Date()) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now).filter(({ type }) => type !== "literal").map(({ type, value }) => [type, value]));
+  return new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day) - offsetDays))
+    .toISOString().slice(0, 10);
+}
+
+function periodStart(periodEnd, days) {
+  const end = new Date(`${periodEnd}T00:00:00Z`);
+  end.setUTCDate(end.getUTCDate() - (days - 1));
+  return end.toISOString().slice(0, 10);
+}
+
+function displayDate(value) {
+  const [year, month, day] = value.split("-");
+  return `${year}/${month}/${day}`;
+}
+
+function voiceV3Values(slug, voice, schemaVersion = 3) {
   const stored = readDraft(slug);
-  const source = stored.schema_version === 3 && stored.values && typeof stored.values === "object"
+  const source = stored.schema_version === schemaVersion && stored.values && typeof stored.values === "object"
     ? stored.values
     : {};
   const featureIds = voice.features.map((feature) => feature.id);
@@ -918,6 +947,16 @@ function voiceV3Values(slug, voice) {
     future_display_order: exactOrder(source.future_display_order, futureIds)
       ? [...source.future_display_order] : shuffled(futureIds),
   };
+  if (schemaVersion === 4) {
+    Object.assign(values, {
+      reference_period_end_on: validIsoDate(source.reference_period_end_on)
+        ? source.reference_period_end_on : referencePeriodEndInJst(voice.referencePeriodEndOffsetDays),
+      play_time_4w: string("play_time_4w"),
+      primary_play_device_4w: string("primary_play_device_4w"),
+      info_seek_days_4w: string("info_seek_days_4w"),
+      recording_preference: string("recording_preference"),
+    });
+  }
   const submissionToken = typeof stored.submission_token === "string" && /^[A-Za-z0-9_-]{43}$/.test(stored.submission_token)
     ? stored.submission_token
     : randomToken();
@@ -976,6 +1015,15 @@ function pruneVoiceV3(voice, values, previousPriority = values.future_priority) 
   if (!currentUsage(values.usage_30d) || !concreteProblem(values.primary_problem) || !futureIds.has(values.future_priority)) {
     values.improvement_vs_candidate = "";
   }
+}
+
+const playedInLastFourWeeks = (value) => [
+  "lt_1h", "h1_lt3", "h3_lt7", "h7_lt14", "h14_plus",
+].includes(value);
+
+function pruneVoiceV4(voice, values, previousPriority = values.future_priority) {
+  pruneVoiceV3(voice, values, previousPriority);
+  if (!playedInLastFourWeeks(values.play_time_4w)) values.primary_play_device_4w = "";
 }
 
 function voiceTextarea(fieldset, value, maxLength, onInput, rows = 3) {
@@ -1079,12 +1127,17 @@ function v3ReviewRow(label, value) {
   return row;
 }
 
-function buildVoiceV3Pages(slug, survey, values, submissionToken, rerender) {
+function buildVoiceV3Pages(slug, survey, values, submissionToken, rerender, {
+  validateAnswers = validateVoiceV3Answers,
+  pruneAnswers = pruneVoiceV3,
+  schemaVersion = 3,
+  includeSegments = false,
+} = {}) {
   const { voice } = survey;
-  const save = () => saveVoiceV3Draft(slug, submissionToken, values);
+  const save = () => saveVoiceV3Draft(slug, submissionToken, values, schemaVersion);
   const change = (callback, { rebuild = false, previousPriority = values.future_priority } = {}) => {
     callback();
-    pruneVoiceV3(voice, values, previousPriority);
+    pruneAnswers(voice, values, previousPriority);
     save();
     if (rebuild) rerender();
   };
@@ -1096,6 +1149,7 @@ function buildVoiceV3Pages(slug, survey, values, submissionToken, rerender) {
       intro.querySelector("ul").replaceChildren();
       for (const message of [
         "必要な数を埋めるために、無理に候補を選ぶ必要はありません",
+        ...(includeSegments ? ["ゲームのプレイ量や記録の希望ごとに分けて集計し、異なる利用スタイルの改善に活かします"] : []),
         "アカウント回答では、回答内容や任意入力の有無で、称号の受取条件は変わりません",
         "回答データにUIDを保存せず、UIDは称号付与だけに使い、回答内容とは紐づけません",
         "入力内容はこの端末のタブ内に一時保存されます",
@@ -1130,7 +1184,7 @@ function buildVoiceV3Pages(slug, survey, values, submissionToken, rerender) {
         page.append(satisfaction);
       }
     },
-    validate: () => validateVoiceV3Answers(voice, values).missing.filter((id) => ["usage_30d", "overall_satisfaction"].includes(id)),
+    validate: () => validateAnswers(voice, values).missing.filter((id) => ["usage_30d", "overall_satisfaction"].includes(id)),
   }, {
     key: "unprompted",
     render: (page) => {
@@ -1147,6 +1201,78 @@ function buildVoiceV3Pages(slug, survey, values, submissionToken, rerender) {
     },
     validate: () => [],
   }];
+
+  if (includeSegments) {
+    pages.splice(1, 0, {
+      key: "play_segment",
+      render: (page) => {
+        const start = periodStart(values.reference_period_end_on, voice.referencePeriodDays);
+        page.append(voicePageTitle(
+          "最近のゲームプレイ",
+          `対象期間は${displayDate(start)}〜${displayDate(values.reference_period_end_on)}です。忙しい週と遊んだ週を含め、おおよそでお答えください。`,
+        ));
+        const gameplay = voiceFieldset(
+          "play_time_4w",
+          "この4週間、ゲームで遊ぶ時間は1週間あたりどのくらいでしたか？",
+        );
+        const gameplayHint = document.createElement("p");
+        gameplayHint.className = "question-hint";
+        gameplayHint.textContent = "家庭用ゲーム機・PC・スマホを合計します。ゲーム動画を見る時間は含めません。正確に合計して4で割る必要はありません。";
+        gameplay.append(gameplayHint);
+        v3ChoiceGroup(gameplay, "v4-gameplay-hours", voice.playTimeOptions, values.play_time_4w, (id) => change(() => {
+          values.play_time_4w = id;
+        }, { rebuild: true }));
+        page.append(gameplay);
+        if (playedInLastFourWeeks(values.play_time_4w)) {
+          const device = voiceFieldset(
+            "primary_play_device_4w",
+            "この4週間、最も長い時間ゲームで遊んだ機器はどれですか？",
+          );
+          const deviceHint = document.createElement("p");
+          deviceHint.className = "question-hint";
+          deviceHint.textContent = "所有している機器の一覧ではなく、最近主に遊んだ機器を、おおよそでお答えください。";
+          device.append(deviceHint);
+          v3ChoiceGroup(device, "v4-primary-device", voice.primaryDeviceOptions, values.primary_play_device_4w, (id) => change(() => {
+            values.primary_play_device_4w = id;
+          }));
+          page.append(device);
+        }
+      },
+      validate: () => validateAnswers(voice, values).missing.filter((id) => [
+        "reference_period_end_on", "play_time_4w", "primary_play_device_4w",
+      ].includes(id)),
+    });
+    const unpromptedIndex = pages.findIndex(({ key }) => key === "unprompted");
+    pages.splice(unpromptedIndex + 1, 0, {
+      key: "style_segment",
+      render: (page) => {
+        const start = periodStart(values.reference_period_end_on, voice.referencePeriodDays);
+        page.append(voicePageTitle("ゲーム情報と記録の希望", `情報収集は${displayDate(start)}〜${displayDate(values.reference_period_end_on)}についてお答えください。`));
+        const info = voiceFieldset(
+          "info_seek_days_4w",
+          "この4週間、ゲームの情報を自分から見に行った日は、どのくらいありましたか？",
+        );
+        const infoHint = document.createElement("p");
+        infoHint.className = "question-hint";
+        infoHint.textContent = "記事・紹介動画・SNSの投稿などが対象です。たまたま目に入っただけの場合は含めません。正確に数え直す必要はありません。";
+        info.append(infoHint);
+        v3ChoiceGroup(info, "v4-info-seeking", voice.infoSeekOptions, values.info_seek_days_4w, (id) => change(() => {
+          values.info_seek_days_4w = id;
+        }));
+        const record = voiceFieldset(
+          "recording_preference",
+          "遊んだゲームについて、どの程度の記録を残したいですか？",
+        );
+        v3ChoiceGroup(record, "v4-record-detail", voice.recordingPreferenceOptions, values.recording_preference, (id) => change(() => {
+          values.recording_preference = id;
+        }));
+        page.append(info, record);
+      },
+      validate: () => validateAnswers(voice, values).missing.filter((id) => [
+        "info_seek_days_4w", "recording_preference",
+      ].includes(id)),
+    });
+  }
 
   if (experiencedUsage(values.usage_30d)) pages.push({
     key: "valuable",
@@ -1189,7 +1315,7 @@ function buildVoiceV3Pages(slug, survey, values, submissionToken, rerender) {
       }
       page.append(optional);
     },
-    validate: () => validateVoiceV3Answers(voice, values).missing.filter((id) => ["valuable_features", "unused_reason"].includes(id)),
+    validate: () => validateAnswers(voice, values).missing.filter((id) => ["valuable_features", "unused_reason"].includes(id)),
   });
 
   if (experiencedUsage(values.usage_30d)) pages.push({
@@ -1223,7 +1349,7 @@ function buildVoiceV3Pages(slug, survey, values, submissionToken, rerender) {
         }
       }
     },
-    validate: () => validateVoiceV3Answers(voice, values).missing.filter((id) => ["primary_problem", "dormant_reason"].includes(id)),
+    validate: () => validateAnswers(voice, values).missing.filter((id) => ["primary_problem", "dormant_reason"].includes(id)),
   });
 
   if (experiencedUsage(values.usage_30d) && values.usage_30d !== "inactive_30d" && concreteProblem(values.primary_problem)) pages.push({
@@ -1236,7 +1362,7 @@ function buildVoiceV3Pages(slug, survey, values, submissionToken, rerender) {
       }));
       page.append(field);
     },
-    validate: () => validateVoiceV3Answers(voice, values).missing.filter((id) => id === "problem_outcome"),
+    validate: () => validateAnswers(voice, values).missing.filter((id) => id === "problem_outcome"),
   });
 
   pages.push({
@@ -1256,7 +1382,7 @@ function buildVoiceV3Pages(slug, survey, values, submissionToken, rerender) {
         page.append(other);
       }
     },
-    validate: () => validateVoiceV3Answers(voice, values).missing.filter((id) => id === "future_role"),
+    validate: () => validateAnswers(voice, values).missing.filter((id) => id === "future_role"),
   }, {
     key: "future_candidates",
     render: (page) => {
@@ -1275,7 +1401,7 @@ function buildVoiceV3Pages(slug, survey, values, submissionToken, rerender) {
         page.append(other);
       }
     },
-    validate: () => validateVoiceV3Answers(voice, values).missing.filter((id) => id === "future_candidates"),
+    validate: () => validateAnswers(voice, values).missing.filter((id) => id === "future_candidates"),
   });
 
   const futureIds = new Set(voice.futureOptions.map((option) => option.id));
@@ -1294,7 +1420,7 @@ function buildVoiceV3Pages(slug, survey, values, submissionToken, rerender) {
       }, { previousPriority: values.future_priority }));
       page.append(field);
     },
-    validate: () => validateVoiceV3Answers(voice, values).missing.filter((id) => id === "future_priority"),
+    validate: () => validateAnswers(voice, values).missing.filter((id) => id === "future_priority"),
   });
 
   if (values.future_priority) pages.push({
@@ -1340,7 +1466,7 @@ function buildVoiceV3Pages(slug, survey, values, submissionToken, rerender) {
       }));
       page.append(field);
     },
-    validate: () => validateVoiceV3Answers(voice, values).missing.filter((id) => id === "improvement_vs_candidate"),
+    validate: () => validateAnswers(voice, values).missing.filter((id) => id === "improvement_vs_candidate"),
   });
 
   pages.push({
@@ -1361,7 +1487,17 @@ function buildVoiceV3Pages(slug, survey, values, submissionToken, rerender) {
       });
       const priority = voice.futureOptions.find((option) => option.id === values.future_priority)?.label ||
         (values.future_priority === "other" ? "その他の希望" : "最優先なし");
+      const segmentRows = includeSegments ? [
+        v3ReviewRow("最近のプレイ時間", voice.playTimeOptions.find((option) => option.id === values.play_time_4w)?.label || "未回答"),
+        ...(playedInLastFourWeeks(values.play_time_4w) ? [v3ReviewRow(
+          "主に遊んだ機器",
+          voice.primaryDeviceOptions.find((option) => option.id === values.primary_play_device_4w)?.label || "未回答",
+        )] : []),
+        v3ReviewRow("ゲーム情報を見に行った日", voice.infoSeekOptions.find((option) => option.id === values.info_seek_days_4w)?.label || "未回答"),
+        v3ReviewRow("希望する記録", voice.recordingPreferenceOptions.find((option) => option.id === values.recording_preference)?.label || "未回答"),
+      ] : [];
       review.append(
+        ...segmentRows,
         v3ReviewRow("最近の利用", usage),
         ...(experiencedUsage(values.usage_30d) ? [v3ReviewRow(
           values.usage_30d === "inactive_30d" ? "最近使っていない理由" : "最も改善してほしいこと",
@@ -1384,13 +1520,27 @@ function buildVoiceV3Pages(slug, survey, values, submissionToken, rerender) {
   return pages;
 }
 
-function createVoiceV3Controller(slug, survey, values, submissionToken) {
+function buildVoiceV4Pages(slug, survey, values, submissionToken, rerender) {
+  return buildVoiceV3Pages(slug, survey, values, submissionToken, rerender, {
+    validateAnswers: validateVoiceV4Answers,
+    pruneAnswers: pruneVoiceV4,
+    schemaVersion: 4,
+    includeSegments: true,
+  });
+}
+
+function createVoiceV3Controller(slug, survey, values, submissionToken, {
+  buildPages = buildVoiceV3Pages,
+  pruneAnswers = pruneVoiceV3,
+  schemaVersion = 3,
+  fallbackPageKey = "basic",
+} = {}) {
   let currentKey = "intro";
   const render = (requestedKey = currentKey, { focusHeading = true } = {}) => {
-    pruneVoiceV3(survey.voice, values);
-    saveVoiceV3Draft(slug, submissionToken, values);
+    pruneAnswers(survey.voice, values);
+    saveVoiceV3Draft(slug, submissionToken, values, schemaVersion);
     const rerender = () => render(currentKey, { focusHeading: false });
-    let pages = buildVoiceV3Pages(slug, survey, values, submissionToken, rerender);
+    let pages = buildPages(slug, survey, values, submissionToken, rerender);
     let current = pages.findIndex((page) => page.key === requestedKey);
     if (current < 0) current = Math.max(0, pages.findIndex((page) => page.key === currentKey));
     if (current < 0) current = 0;
@@ -1428,7 +1578,7 @@ function createVoiceV3Controller(slug, survey, values, submissionToken) {
         focusVoiceError(missing[0]);
         return;
       }
-      pages = buildVoiceV3Pages(slug, survey, values, submissionToken, () => {});
+      pages = buildPages(slug, survey, values, submissionToken, () => {});
       const fresh = pages.findIndex((page) => page.key === currentKey);
       render(pages[Math.min(fresh + 1, pages.length - 1)].key);
     };
@@ -1436,15 +1586,24 @@ function createVoiceV3Controller(slug, survey, values, submissionToken) {
   render();
   return {
     showError(id, message) {
-      const pages = buildVoiceV3Pages(slug, survey, values, submissionToken, () => {});
+      const pages = buildPages(slug, survey, values, submissionToken, () => {});
       const target = pages.find((page) => page.validate().includes(id));
-      render(target?.key || "basic", { focusHeading: false });
+      render(target?.key || fallbackPageKey, { focusHeading: false });
       elements.error.textContent = message;
       setVisible(elements.error, true);
       markVoiceMissing([id]);
       focusVoiceError(id);
     },
   };
+}
+
+function createVoiceV4Controller(slug, survey, values, submissionToken) {
+  return createVoiceV3Controller(slug, survey, values, submissionToken, {
+    buildPages: buildVoiceV4Pages,
+    pruneAnswers: pruneVoiceV4,
+    schemaVersion: 4,
+    fallbackPageKey: "play_segment",
+  });
 }
 
 function markVoiceMissing(missing) {
@@ -1637,11 +1796,15 @@ async function submitVoiceSurvey(slug, survey, values, controller, submissionTok
   }
 }
 
-async function submitVoiceV3Survey(slug, survey, values, controller, submissionToken) {
-  pruneVoiceV3(survey.voice, values);
-  const result = validateVoiceV3Answers(survey.voice, values);
+async function submitVoiceV3Survey(slug, survey, values, controller, submissionToken, {
+  pruneAnswers = pruneVoiceV3,
+  validateAnswers = validateVoiceV3Answers,
+  fallbackErrorId = "usage_30d",
+} = {}) {
+  pruneAnswers(survey.voice, values);
+  const result = validateAnswers(survey.voice, values);
   if (result.missing.length > 0 || result.structurallyInvalid) {
-    const first = result.missing[0] || "usage_30d";
+    const first = result.missing[0] || fallbackErrorId;
     controller.showError(first, result.structurallyInvalid
       ? "入力内容を確認してください。古い一時保存データがある場合は、該当項目を選び直してください。"
       : "必須の質問に回答してください。");
@@ -1675,9 +1838,29 @@ async function submitVoiceV3Survey(slug, survey, values, controller, submissionT
   }
 }
 
+async function submitVoiceV4Survey(slug, survey, values, controller, submissionToken) {
+  return submitVoiceV3Survey(slug, survey, values, controller, submissionToken, {
+    pruneAnswers: pruneVoiceV4,
+    validateAnswers: validateVoiceV4Answers,
+    fallbackErrorId: "play_time_4w",
+  });
+}
+
 function showSurveyForm(slug, survey) {
   hideStates();
   setPage({ title: survey.title, description: survey.description });
+  if (survey.schemaVersion === 4) {
+    const { values, submissionToken } = voiceV3Values(slug, survey.voice, 4);
+    pruneVoiceV4(survey.voice, values);
+    saveVoiceV3Draft(slug, submissionToken, values, 4);
+    const controller = createVoiceV4Controller(slug, survey, values, submissionToken);
+    elements.form.onsubmit = (event) => {
+      event.preventDefault();
+      submitVoiceV4Survey(slug, survey, values, controller, submissionToken);
+    };
+    setVisible(elements.form, true);
+    return;
+  }
   if (survey.schemaVersion === 3) {
     const { values, submissionToken } = voiceV3Values(slug, survey.voice);
     pruneVoiceV3(survey.voice, values);
