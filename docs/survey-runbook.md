@@ -125,12 +125,15 @@ retried idempotently.
 
 ```text
 POST survey-read { survey_slug }
-POST survey-submit { survey_slug, answers }
+POST survey-submit { survey_slug, answers, submission_token }
 ```
 
 `answers` is an object keyed by question ID. Values are a string for single
 choice/short text and a unique string array for multiple choice. The server
 contract and client parser are covered by `tests/survey-contract.test.mjs`.
+`submission_token` is a browser-generated 32-byte base64url value kept beside
+the draft in `sessionStorage`. The same token is reused for a retry, only its
+SHA-256 hash is stored, and it contains no UID or answer data.
 
 ### PlayNavi Voice schema v2
 
@@ -169,12 +172,68 @@ at least 48px high, optional comments are collapsed, drafts stay in
 `sessionStorage`, the first invalid control receives focus, and reduced-motion
 preferences disable step transitions.
 
-The login notice must match the storage contract. Answers are directly linked
-to a PlayNavi user ID so reward grant and one-response enforcement can commit
-atomically. They are not shown to other users, and the reporting API returns
-aggregates without user IDs, comments or raw answers. Do not describe the raw
-stored response as anonymous; disclose the account-linked storage while saying
-that results are aggregated.
+### PlayNavi Voice reviewed schema v3
+
+Schema v3 (`questions.kind = "playnavi_voice_2026_reviewed"`) is additive: v1
+generic surveys and the frozen v2 campaign continue to parse and render with
+their existing question and answer contracts. V3 implements the reviewed Q1–Q12
+flow, including usage-based branches, optional needs and unused-feature fields,
+unordered maximum-three selections, an explicit single priority, candidate-
+specific detail questions, and the conditional improvement/candidate
+comparison. Feature and future-candidate display orders are randomized once,
+persisted in the draft, and submitted for order-effect analysis; scale and
+exclusive options stay fixed.
+
+The login notice must match the anonymous storage contract. The response row
+stores answers and the hash of `submission_token`, but no UID and no join to the
+reward record. For an authenticated response the UID is used only inside the
+same transaction to grant the campaign title, then is not retained with or
+linked from the answer. Guest responses use the same anonymous response shape
+and receive no title. Reporting returns aggregates without comments, raw
+answers, token hashes, or identity data.
+
+### PlayNavi Voice segmented schema v4
+
+Schema v4 (`questions.kind = "playnavi_voice_2026_reviewed_segments"`) uses the
+new staging slug `playnavi-voice-2026-stg-review-v2`. Do not overwrite the v3
+definition or reuse its slug. The v1, v2, and v3 read, draft, validation, and
+rendering branches remain available unchanged.
+
+V4 retains the complete v3 Q1–Q12 contract and adds four segment questions:
+
+```text
+S1 play_time_4w             required for everyone
+S2 primary_play_device_4w   required only for a positive S1 time band; otherwise ""
+S3 info_seek_days_4w        required for everyone
+S4 recording_preference     required for everyone
+```
+
+The answer object has exactly 27 keys: all 22 v3 keys plus those four keys and
+`reference_period_end_on`. The reference period is 28 days in `Asia/Tokyo` and
+ends one day before the v4 draft is first created. The browser stores that ISO
+date with the same-tab draft and must not recalculate it on reload. A changed S1
+clears only a now-hidden S2 value; it must not alter S3, S4, or Q1–Q12.
+
+The exact definition metadata is:
+
+```text
+reference_period_days = 28
+reference_period_timezone = Asia/Tokyo
+reference_period_end_offset_days = 1
+```
+
+The Web proxy continues to accept only `{ answers, submission_token }` and
+forwards the existing `{ survey_slug, answers, submission_token }` envelope.
+It detects v4-only keys before v3 so that a 27-key body cannot fall through to
+the v3 or generic validator. The anonymous response/reward separation, PC Web
+candidate copy and its five detailed uses, 64 KiB limit, retry token, and
+same-origin/session boundaries are unchanged.
+
+Before a v4 rollout, run `npm test` and confirm both v4 real-Chrome snapshots,
+the fixed-period reload test, S2 pruning, the exact 27-key payload, and all v1,
+v2, and v3 regression tests. Deploy Web, Edge, and the inactive v4 campaign in
+a coordinated staging window; stop if any layer reports a different definition
+key, answer key, stable option ID, schema version, or slug.
 
 ## External authentication setup
 
@@ -213,8 +272,10 @@ npm test
 npm run validate:android
 ```
 
-Then deploy to an isolated Preview only after the Supabase Functions are
-available. Do not use a production handoff code in Preview.
+Deploy in this order: Backend schema/RPC and Supabase Functions first, then the
+Web client, then create and activate a new schema-v3 staging slug. A v3 slug
+must never be exposed while either side still rejects its contract. Use an
+isolated Preview and do not use a production handoff code in Preview.
 
 Test all of the following before production promotion:
 
