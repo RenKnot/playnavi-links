@@ -8,6 +8,7 @@ import {
   validateVoiceAnswers,
   validateVoiceV3Answers,
   validateVoiceV4Answers,
+  validateVoiceV5Answers,
 } from "./survey-contract.mjs";
 
 const elements = {
@@ -75,14 +76,49 @@ function hideStates() {
 
 function showLogin(slug, preview, failed = false) {
   hideStates();
+  const isVoiceV5 = preview?.schemaVersion === 5;
+  elements.view?.classList.toggle("survey-schema-v5", isVoiceV5);
+  const notice = elements.login?.querySelector(".login-notice");
+  elements.login?.querySelector(".login-heading")?.remove();
+  if (notice) {
+    const guide = elements.guide;
+    notice.replaceChildren();
+    if (isVoiceV5) {
+      const heading = document.createElement("h2");
+      heading.className = "login-heading";
+      heading.textContent = "回答方法を選択してください";
+      elements.login.insertBefore(heading, notice);
+      for (const copy of [
+        "アカウントで回答すると、回答完了後に報酬（称号）を受け取れます。",
+        "ログイン情報は報酬付与の判定にのみ利用し、回答内容には紐づけません。",
+        "ログインせずに回答することもできますが、ゲスト回答では報酬を受け取れません。",
+      ]) {
+        const item = document.createElement("li");
+        item.textContent = copy;
+        notice.append(item);
+      }
+      elements.guest.textContent = "報酬なしでログインせず回答する";
+    } else {
+      for (const copy of [
+        "アカウントに紐づく報酬をご提供するため、ログインをお願いします。",
+        "回答データにUIDを保存しません。UIDは称号付与だけに使い、回答内容とは紐づけません。回答内容は個人が分からない形で集計・利用します。",
+      ]) {
+        const item = document.createElement("li");
+        item.textContent = copy;
+        notice.append(item);
+      }
+      elements.guest.textContent = "報酬なしでログインせずに回答する";
+    }
+    if (!isVoiceV5) notice.append(guide);
+  }
   setPage({
     title: preview?.title || "アンケート",
     description: failed
       ? "ログインを完了できませんでした。PlayNaviで利用しているアカウントでもう一度お試しください。"
-      : "",
+      : isVoiceV5 ? preview?.description || "" : "",
     descriptionTone: failed ? "warning" : "default",
   });
-  if (elements.guide) {
+  if (elements.guide && !isVoiceV5) {
     elements.guide.textContent = preview?.description || "";
     setVisible(elements.guide, Boolean(preview?.description));
   }
@@ -427,6 +463,28 @@ function appendRequired(legend) {
 }
 
 function voiceFieldset(errorId, label, { required = true, className = "" } = {}) {
+  if (className.split(/\s+/).includes("v5-question")) {
+    const card = document.createElement("section");
+    card.className = `question-card ${className}`.trim();
+    card.dataset.errorId = errorId;
+    card.dataset.required = String(required);
+    const heading = document.createElement("h3");
+    heading.className = "v5-question-heading";
+    heading.id = `v5-question-${errorId.replace(/[^a-z0-9_-]/gi, "-")}`;
+    const headingCopy = document.createElement("span");
+    headingCopy.textContent = label;
+    heading.append(headingCopy);
+    if (required) appendRequired(heading);
+    const fieldset = document.createElement("fieldset");
+    fieldset.className = "question v5-question-controls";
+    fieldset.setAttribute("aria-labelledby", heading.id);
+    const legend = document.createElement("legend");
+    legend.className = "sr-only";
+    legend.textContent = label;
+    fieldset.append(legend);
+    card.append(heading, fieldset);
+    return card;
+  }
   const fieldset = document.createElement("fieldset");
   fieldset.className = `question question-card ${className}`.trim();
   fieldset.dataset.errorId = errorId;
@@ -437,6 +495,8 @@ function voiceFieldset(errorId, label, { required = true, className = "" } = {})
   fieldset.append(legend);
   return fieldset;
 }
+
+const v5ControlRoot = (card) => card.querySelector?.(":scope > .v5-question-controls") || card;
 
 function fieldsetHasAnswer(fieldset) {
   const radio = fieldset.querySelector('input[type="radio"]:checked');
@@ -963,6 +1023,72 @@ function voiceV3Values(slug, voice, schemaVersion = 3) {
   return { values, submissionToken };
 }
 
+function voiceV5Values(slug, voice) {
+  const stored = readDraft(slug);
+  const source = stored.schema_version === 5 && stored.values && typeof stored.values === "object"
+    ? stored.values : {};
+  const featureIds = voice.features.map(({ id }) => id);
+  const futureIds = voice.futureOptions.map(({ id }) => id);
+  const exactOrder = (value, expected) => Array.isArray(value) && value.length === expected.length &&
+    new Set(value).size === expected.length && value.every((id) => expected.includes(id));
+  const string = (key) => typeof source[key] === "string" ? source[key] : "";
+  const selected = (key, allowed, exclusive) => Array.isArray(source[key]) &&
+    new Set(source[key]).size === source[key].length && source[key].every((id) => allowed.includes(id)) &&
+    (!source[key].some((id) => exclusive.includes(id)) || source[key].length === 1)
+    ? [...source[key]] : [];
+  const q4ExclusiveIds = voice.q4ExclusiveOptions.map(({ id }) => id);
+  const futureExclusiveIds = voice.futureExclusiveOptions.map(({ id }) => id);
+  const valuableFeatures = selected("valuable_features", [...featureIds, ...q4ExclusiveIds], q4ExclusiveIds);
+  const unusedFeatures = selected("unused_features", [...featureIds, ...q4ExclusiveIds], q4ExclusiveIds);
+  const objectStrings = (key, allowedKeys) => {
+    const object = source[key] && typeof source[key] === "object" && !Array.isArray(source[key]) ? source[key] : {};
+    return Object.fromEntries(Object.entries(object)
+      .filter(([id, value]) => allowedKeys.includes(id) && typeof value === "string"));
+  };
+  const values = {
+    play_frequency_1m: string("play_frequency_1m"),
+    primary_play_device_1m: string("primary_play_device_1m"),
+    reference_period_end_on: validIsoDate(source.reference_period_end_on)
+      ? source.reference_period_end_on : referencePeriodEndInJst(voice.referencePeriodEndOffsetDays),
+    usage_1m: string("usage_1m"),
+    overall_satisfaction: string("overall_satisfaction"),
+    unprompted_need: string("unprompted_need"),
+    info_seek_days_1m: string("info_seek_days_1m"),
+    recording_preference: string("recording_preference"),
+    valuable_features: valuableFeatures,
+    valuable_feature_reasons: objectStrings("valuable_feature_reasons", valuableFeatures.filter((id) => featureIds.includes(id))),
+    unused_features: unusedFeatures,
+    unused_feature_reason_by_feature: objectStrings(
+      "unused_feature_reason_by_feature", unusedFeatures.filter((id) => featureIds.includes(id)),
+    ),
+    primary_problem: string("primary_problem"),
+    dormant_reason: string("dormant_reason"),
+    problem_comment: string("problem_comment"),
+    problem_outcome: string("problem_outcome"),
+    future_role: string("future_role"),
+    future_role_other: string("future_role_other"),
+    future_candidates: selected("future_candidates", [...futureIds, "other", ...futureExclusiveIds], futureExclusiveIds).slice(0, 3),
+    future_other: string("future_other"),
+    future_priority: string("future_priority"),
+    future_priority_mode: string("future_priority_mode"),
+    future_detail_a: string("future_detail_a"),
+    future_detail_b: string("future_detail_b"),
+    future_detail_other: string("future_detail_other"),
+    improvement_vs_candidate: string("improvement_vs_candidate"),
+    feature_display_order: exactOrder(source.feature_display_order, featureIds)
+      ? [...source.feature_display_order] : shuffled(featureIds),
+    future_display_order: exactOrder(source.future_display_order, futureIds)
+      ? [...source.future_display_order] : shuffled(futureIds),
+    answer_notes: Object.fromEntries(voice.answerNoteKeys.map((key) => [
+      key,
+      typeof source.answer_notes?.[key] === "string" ? source.answer_notes[key] : "",
+    ])),
+  };
+  const submissionToken = typeof stored.submission_token === "string" && /^[A-Za-z0-9_-]{43}$/.test(stored.submission_token)
+    ? stored.submission_token : randomToken();
+  return { values, submissionToken };
+}
+
 const experiencedUsage = (usage) => Boolean(usage) && usage !== "never_used";
 const currentUsage = (usage) => ["days_15_plus", "days_5_14", "days_1_4"].includes(usage);
 const concreteProblem = (problem) => Boolean(problem) && !["none", "unknown"].includes(problem);
@@ -1026,6 +1152,90 @@ function pruneVoiceV4(voice, values, previousPriority = values.future_priority) 
   if (!playedInLastFourWeeks(values.play_time_4w)) values.primary_play_device_4w = "";
 }
 
+const playedInLastMonth = (value) => [
+  "less_than_weekly", "days_1_2_per_week", "days_3_4_per_week", "days_5_6_per_week", "daily",
+].includes(value);
+
+function pruneVoiceV5(voice, values, previousPriority = values.future_priority) {
+  const hasExperience = Boolean(values.usage_1m) && values.usage_1m !== "never_used";
+  const dormant = values.usage_1m === "inactive_1m";
+  values.problem_comment = "";
+  if (!playedInLastMonth(values.play_frequency_1m)) {
+    values.primary_play_device_1m = "";
+    values.answer_notes.primary_play_device_1m = "";
+  }
+  if (!hasExperience) {
+    values.overall_satisfaction = "";
+    values.valuable_features = [];
+    values.valuable_feature_reasons = {};
+    values.unused_features = [];
+    values.unused_feature_reason_by_feature = {};
+    values.primary_problem = "";
+    values.dormant_reason = "";
+    values.problem_comment = "";
+    values.problem_outcome = "";
+    for (const key of ["overall_satisfaction", "valuable_features", "unused_features", "primary_problem", "dormant_reason", "problem_outcome"]) {
+      values.answer_notes[key] = "";
+    }
+  } else if (dormant) {
+    values.primary_problem = "";
+    values.problem_comment = "";
+    values.problem_outcome = "";
+    values.answer_notes.primary_problem = "";
+    values.answer_notes.problem_outcome = "";
+  } else {
+    values.dormant_reason = "";
+    values.answer_notes.dormant_reason = "";
+    if (!concreteProblem(values.primary_problem)) {
+      values.problem_comment = "";
+      values.problem_outcome = "";
+      values.answer_notes.problem_outcome = "";
+    }
+  }
+  const selectedValuable = new Set(values.valuable_features.filter((id) => voice.features.some((feature) => feature.id === id)));
+  for (const [id, reason] of Object.entries(values.valuable_feature_reasons)) {
+    const cleaned = typeof reason === "string" ? reason.trim() : "";
+    if (!selectedValuable.has(id) || !cleaned) delete values.valuable_feature_reasons[id];
+    else values.valuable_feature_reasons[id] = cleaned;
+  }
+  const selectedUnused = new Set(values.unused_features.filter((id) => voice.features.some((feature) => feature.id === id)));
+  values.unused_feature_reason_by_feature = Object.fromEntries(Object.entries(values.unused_feature_reason_by_feature)
+    .filter(([id, reason]) => selectedUnused.has(id) && voice.unusedReasonOptions.some((option) => option.id === reason)));
+  if (values.future_role !== "other") values.future_role_other = "";
+  if (!values.future_candidates.includes("other")) values.future_other = "";
+  const futureIds = new Set(voice.futureOptions.map(({ id }) => id));
+  const rankable = values.future_candidates.filter((id) => futureIds.has(id) || id === "other");
+  if (rankable.length === 1) {
+    values.future_priority = rankable[0];
+    values.future_priority_mode = "inherited";
+  } else if (rankable.length > 1) {
+    if (!rankable.includes(values.future_priority)) values.future_priority = "";
+    values.future_priority_mode = "explicit";
+  } else {
+    values.future_priority = "";
+    values.future_priority_mode = "";
+  }
+  if (previousPriority !== values.future_priority) {
+    values.future_detail_a = "";
+    values.future_detail_b = "";
+    values.future_detail_other = "";
+    values.improvement_vs_candidate = "";
+    for (const key of ["future_detail_a", "future_detail_b", "improvement_vs_candidate"]) values.answer_notes[key] = "";
+  }
+  if (!rankable.length) values.answer_notes.future_priority = "";
+  if (values.future_priority !== "other") values.future_detail_other = "";
+  const detail = voice.futureDetailOptions[values.future_priority];
+  if (!detail) {
+    values.answer_notes.future_detail_a = "";
+    values.answer_notes.future_detail_b = "";
+  }
+  if (!["days_15_plus", "days_5_14", "days_1_4"].includes(values.usage_1m) ||
+    !concreteProblem(values.primary_problem) || !futureIds.has(values.future_priority)) {
+    values.improvement_vs_candidate = "";
+    values.answer_notes.improvement_vs_candidate = "";
+  }
+}
+
 function voiceTextarea(fieldset, value, maxLength, onInput, rows = 3) {
   const textarea = document.createElement("textarea");
   textarea.maxLength = maxLength;
@@ -1039,7 +1249,7 @@ function voiceTextarea(fieldset, value, maxLength, onInput, rows = 3) {
     update();
   });
   update();
-  fieldset.append(textarea, count);
+  v5ControlRoot(fieldset).append(textarea, count);
 }
 
 function v3ChoiceGroup(fieldset, name, options, value, onChange) {
@@ -1068,6 +1278,50 @@ function v3ChoiceGroup(fieldset, name, options, value, onChange) {
     choices.append(label);
   }
   fieldset.append(choices);
+}
+
+function v5ChoiceGroup(fieldset, name, options, value, onChange, auxiliaryIds = []) {
+  const auxiliary = new Set(auxiliaryIds);
+  const groups = [
+    { className: "primary-option-section", options: options.filter(({ id }) => !auxiliary.has(id)) },
+    { className: "exclusive-option-section", options: options.filter(({ id }) => auxiliary.has(id)) },
+  ];
+  for (const group of groups) {
+    if (!group.options.length) continue;
+    const section = document.createElement("section");
+    section.className = group.className;
+    if (group.className === "exclusive-option-section") {
+      const heading = document.createElement("h3");
+      heading.textContent = "上の選択肢に当てはまらない場合";
+      section.append(heading);
+    }
+    const choices = document.createElement("div");
+    choices.className = "choice-grid";
+    for (const option of group.options) {
+      const label = document.createElement("label");
+      label.className = "choice described-choice";
+      const input = document.createElement("input");
+      input.type = "radio";
+      input.name = name;
+      input.value = option.id;
+      input.checked = value === option.id;
+      input.addEventListener("change", () => {
+        onChange(option.id);
+        moveToNextVoiceQuestion(fieldset.dataset.errorId);
+      });
+      const copy = document.createElement("span");
+      copy.textContent = option.label;
+      if (option.description) {
+        const description = document.createElement("small");
+        description.textContent = option.description;
+        copy.append(description);
+      }
+      label.append(input, copy);
+      choices.append(label);
+    }
+    section.append(choices);
+    v5ControlRoot(fieldset).append(section);
+  }
 }
 
 function v3MultiGroup(fieldset, groups, exclusiveOptions, selected, maxLength, onChange) {
@@ -1117,6 +1371,372 @@ function v3MultiGroup(fieldset, groups, exclusiveOptions, selected, maxLength, o
   for (const input of controls) {
     if (!input.checked && !exclusiveIds.has(input.value)) input.disabled = normalCount >= maxLength;
   }
+}
+
+function v5OptionalNote(fieldset, key, values, maxLength, onInput, {
+  summaryText = "回答について補足する（任意）",
+} = {}) {
+  const details = document.createElement("details");
+  details.className = "optional-note";
+  const summary = document.createElement("summary");
+  summary.textContent = summaryText;
+  const label = document.createElement("label");
+  label.className = "optional-note-label";
+  const labelCopy = document.createElement("span");
+  labelCopy.textContent = "補足したいことがあれば入力してください。";
+  const textarea = document.createElement("textarea");
+  textarea.rows = 3;
+  textarea.dataset.maxLength = String(maxLength);
+  textarea.value = values.answer_notes[key] || "";
+  const count = document.createElement("span");
+  count.className = "hint comment-count";
+  const update = () => {
+    const length = [...textarea.value].length;
+    count.textContent = `${length} / ${maxLength}文字`;
+    textarea.setAttribute("aria-invalid", String(length > maxLength));
+  };
+  textarea.addEventListener("input", () => {
+    values.answer_notes[key] = textarea.value;
+    update();
+    onInput();
+  });
+  update();
+  if (textarea.value) details.open = true;
+  label.append(labelCopy, textarea);
+  details.append(summary, label, count);
+  v5ControlRoot(fieldset).append(details);
+}
+
+function v5FeatureSelection(fieldset, groups, exclusiveOptions, selected, {
+  comments = null,
+  commentMaxLength = 400,
+  maxLength = Number.POSITIVE_INFINITY,
+  onChange,
+  onComment,
+}) {
+  let currentSelected = [...selected];
+  const exclusiveIds = new Set(exclusiveOptions.map(({ id }) => id));
+  const normalIds = new Set(groups.flatMap(({ options }) => options.map(({ id }) => id)));
+  const content = document.createElement("div");
+  const render = (focusId = "") => {
+    content.replaceChildren();
+    if (Number.isFinite(maxLength)) {
+      const limit = document.createElement("p");
+      limit.className = "selection-limit-status";
+      limit.setAttribute("aria-live", "polite");
+      limit.textContent = `${currentSelected.filter((id) => !exclusiveIds.has(id)).length} / ${maxLength}件選択中`;
+      content.append(limit);
+    }
+    for (const group of groups) {
+      const section = document.createElement("section");
+      section.className = "option-section";
+      if (group.label) {
+        const heading = document.createElement("h3");
+        heading.textContent = group.label;
+        section.append(heading);
+      }
+      const choices = document.createElement("div");
+      choices.className = "choice-grid";
+      for (const option of group.options) {
+        const row = document.createElement("div");
+        row.className = "feature-choice-row";
+        const label = document.createElement("label");
+        label.className = "choice described-choice";
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.name = fieldset.dataset.errorId;
+        input.value = option.id;
+        input.checked = currentSelected.includes(option.id);
+        input.disabled = !input.checked && currentSelected.filter((id) => !exclusiveIds.has(id)).length >= maxLength;
+        const copy = document.createElement("span");
+        copy.textContent = option.label;
+        if (option.description) {
+          const description = document.createElement("small");
+          description.textContent = option.description;
+          copy.append(description);
+        }
+        input.addEventListener("change", () => {
+          const next = input.checked
+            ? [...currentSelected.filter((id) => !exclusiveIds.has(id)), option.id].slice(0, maxLength)
+            : currentSelected.filter((id) => id !== option.id);
+          currentSelected = next;
+          onChange(next, option.id);
+          if (!content.isConnected) return;
+          render(option.id);
+        });
+        label.append(input, copy);
+        row.append(label);
+        if (comments && input.checked) {
+          const label = document.createElement("label");
+          label.className = "feature-comment-label";
+          label.textContent = "この機能が役立っている理由や、今後も残してほしい点（任意）";
+          const comment = document.createElement("textarea");
+          comment.rows = 3;
+          comment.dataset.maxLength = String(commentMaxLength);
+          comment.setAttribute("aria-label", `${option.label}が役立っている理由（任意）`);
+          comment.value = comments[option.id] || "";
+          const count = document.createElement("span");
+          count.className = "hint comment-count";
+          const updateCount = () => {
+            const length = [...comment.value].length;
+            count.textContent = `${length} / ${commentMaxLength}文字`;
+            comment.setAttribute("aria-invalid", String(length > commentMaxLength));
+          };
+          comment.addEventListener("input", () => {
+            if (comment.value.trim()) comments[option.id] = comment.value;
+            else delete comments[option.id];
+            updateCount();
+            onComment();
+          });
+          updateCount();
+          label.append(comment, count);
+          row.append(label);
+        }
+        choices.append(row);
+      }
+      section.append(choices);
+      content.append(section);
+    }
+    const exclusive = document.createElement("section");
+    exclusive.className = "exclusive-option-section";
+    const heading = document.createElement("h3");
+    heading.textContent = "当てはまる機能がない場合";
+    const choices = document.createElement("div");
+    choices.className = "choice-grid";
+    for (const option of exclusiveOptions) {
+      const label = document.createElement("label");
+      label.className = "choice";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.name = fieldset.dataset.errorId;
+      input.value = option.id;
+      input.checked = currentSelected.includes(option.id);
+      input.addEventListener("change", () => {
+        const next = input.checked ? [option.id] : [];
+        currentSelected = next;
+        onChange(next, option.id);
+        if (!content.isConnected) return;
+        render(option.id);
+      });
+      label.append(input, document.createTextNode(option.label));
+      choices.append(label);
+    }
+    exclusive.append(heading, choices);
+    content.append(exclusive);
+    if (focusId && (normalIds.has(focusId) || exclusiveIds.has(focusId))) {
+      content.querySelector(`input[value="${CSS.escape(focusId)}"]`)?.focus();
+    }
+  };
+  v5ControlRoot(fieldset).append(content);
+  render();
+}
+
+function v5ReasonBoard(fieldset, voice, values, save) {
+  const featureById = new Map(voice.features.map((feature) => [feature.id, feature]));
+  const selectedIds = values.unused_features.filter((id) => featureById.has(id));
+  let activeFeatureId = "";
+  let lastMove = null;
+  const status = document.createElement("p");
+  status.className = "sr-only";
+  status.setAttribute("aria-live", "polite");
+  const board = document.createElement("div");
+  board.className = "reason-board";
+  const assign = (featureId, reasonId, focusReason = "") => {
+    if (!featureById.has(featureId) || !voice.unusedReasonOptions.some(({ id }) => id === reasonId)) return;
+    const previous = values.unused_feature_reason_by_feature[featureId] || "";
+    if (previous === reasonId) return;
+    lastMove = { featureId, previous };
+    values.unused_feature_reason_by_feature[featureId] = reasonId;
+    activeFeatureId = "";
+    save();
+    status.textContent = `${featureById.get(featureId).label}を「${voice.unusedReasonOptions.find(({ id }) => id === reasonId).label}」へ分類しました。`;
+    render(focusReason);
+  };
+  const featureChip = (featureId) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "reason-feature-chip";
+    button.dataset.featureId = featureId;
+    button.setAttribute("aria-pressed", String(activeFeatureId === featureId));
+    button.setAttribute("aria-label", `${featureById.get(featureId).label}。選択してから分類先を選べます`);
+    const copy = document.createElement("span");
+    copy.textContent = featureById.get(featureId).label;
+    const handle = document.createElement("span");
+    handle.className = "reason-drag-handle";
+    handle.draggable = true;
+    handle.setAttribute("aria-hidden", "true");
+    handle.textContent = "↕";
+    const description = document.createElement("span");
+    description.className = "sr-only";
+    description.id = `reason-feature-help-${featureId}`;
+    const currentReason = voice.unusedReasonOptions.find(({ id }) =>
+      id === values.unused_feature_reason_by_feature[featureId])?.label;
+    description.textContent = currentReason
+      ? `現在の分類は「${currentReason}」です。EnterまたはSpaceで選択し、分類先を選ぶと変更できます。Escapeで選択を解除できます。`
+      : "現在は未分類です。EnterまたはSpaceで選択し、続けて分類先を選んでください。Escapeで選択を解除できます。";
+    button.setAttribute("aria-describedby", description.id);
+    button.append(copy, handle, description);
+    let suppressClick = false;
+    button.addEventListener("click", () => {
+      if (suppressClick) {
+        suppressClick = false;
+        return;
+      }
+      activeFeatureId = activeFeatureId === featureId ? "" : featureId;
+      const selected = Boolean(activeFeatureId);
+      status.textContent = activeFeatureId
+        ? `${featureById.get(featureId).label}を選択しました。続けて分類先を選んでください。`
+        : "分類する機能の選択を解除しました。";
+      render();
+      if (selected) board.querySelector(".reason-assign-button:not(:disabled)")?.focus();
+      else board.querySelector(`[data-feature-id="${CSS.escape(featureId)}"]`)?.focus();
+    });
+    button.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        activeFeatureId = "";
+        render();
+        board.querySelector(`[data-feature-id="${CSS.escape(featureId)}"]`)?.focus();
+      }
+    });
+    handle.addEventListener("dragstart", (event) => {
+      activeFeatureId = featureId;
+      event.dataTransfer?.setData("text/plain", featureId);
+      event.dataTransfer?.setDragImage(button, 12, 12);
+      button.classList.add("dragging");
+    });
+    handle.addEventListener("dragend", () => button.classList.remove("dragging"));
+    let pointerStart = null;
+    const cancelPointerDrag = () => {
+      pointerStart = null;
+      button.classList.remove("dragging");
+      for (const bucket of board.querySelectorAll("[data-reason-id]")) bucket.classList.remove("drag-over");
+    };
+    handle.addEventListener("pointerdown", (event) => {
+      if (event.pointerType === "mouse") return;
+      pointerStart = { id: event.pointerId, x: event.clientX, y: event.clientY };
+      handle.setPointerCapture?.(event.pointerId);
+    });
+    handle.addEventListener("pointermove", (event) => {
+      if (!pointerStart || pointerStart.id !== event.pointerId) return;
+      if (Math.hypot(event.clientX - pointerStart.x, event.clientY - pointerStart.y) > 8) {
+        activeFeatureId = featureId;
+        button.classList.add("dragging");
+        for (const bucket of board.querySelectorAll("[data-reason-id]")) bucket.classList.remove("drag-over");
+        document.elementFromPoint(event.clientX, event.clientY)?.closest?.("[data-reason-id]")?.classList.add("drag-over");
+      }
+    });
+    handle.addEventListener("pointerup", (event) => {
+      if (!pointerStart || pointerStart.id !== event.pointerId) return;
+      const moved = button.classList.contains("dragging");
+      cancelPointerDrag();
+      if (!moved) return;
+      const reasonId = document.elementFromPoint(event.clientX, event.clientY)?.closest?.("[data-reason-id]")?.dataset.reasonId;
+      if (reasonId) {
+        suppressClick = true;
+        assign(featureId, reasonId, reasonId);
+      }
+    });
+    handle.addEventListener("pointercancel", () => {
+      const cancelled = Boolean(pointerStart) || button.classList.contains("dragging");
+      cancelPointerDrag();
+      if (cancelled) status.textContent = `${featureById.get(featureId).label}のドラッグをキャンセルしました。`;
+    });
+    return button;
+  };
+  const render = (focusReason = "") => {
+    board.replaceChildren();
+    const help = document.createElement("p");
+    help.className = "reason-help";
+    help.textContent = "機能を理由の枠へドラッグしてください。機能をタップしてから理由をタップする方法や、Tab・Enterキーでも分類できます。";
+    const unassigned = document.createElement("section");
+    unassigned.className = "reason-source";
+    const sourceHeading = document.createElement("h3");
+    const unassignedIds = selectedIds.filter((featureId) => !values.unused_feature_reason_by_feature[featureId]);
+    sourceHeading.textContent = `未分類 ${unassignedIds.length}件`;
+    const sourceList = document.createElement("div");
+    sourceList.className = "reason-chip-list";
+    for (const id of unassignedIds) {
+      sourceList.append(featureChip(id));
+    }
+    if (!sourceList.childElementCount) {
+      const done = document.createElement("p");
+      done.className = "reason-empty";
+      done.textContent = "すべて分類できました。";
+      sourceList.append(done);
+    }
+    unassigned.append(sourceHeading, sourceList);
+    const buckets = document.createElement("div");
+    buckets.className = "reason-buckets";
+    for (const reason of voice.unusedReasonOptions) {
+      const bucket = document.createElement("section");
+      bucket.className = "reason-bucket";
+      bucket.dataset.reasonId = reason.id;
+      bucket.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        bucket.classList.add("drag-over");
+      });
+      bucket.addEventListener("dragleave", () => bucket.classList.remove("drag-over"));
+      bucket.addEventListener("drop", (event) => {
+        event.preventDefault();
+        bucket.classList.remove("drag-over");
+        assign(event.dataTransfer?.getData("text/plain") || activeFeatureId, reason.id, reason.id);
+      });
+      const heading = document.createElement("h3");
+      const assignedIds = selectedIds.filter((featureId) => values.unused_feature_reason_by_feature[featureId] === reason.id);
+      heading.textContent = `${reason.label} (${assignedIds.length}件)`;
+      const assignButton = document.createElement("button");
+      assignButton.type = "button";
+      assignButton.className = "reason-assign-button";
+      assignButton.dataset.assignReasonId = reason.id;
+      assignButton.disabled = !activeFeatureId;
+      assignButton.textContent = activeFeatureId ? "選択中の機能をここへ移動" : "先に機能を選択";
+      assignButton.addEventListener("click", () => {
+        if (activeFeatureId) assign(activeFeatureId, reason.id, reason.id);
+      });
+      assignButton.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          const featureId = activeFeatureId;
+          activeFeatureId = "";
+          status.textContent = "分類する機能の選択を解除しました。";
+          render();
+          board.querySelector(`[data-feature-id="${CSS.escape(featureId)}"]`)?.focus();
+          return;
+        }
+        if (!["ArrowDown", "ArrowRight", "ArrowUp", "ArrowLeft"].includes(event.key)) return;
+        event.preventDefault();
+        const controls = [...board.querySelectorAll(".reason-assign-button")];
+        const delta = ["ArrowDown", "ArrowRight"].includes(event.key) ? 1 : -1;
+        controls[(controls.indexOf(assignButton) + delta + controls.length) % controls.length]?.focus();
+      });
+      const list = document.createElement("div");
+      list.className = "reason-chip-list";
+      for (const id of assignedIds) {
+        list.append(featureChip(id));
+      }
+      bucket.append(heading, assignButton, list);
+      buckets.append(bucket);
+    }
+    board.append(help, unassigned, buckets);
+    if (lastMove) {
+      const undo = document.createElement("button");
+      undo.type = "button";
+      undo.className = "text-button reason-undo";
+      undo.textContent = "直前の分類を元に戻す";
+      undo.addEventListener("click", () => {
+        const move = lastMove;
+        lastMove = null;
+        if (move.previous) values.unused_feature_reason_by_feature[move.featureId] = move.previous;
+        else delete values.unused_feature_reason_by_feature[move.featureId];
+        save();
+        status.textContent = "直前の分類を元に戻しました。";
+        render();
+      });
+      board.append(undo);
+    }
+    if (focusReason) board.querySelector(`[data-assign-reason-id="${CSS.escape(focusReason)}"]`)?.focus();
+  };
+  v5ControlRoot(fieldset).append(status, board);
+  render();
 }
 
 function v3ReviewRow(label, value) {
@@ -1176,7 +1796,7 @@ function buildVoiceV3Pages(slug, survey, values, submissionToken, rerender, {
           const hint = document.createElement("p");
           hint.className = "question-hint";
           hint.textContent = "最後に使った頃の印象でお答えください。";
-          satisfaction.append(hint);
+          v5ControlRoot(satisfaction).append(hint);
         }
         v3ChoiceGroup(satisfaction, "v3-satisfaction", voice.overallSatisfactionOptions, values.overall_satisfaction, (id) => change(() => {
           values.overall_satisfaction = id;
@@ -1193,7 +1813,7 @@ function buildVoiceV3Pages(slug, survey, values, submissionToken, rerender, {
       const hint = document.createElement("p");
       hint.className = "question-hint";
       hint.textContent = "PlayNavi以外での出来事でもかまいません。短いひとことで大丈夫です。";
-      field.append(hint);
+      v5ControlRoot(field).append(hint);
       voiceTextarea(field, values.unprompted_need, voice.unpromptedMaxLength, (value) => change(() => {
         values.unprompted_need = value;
       }));
@@ -1529,6 +2149,336 @@ function buildVoiceV4Pages(slug, survey, values, submissionToken, rerender) {
   });
 }
 
+function buildVoiceV5Pages(slug, survey, values, submissionToken, rerender) {
+  const { voice } = survey;
+  const save = () => saveVoiceV3Draft(slug, submissionToken, values, 5);
+  const change = (callback, { rebuild = false, previousPriority = values.future_priority } = {}) => {
+    callback();
+    pruneVoiceV5(voice, values, previousPriority);
+    save();
+    if (rebuild) rerender();
+  };
+  const note = (field, key) => v5OptionalNote(field, key, values, voice.answerNoteMaxLength, save);
+  const pages = [{
+    key: "intro",
+    render: (page) => {
+      const intro = pageIntro();
+      intro.querySelector("p").remove();
+      intro.querySelector("ul").replaceChildren();
+      const messages = survey.rewardEligible ? [
+        "匿名形式のアンケートです。（ログイン情報は、報酬付与の判定にのみ利用します）",
+        "回答内容にかかわらず、回答を送信すると報酬（称号）を受け取れます。",
+        "報酬は、アンケート回答終了後、数日以内に配布します。",
+      ] : [
+        "匿名形式のアンケートです。（PlayNaviのログイン情報は使用しません）",
+        "ゲスト回答では、報酬（称号）を受け取れません。",
+        "設問と回答内容の扱いは、アカウントで回答する場合と同じです。",
+      ];
+      for (const message of messages) {
+        const item = document.createElement("li");
+        item.textContent = message;
+        intro.querySelector("ul").append(item);
+      }
+      page.append(intro);
+    },
+    validate: () => [],
+  }, {
+    key: "play_segment",
+    render: (page) => {
+      page.append(voicePageTitle("最近のゲームプレイ"));
+      const frequency = voiceFieldset("play_frequency_1m", "直近1ヶ月間、ゲームで遊んだ頻度はどのくらいでしたか？", { className: "v5-question" });
+      v5ChoiceGroup(frequency, "v5-play-frequency", voice.playFrequencyOptions, values.play_frequency_1m, (id) => change(() => {
+        values.play_frequency_1m = id;
+      }, { rebuild: true }), ["unknown", "prefer_not"]);
+      note(frequency, "play_frequency_1m");
+      page.append(frequency);
+      if (playedInLastMonth(values.play_frequency_1m)) {
+        const device = voiceFieldset("primary_play_device_1m", "直近1ヶ月間、ゲームで最もよく使った機器はどれですか？", { className: "v5-question" });
+        v5ChoiceGroup(device, "v5-primary-device", voice.primaryDeviceOptions, values.primary_play_device_1m, (id) => change(() => {
+          values.primary_play_device_1m = id;
+        }), ["tie", "unknown", "prefer_not"]);
+        note(device, "primary_play_device_1m");
+        page.append(device);
+      }
+    },
+    validate: () => validateVoiceV5Answers(voice, values).missing.filter((id) => [
+      "reference_period_end_on", "play_frequency_1m", "primary_play_device_1m",
+    ].includes(id)),
+  }, {
+    key: "basic",
+    render: (page) => {
+      page.append(voicePageTitle("PlayNaviの利用状況"));
+      const usage = voiceFieldset("usage_1m", "直近1ヶ月間に、PlayNaviを使った日はどのくらいありましたか？", { className: "v5-question" });
+      v5ChoiceGroup(usage, "v5-usage", voice.usageOptions, values.usage_1m, (id) => change(() => {
+        values.usage_1m = id;
+      }, { rebuild: true }), ["unknown"]);
+      note(usage, "usage_1m");
+      page.append(usage);
+      if (values.usage_1m && values.usage_1m !== "never_used") {
+        const satisfaction = voiceFieldset("overall_satisfaction", "PlayNaviを利用したときの全体的な満足度を教えてください。", { className: "v5-question" });
+        if (values.usage_1m === "inactive_1m") {
+          const hint = document.createElement("p");
+          hint.className = "question-hint";
+          hint.textContent = "最後に利用したときの印象でお答えください。";
+          satisfaction.append(hint);
+        }
+        v5ChoiceGroup(satisfaction, "v5-satisfaction", voice.overallSatisfactionOptions, values.overall_satisfaction, (id) => change(() => {
+          values.overall_satisfaction = id;
+        }), ["unknown"]);
+        note(satisfaction, "overall_satisfaction");
+        page.append(satisfaction);
+      }
+    },
+    validate: () => validateVoiceV5Answers(voice, values).missing.filter((id) => ["usage_1m", "overall_satisfaction"].includes(id)),
+  }, {
+    key: "unprompted",
+    render: (page) => {
+      page.append(voicePageTitle("ゲームについて感じていること"));
+      const field = voiceFieldset("unprompted_need", "ゲームを楽しむなかで、「こうできたらもっとよいのに」と感じることがあれば教えてください。（任意）", { required: false, className: "v5-question" });
+      const hint = document.createElement("p");
+      hint.className = "question-hint";
+      hint.textContent = "PlayNavi以外についてでもかまいません。思いつかなければ、空欄のまま次へ進めます。";
+      field.append(hint);
+      voiceTextarea(field, values.unprompted_need, voice.unpromptedMaxLength, (value) => change(() => { values.unprompted_need = value; }));
+      page.append(field);
+    },
+    validate: () => [],
+  }, {
+    key: "style_segment",
+    render: (page) => {
+      page.append(voicePageTitle("ゲーム情報と記録"));
+      const info = voiceFieldset("info_seek_days_1m", "直近1ヶ月間に、ゲームの情報を自分から見に行った日は、どのくらいありましたか？", { className: "v5-question" });
+      const hint = document.createElement("p");
+      hint.className = "question-hint";
+      hint.textContent = "記事、紹介動画、SNSの投稿などを、自分から見た日についてお答えください。";
+      v5ControlRoot(info).append(hint);
+      v5ChoiceGroup(info, "v5-info-seeking", voice.infoSeekOptions, values.info_seek_days_1m, (id) => change(() => {
+        values.info_seek_days_1m = id;
+      }), ["unknown", "prefer_not"]);
+      note(info, "info_seek_days_1m");
+      const record = voiceFieldset("recording_preference", "遊んだゲームについて、どの程度の記録を残したいですか？", { className: "v5-question" });
+      v5ChoiceGroup(record, "v5-record-detail", voice.recordingPreferenceOptions, values.recording_preference, (id) => change(() => {
+        values.recording_preference = id;
+      }), ["unknown", "prefer_not"]);
+      note(record, "recording_preference");
+      page.append(info, record);
+    },
+    validate: () => validateVoiceV5Answers(voice, values).missing.filter((id) => ["info_seek_days_1m", "recording_preference"].includes(id)),
+  }];
+
+  const hasExperience = Boolean(values.usage_1m) && values.usage_1m !== "never_used";
+  const featureGroups = () => voice.categories.map((category) => ({
+    id: category.id,
+    label: category.label,
+    options: [...category.features].sort((left, right) =>
+      values.feature_display_order.indexOf(left.id) - values.feature_display_order.indexOf(right.id)),
+  }));
+  if (hasExperience) pages.push({
+    key: "valuable",
+    render: (page) => {
+      page.append(voicePageTitle("役立っている機能"));
+      const field = voiceFieldset("valuable_features", "現在のPlayNaviで、役に立っている、または今後も使いたい機能をすべて選んでください。", { className: "v5-question" });
+      v5FeatureSelection(field, featureGroups(), voice.q4ExclusiveOptions, values.valuable_features, {
+        comments: values.valuable_feature_reasons,
+        commentMaxLength: voice.valuableReasonMaxLength,
+        onChange: (next) => change(() => { values.valuable_features = next; }),
+        onComment: save,
+      });
+      note(field, "valuable_features");
+      page.append(field);
+    },
+    validate: () => validateVoiceV5Answers(voice, values).missing.filter((id) => id === "valuable_features"),
+  }, {
+    key: "unused",
+    render: (page) => {
+      page.append(voicePageTitle("あまり使っていない機能"));
+      const field = voiceFieldset("unused_features", "現在のPlayNaviで、あまり使っていない機能をすべて選んでください。", { className: "v5-question" });
+      const hint = document.createElement("p");
+      hint.className = "question-hint";
+      hint.textContent = "選んだ機能について、次の画面で使っていない理由を伺います。";
+      v5ControlRoot(field).append(hint);
+      const unusedExclusiveOptions = voice.q4ExclusiveOptions.map((option) => option.id === "none"
+        ? { ...option, label: "あまり使っていない機能はない" }
+        : option);
+      v5FeatureSelection(field, featureGroups(), unusedExclusiveOptions, values.unused_features, {
+        onChange: (next) => change(() => { values.unused_features = next; }),
+        onComment: save,
+      });
+      if (!values.unused_features.some((id) => voice.features.some((feature) => feature.id === id))) note(field, "unused_features");
+      page.append(field);
+    },
+    validate: () => validateVoiceV5Answers(voice, values).missing.filter((id) => id === "unused_features"),
+  });
+
+  const unusedFeatureIds = values.unused_features.filter((id) => voice.features.some((feature) => feature.id === id));
+  if (hasExperience && unusedFeatureIds.length) pages.push({
+    key: "unused_reasons",
+    render: (page) => {
+      page.append(voicePageTitle("使っていない理由"));
+      const field = voiceFieldset("unused_reasons", "選んだ機能を、もっとも近い理由へ振り分けてください。", { className: "v5-question" });
+      v5ReasonBoard(field, voice, values, save);
+      v5OptionalNote(field, "unused_features", values, voice.answerNoteMaxLength, save, {
+        summaryText: "あまり使っていない機能や、その理由について補足があれば教えてください。（任意）",
+      });
+      page.append(field);
+    },
+    validate: () => validateVoiceV5Answers(voice, values).missing.filter((id) => id === "unused_reasons"),
+  });
+
+  if (hasExperience) pages.push({
+    key: "problem",
+    render: (page) => {
+      const dormant = values.usage_1m === "inactive_1m";
+      page.append(voicePageTitle(dormant ? "最近使っていない理由" : "改善してほしいこと"));
+      if (dormant) {
+        const field = voiceFieldset("dormant_reason", "直近1ヶ月間、PlayNaviを使わなかった主な理由を1つ選んでください。", { className: "v5-question" });
+        v5ChoiceGroup(field, "v5-dormant", voice.dormantReasonOptions, values.dormant_reason, (id) => change(() => { values.dormant_reason = id; }), ["other", "none", "unknown"]);
+        v5OptionalNote(field, "dormant_reason", values, voice.answerNoteMaxLength, save, {
+          summaryText: "選んだ内容について、具体的に伝えたいことがあれば教えてください。（任意）",
+        });
+        page.append(field);
+      } else {
+        const field = voiceFieldset("primary_problem", "PlayNaviで、いま最も改善してほしいことを1つ選んでください。", { className: "v5-question" });
+        v5ChoiceGroup(field, "v5-problem", voice.problemOptions, values.primary_problem, (id) => change(() => {
+          values.primary_problem = id;
+          values.improvement_vs_candidate = "";
+        }, { rebuild: true }), ["other", "none", "unknown"]);
+        v5OptionalNote(field, "primary_problem", values, voice.answerNoteMaxLength, save, {
+          summaryText: "選んだ内容について、具体的に伝えたいことがあれば教えてください。（任意）",
+        });
+        page.append(field);
+      }
+    },
+    validate: () => validateVoiceV5Answers(voice, values).missing.filter((id) => ["primary_problem", "dormant_reason"].includes(id)),
+  });
+  if (hasExperience && values.usage_1m !== "inactive_1m" && concreteProblem(values.primary_problem)) pages.push({
+    key: "outcome",
+    render: (page) => {
+      page.append(voicePageTitle("困りごとがあったときの行動"));
+      const field = voiceFieldset("problem_outcome", "その問題があったとき、最終的にどうしましたか？", { className: "v5-question" });
+      v5ChoiceGroup(field, "v5-outcome", voice.problemOutcomeOptions, values.problem_outcome, (id) => change(() => { values.problem_outcome = id; }), ["forgot"]);
+      note(field, "problem_outcome");
+      page.append(field);
+    },
+    validate: () => validateVoiceV5Answers(voice, values).missing.filter((id) => id === "problem_outcome"),
+  });
+
+  pages.push({
+    key: "future_role",
+    render: (page) => {
+      page.append(voicePageTitle("これから期待する役割"));
+      const field = voiceFieldset("future_role", "これからのPlayNaviに、最も期待する役割を1つ選んでください。", { className: "v5-question" });
+      v5ChoiceGroup(field, "v5-future-role", voice.futureRoleOptions, values.future_role, (id) => change(() => {
+        values.future_role = id;
+      }, { rebuild: true }), ["other", "no_expectation", "current_is_fine", "unknown"]);
+      note(field, "future_role");
+      if (values.future_role === "other") {
+        const other = voiceFieldset("future_role_other", "その他の内容（任意）", { required: false, className: "v5-question" });
+        voiceTextarea(other, values.future_role_other, voice.otherMaxLength, (value) => change(() => { values.future_role_other = value; }));
+        page.append(field, other);
+      } else page.append(field);
+    },
+    validate: () => validateVoiceV5Answers(voice, values).missing.filter((id) => id === "future_role"),
+  }, {
+    key: "future_candidates",
+    render: (page) => {
+      page.append(voicePageTitle("追加・強化してほしい機能", "次は、PlayNaviで検討している機能です。実現方法や提供時期は決まっていません。"));
+      const field = voiceFieldset("future_candidates", "今後、追加・強化されたら使ってみたいものを、3つまで選んでください。", { className: "v5-question" });
+      const ordered = values.future_display_order.map((id) => voice.futureOptions.find((option) => option.id === id));
+      v5FeatureSelection(field, [{ id: "future", label: "", options: [...ordered, {
+        id: "other", label: "このほかに希望がある", description: "内容の記入は任意です",
+      }] }], voice.futureExclusiveOptions, values.future_candidates, {
+        maxLength: voice.futureCandidateMax,
+        onChange: (next) => change(() => { values.future_candidates = next; }, { rebuild: true }),
+        onComment: save,
+      });
+      note(field, "future_candidates");
+      page.append(field);
+      if (values.future_candidates.includes("other")) {
+        const other = voiceFieldset("future_other", "このほかの希望（任意）", { required: false, className: "v5-question" });
+        voiceTextarea(other, values.future_other, voice.otherMaxLength, (value) => change(() => { values.future_other = value; }));
+        page.append(other);
+      }
+    },
+    validate: () => validateVoiceV5Answers(voice, values).missing.filter((id) => id === "future_candidates"),
+  });
+
+  const futureIds = new Set(voice.futureOptions.map(({ id }) => id));
+  const rankable = values.future_candidates.filter((id) => futureIds.has(id) || id === "other");
+  if (rankable.length) pages.push({
+    key: "future_priority_detail",
+    render: (page) => {
+      page.append(voicePageTitle("期待する機能について"));
+      if (rankable.length > 1) {
+        const priority = voiceFieldset("future_priority", "選んだ候補のうち、最も期待するものを1つ選んでください。", { className: "v5-question" });
+        const options = rankable.map((id) => id === "other" ? { id, label: "このほかの希望" } : voice.futureOptions.find((option) => option.id === id));
+        v5ChoiceGroup(priority, "v5-priority", options, values.future_priority, (id) => change(() => {
+          values.future_priority = id;
+          values.future_priority_mode = "explicit";
+        }, { rebuild: true, previousPriority: values.future_priority }));
+        note(priority, "future_priority");
+        page.append(priority);
+      }
+      if (values.future_priority === "other") {
+        const other = voiceFieldset("future_detail_other", "希望する内容があれば教えてください。（任意）", { required: false, className: "v5-question" });
+        voiceTextarea(other, values.future_detail_other || values.future_other, voice.otherMaxLength, (value) => change(() => { values.future_detail_other = value; }));
+        page.append(other);
+      } else {
+        const detail = voice.futureDetailOptions[values.future_priority];
+        if (detail) {
+          const a = voiceFieldset("future_detail_a", detail.aPrompt, { required: false, className: "v5-question" });
+          v5ChoiceGroup(a, "v5-detail-a", detail.aOptions, values.future_detail_a, (id) => change(() => { values.future_detail_a = id; }), ["other", "unknown", "none", "forgot", "never"]);
+          note(a, "future_detail_a");
+          const b = voiceFieldset("future_detail_b", detail.bPrompt, { required: false, className: "v5-question" });
+          v5ChoiceGroup(b, "v5-detail-b", detail.bOptions, values.future_detail_b, (id) => change(() => { values.future_detail_b = id; }), ["other", "unknown", "none", "forgot", "never"]);
+          note(b, "future_detail_b");
+          page.append(a, b);
+        }
+      }
+    },
+    validate: () => validateVoiceV5Answers(voice, values).missing.filter((id) => ["future_priority"].includes(id)),
+  });
+
+  const compareRequired = ["days_15_plus", "days_5_14", "days_1_4"].includes(values.usage_1m) &&
+    concreteProblem(values.primary_problem) && futureIds.has(values.future_priority);
+  if (compareRequired) pages.push({
+    key: "compare",
+    render: (page) => {
+      page.append(voicePageTitle("どちらを優先してほしいですか？"));
+      const problem = voice.problemOptions.find((option) => option.id === values.primary_problem)?.label || "現在の問題";
+      const candidate = voice.futureOptions.find((option) => option.id === values.future_priority)?.label || "新しい機能";
+      const field = voiceFieldset("improvement_vs_candidate", "次の2つでは、どちらを先に進めてほしいですか？", { className: "v5-question" });
+      v5ChoiceGroup(field, "v5-comparison", [
+        { id: "improvement", label: `「${problem}」を改善する` },
+        { id: "candidate", label: `「${candidate}」を追加・強化する` },
+        { id: "tie", label: "どちらともいえない" },
+      ], values.improvement_vs_candidate, (id) => change(() => { values.improvement_vs_candidate = id; }), ["tie"]);
+      note(field, "improvement_vs_candidate");
+      page.append(field);
+    },
+    validate: () => validateVoiceV5Answers(voice, values).missing.filter((id) => id === "improvement_vs_candidate"),
+  });
+  pages.push({
+    key: "review",
+    render: (page) => {
+      page.append(voicePageTitle("回答内容の確認", "修正する場合は「戻る」から各質問へ戻れます。"));
+      const review = document.createElement("section");
+      review.className = "review-card question-card";
+      const noteCopy = document.createElement("p");
+      noteCopy.textContent = "「回答を送信」を押すまで、回答はサーバーへ送信されません。";
+      const privacy = document.createElement("p");
+      privacy.className = "privacy-note";
+      privacy.textContent = survey.rewardEligible
+        ? "ログイン情報は称号付与の判定にだけ使い、回答本体へ保存しません。"
+        : "ゲスト回答では称号を受け取れません。回答本体にログイン情報は含まれません。";
+      review.append(noteCopy, privacy);
+      page.append(review);
+    },
+    validate: () => [],
+  });
+  return pages;
+}
+
 function createVoiceV3Controller(slug, survey, values, submissionToken, {
   buildPages = buildVoiceV3Pages,
   pruneAnswers = pruneVoiceV3,
@@ -1546,7 +2496,7 @@ function createVoiceV3Controller(slug, survey, values, submissionToken, {
     if (current < 0) current = 0;
     currentKey = pages[current].key;
     const container = document.createElement("section");
-    container.className = "survey-step-page voice-step-page reviewed-voice-step";
+    container.className = `survey-step-page voice-step-page reviewed-voice-step schema-v${schemaVersion}-step`;
     container.dataset.step = currentKey;
     pages[current].render(container);
     elements.questions.replaceChildren(container);
@@ -1570,6 +2520,15 @@ function createVoiceV3Controller(slug, survey, values, submissionToken, {
     });
     elements.back.onclick = () => render(pages[Math.max(0, current - 1)].key);
     elements.next.onclick = () => {
+      const invalidText = schemaVersion === 5
+        ? elements.questions.querySelector('textarea[aria-invalid="true"]')
+        : null;
+      if (invalidText) {
+        elements.error.textContent = "自由記述は400文字以内で入力してください。";
+        setVisible(elements.error, true);
+        invalidText.focus();
+        return;
+      }
       const missing = pages[current].validate();
       markVoiceMissing(missing);
       if (missing.length) {
@@ -1602,6 +2561,15 @@ function createVoiceV4Controller(slug, survey, values, submissionToken) {
     buildPages: buildVoiceV4Pages,
     pruneAnswers: pruneVoiceV4,
     schemaVersion: 4,
+    fallbackPageKey: "play_segment",
+  });
+}
+
+function createVoiceV5Controller(slug, survey, values, submissionToken) {
+  return createVoiceV3Controller(slug, survey, values, submissionToken, {
+    buildPages: buildVoiceV5Pages,
+    pruneAnswers: pruneVoiceV5,
+    schemaVersion: 5,
     fallbackPageKey: "play_segment",
   });
 }
@@ -1846,9 +2814,30 @@ async function submitVoiceV4Survey(slug, survey, values, controller, submissionT
   });
 }
 
+async function submitVoiceV5Survey(slug, survey, values, controller, submissionToken) {
+  return submitVoiceV3Survey(slug, survey, values, controller, submissionToken, {
+    pruneAnswers: pruneVoiceV5,
+    validateAnswers: validateVoiceV5Answers,
+    fallbackErrorId: "play_frequency_1m",
+  });
+}
+
 function showSurveyForm(slug, survey) {
   hideStates();
+  elements.view?.classList.toggle("survey-schema-v5", survey.schemaVersion === 5);
   setPage({ title: survey.title, description: survey.description });
+  if (survey.schemaVersion === 5) {
+    const { values, submissionToken } = voiceV5Values(slug, survey.voice);
+    pruneVoiceV5(survey.voice, values);
+    saveVoiceV3Draft(slug, submissionToken, values, 5);
+    const controller = createVoiceV5Controller(slug, survey, values, submissionToken);
+    elements.form.onsubmit = (event) => {
+      event.preventDefault();
+      submitVoiceV5Survey(slug, survey, values, controller, submissionToken);
+    };
+    setVisible(elements.form, true);
+    return;
+  }
   if (survey.schemaVersion === 4) {
     const { values, submissionToken } = voiceV3Values(slug, survey.voice, 4);
     pruneVoiceV4(survey.voice, values);
