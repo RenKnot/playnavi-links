@@ -235,6 +235,27 @@ v2, and v3 regression tests. Deploy Web, Edge, and the inactive v4 campaign in
 a coordinated staging window; stop if any layer reports a different definition
 key, answer key, stable option ID, schema version, or slug.
 
+### Verified v4 deployment state on 2026-09-07
+
+- Web PR #9 was merged to `main` as
+  `1da00c5392bba65cd6740104bc7e672ffc43bdc4`.
+- The schema-v4 staging one-shot passed and
+  `playnavi-voice-2026-stg-review-v2` is active with the staging title and a
+  controlled seven-day window. Do not rerun the one-shot; change activation or
+  the window only through a separately reviewed staging operation.
+- All six Survey Edge Functions were redeployed to staging from merged `main`.
+- The fixed staging host serves `survey-contract.mjs` and `survey-app.mjs`
+  byte-for-byte identical to merged `main`.
+- A live Android-width guest flow completed successfully with exactly 27 answer
+  keys, no `user_id`, no horizontal overflow, and the temporary session cookie
+  removed after completion.
+- Human Google, Apple, and app-handoff E2E remain pending. Schema v4 changed only
+  Web and Backend code, so a new native staging build is unnecessary; use the
+  existing staging app for the handoff check.
+- The production Web static assets were automatically deployed by the merge,
+  but production DB, Edge, and campaign are absent. The production Survey API
+  returns 503 and the URL must remain unadvertised.
+
 ## External authentication setup
 
 1. Register exact callback `https://links.playnavilab.com/api/auth/callback`
@@ -272,10 +293,12 @@ npm test
 npm run validate:android
 ```
 
-Deploy in this order: Backend schema/RPC and Supabase Functions first, then the
-Web client, then create and activate a new schema-v3 staging slug. A v3 slug
-must never be exposed while either side still rejects its contract. Use an
-isolated Preview and do not use a production handoff code in Preview.
+For a new schema, deploy in this order: Backend schema/RPC and Supabase
+Functions first, then the Web client, then create and activate a new
+schema-specific staging slug. A slug must never be exposed while either side
+still rejects its contract. Schema v4 has completed these staging deployment
+steps; do not replay them. Use the fixed staging host and do not use a
+production handoff code in staging.
 
 Test all of the following before production promotion:
 
