@@ -115,7 +115,11 @@ X-PlayNavi-Web-Secret: <independent 256-bit broker secret>
 
 The privileged Supabase function exact-matches
 `auth.identities(provider, provider_id)` and an active PlayNavi profile. It
-does not create a user and never merges on email. Only `session_token` is set
+does not create a user and never merges on email. Active means the matched Auth
+account is neither deleted nor currently suspended and its non-deleted
+`public.users` row has the nonempty trimmed display name required by the App's
+registration-completion gate. An Auth identity alone is rejected with the same
+generic login failure as every other non-member case. Only `session_token` is set
 for at most 60 minutes as
 `__Host-pn_survey_session; Secure; HttpOnly; SameSite=Lax; Path=/`. Read and
 submit send it server-to-server as `X-PlayNavi-Survey-Session`; it is never
@@ -234,6 +238,69 @@ the fixed-period reload test, S2 pruning, the exact 27-key payload, and all v1,
 v2, and v3 regression tests. Deploy Web, Edge, and the inactive v4 campaign in
 a coordinated staging window; stop if any layer reports a different definition
 key, answer key, stable option ID, schema version, or slug.
+
+### PlayNavi Voice revised monthly schema v6
+
+Schema v6 is an additive presentation revision of the frozen schema-v5 monthly
+campaign. It reuses the exact schema-v5 question definition, 29-key answer
+object, validation, normalization, aggregation, anonymous response storage,
+and reward separation. Existing schema-v5 surveys and their rendered flow must
+not change.
+
+The schema-v6 browser flow intentionally differs only in these ways:
+
+- optional question notes are visible immediately instead of using disclosure
+  controls;
+- selected valuable-feature comments appear together in a second section below
+  the complete feature list;
+- unused-feature selection, one required reason radio group per selected
+  feature, and the optional overall note share one page; no drag-and-drop board
+  or separate reason page is rendered;
+- `problem_outcome` remains a child of `primary_problem` and appears as the
+  second section on that page; it is not redefined as a child of the unrelated
+  optional `unprompted_need` question;
+- the completion screen uses the reviewed concise copy and does not display the
+  awarded-title panel.
+
+An authenticated campaign response is accepted once per `(survey_id, user_id)`
+by atomically consulting the separate reward-claim ledger. The answer row still
+contains no UID and has no key that joins it to the reward claim. A later read
+returns only an `already_submitted` marker, never the previous answers. A guest
+cannot be identified as a person, so guest submission-token idempotency remains
+the applicable boundary; strict person-level one-response enforcement requires
+authentication.
+
+Create schema v6 under a new slug while inactive, deploy Backend support before
+Web support, then atomically switch the staging announcement only after the v6
+read, submit, completion, and already-answered paths pass. Never mutate or
+delete the answered schema-v5 row.
+
+### PlayNavi Voice final free-text schema v7
+
+Schema v7 is a new physical survey revision. It preserves every schema-v1–v6
+definition and stored response, removes `problem_outcome` and its nested note
+from the exact answer shape, and omits `problem_outcome_options` from the public
+question definition. Immediately before review it adds the optional
+`final_comment` question with the exact reviewed Japanese copy and a 2,000
+Unicode-code-point limit. The definition declares
+`kind=playnavi_voice_2026_reviewed_final` and
+`final_comment_max_length=2000`; Web must reject any mismatch rather than
+guessing the revision from labels.
+
+All physical revisions of this questionnaire share a durable
+`response_group_id`. Authenticated read and submit therefore return the
+answer-free `already_submitted` result when that UID already has a reward claim
+for any earlier revision in the group. Unrelated surveys use different groups
+and remain independently answerable. The existing `public.users` row lock
+serializes submissions across two revision slugs. Guest token idempotency is
+unchanged because a guest has no durable person identifier.
+
+Create v7 inactive, deploy matching Backend and Web support, verify the exact
+key set plus 2,000/2,001-code-point boundaries, then switch the staging
+announcement atomically. Do not mutate, copy, or delete an earlier response or
+reward claim to test v7. A person who already answered an earlier revision must
+use another registered staging account for the new-answer E2E; use the original
+account only to verify the cross-revision `already_submitted` path.
 
 ### Verified v4 deployment state on 2026-09-07
 

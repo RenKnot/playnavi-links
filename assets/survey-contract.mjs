@@ -3,6 +3,13 @@ const VOICE_KIND = "playnavi_voice_2026";
 const VOICE_V3_KIND = "playnavi_voice_2026_reviewed";
 const VOICE_V4_KIND = "playnavi_voice_2026_reviewed_segments";
 const VOICE_V5_KIND = "playnavi_voice_2026_reviewed_monthly";
+const VOICE_V7_KIND = "playnavi_voice_2026_reviewed_final";
+const LEGACY_PROBLEM_OUTCOME_OPTIONS = [
+  { id: "completed", label: "そのまま目的を達成できた" },
+  { id: "alternative", label: "別の方法やサービスを使った" },
+  { id: "abandoned", label: "途中でやめた" },
+  { id: "forgot", label: "覚えていない" },
+];
 const VOICE_ANSWER_KEYS = [
   "usage_frequency",
   "overall_satisfaction",
@@ -96,6 +103,10 @@ export const VOICE_V5_ANSWER_KEYS = [
   "feature_display_order",
   "future_display_order",
   "answer_notes",
+];
+export const VOICE_V7_ANSWER_KEYS = [
+  ...VOICE_V5_ANSWER_KEYS.filter((key) => key !== "problem_outcome"),
+  "final_comment",
 ];
 const ID_PATTERN = /^[a-z][a-z0-9_]{0,39}$/;
 const VOICE_V3_STABLE_IDS = {
@@ -514,6 +525,32 @@ function normalizeVoiceV5Definition(questions) {
   };
 }
 
+function normalizeVoiceV7Definition(questions) {
+  if (!questions || typeof questions !== "object" || Array.isArray(questions)) return null;
+  const definitionKeys = [
+    ...VOICE_V5_DEFINITION_KEYS.filter((key) => key !== "problem_outcome_options"),
+    "final_comment_max_length",
+  ];
+  if (
+    !hasOnlyKeys(questions, definitionKeys) ||
+    Object.keys(questions).length !== definitionKeys.length ||
+    questions.kind !== VOICE_V7_KIND || questions.final_comment_max_length !== 2_000
+  ) return null;
+  const { final_comment_max_length: _finalCommentMaxLength, ...baseQuestions } = questions;
+  const base = normalizeVoiceV5Definition({
+    ...baseQuestions,
+    kind: VOICE_V5_KIND,
+    problem_outcome_options: LEGACY_PROBLEM_OUTCOME_OPTIONS,
+  });
+  if (!base) return null;
+  return {
+    ...base,
+    kind: VOICE_V7_KIND,
+    finalCommentMaxLength: 2_000,
+    answerNoteKeys: VOICE_V5_ANSWER_NOTE_KEYS.filter((key) => key !== "problem_outcome"),
+  };
+}
+
 function normalizeVoiceDefinition(questions) {
   if (!questions || typeof questions !== "object" || Array.isArray(questions)) return null;
   if (!hasOnlyKeys(questions, [
@@ -593,8 +630,40 @@ export function parseSurveyRead(payload, expectedSlug) {
   if (payload.status !== "ok" || !payload.survey || payload.survey.slug !== expectedSlug) {
     throw new SurveyContractError("invalid survey status");
   }
-  if (![undefined, 1, 2, 3, 4, 5].includes(payload.survey.schema_version)) {
+  if (![undefined, 1, 2, 3, 4, 5, 6, 7].includes(payload.survey.schema_version)) {
     throw new SurveyContractError("unsupported schema version");
+  }
+  if (payload.survey.schema_version === 7) {
+    const voice = normalizeVoiceV7Definition(payload.survey.questions);
+    if (!voice) throw new SurveyContractError("invalid final monthly voice questions");
+    return {
+      status: payload.response ? "already_answered" : "ok",
+      schemaVersion: 7,
+      title: text(payload.survey.title, 500),
+      description: typeof payload.survey.description === "string"
+        ? payload.survey.description.slice(0, 2_000)
+        : "",
+      voice,
+      rewardEligible: payload.survey.reward !== null && payload.survey.reward !== undefined,
+      titleName: payload.response ? text(payload.survey.reward?.name_ja, 200) : null,
+      titleAwarded: false,
+    };
+  }
+  if (payload.survey.schema_version === 6) {
+    const voice = normalizeVoiceV5Definition(payload.survey.questions);
+    if (!voice) throw new SurveyContractError("invalid revised monthly voice questions");
+    return {
+      status: payload.response ? "already_answered" : "ok",
+      schemaVersion: 6,
+      title: text(payload.survey.title, 500),
+      description: typeof payload.survey.description === "string"
+        ? payload.survey.description.slice(0, 2_000)
+        : "",
+      voice,
+      rewardEligible: payload.survey.reward !== null && payload.survey.reward !== undefined,
+      titleName: payload.response ? text(payload.survey.reward?.name_ja, 200) : null,
+      titleAwarded: false,
+    };
   }
   if (payload.survey.schema_version === 5) {
     const voice = normalizeVoiceV5Definition(payload.survey.questions);
@@ -690,7 +759,7 @@ export function parseSurveyPreview(payload, expectedSlug) {
   const survey = payload.survey;
   const title = survey?.slug === expectedSlug ? text(survey.title, 120) : null;
   if (!title || !hasOnlyKeys(survey, ["slug", "title", "description", "schema_version"]) ||
-    ![undefined, 1, 2, 3, 4, 5].includes(survey.schema_version)) {
+    ![undefined, 1, 2, 3, 4, 5, 6, 7].includes(survey.schema_version)) {
     throw new SurveyContractError("invalid survey preview");
   }
   return {
@@ -698,7 +767,7 @@ export function parseSurveyPreview(payload, expectedSlug) {
     description: typeof survey.description === "string"
       ? survey.description.slice(0, 2_000)
       : "",
-    ...(survey.schema_version === 5 ? { schemaVersion: 5 } : {}),
+    ...([5, 6, 7].includes(survey.schema_version) ? { schemaVersion: survey.schema_version } : {}),
   };
 }
 
@@ -1119,6 +1188,33 @@ export function validateVoiceV5Answers(voice, rawValues) {
     answers.answer_notes[key] = activeNotes.has(key) && note ? note : "";
   }
   return { answers, missing: [...new Set(missing)], structurallyInvalid };
+}
+
+export function validateVoiceV7Answers(voice, rawValues) {
+  const values = objectValue(rawValues);
+  const hasExactContract = Object.keys(values).length === VOICE_V7_ANSWER_KEYS.length &&
+    exactKeys(values, VOICE_V7_ANSWER_KEYS);
+  const noteValues = objectValue(values.answer_notes);
+  const hasExactNotes = Object.keys(noteValues).length === voice.answerNoteKeys.length &&
+    exactKeys(noteValues, voice.answerNoteKeys);
+  const hasConcreteProblem = typeof values.primary_problem === "string" &&
+    !["", "none", "unknown"].includes(values.primary_problem) && values.usage_1m !== "inactive_1m";
+  const legacyValues = {
+    ...values,
+    problem_outcome: hasConcreteProblem ? voice.problemOutcomeOptions[0].id : "",
+    answer_notes: { ...noteValues, problem_outcome: "" },
+  };
+  delete legacyValues.final_comment;
+  const legacy = validateVoiceV5Answers(voice, legacyValues);
+  const finalComment = cleanVoiceV5Text(values.final_comment, voice.finalCommentMaxLength);
+  const answers = { ...legacy.answers, final_comment: finalComment || "" };
+  delete answers.problem_outcome;
+  delete answers.answer_notes.problem_outcome;
+  return {
+    answers,
+    missing: legacy.missing.filter((key) => key !== "problem_outcome"),
+    structurallyInvalid: legacy.structurallyInvalid || !hasExactContract || !hasExactNotes || finalComment === null,
+  };
 }
 
 export function updateOrderedSelection(current, index, value, maxLength) {
