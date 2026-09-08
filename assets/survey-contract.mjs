@@ -593,8 +593,24 @@ export function parseSurveyRead(payload, expectedSlug) {
   if (payload.status !== "ok" || !payload.survey || payload.survey.slug !== expectedSlug) {
     throw new SurveyContractError("invalid survey status");
   }
-  if (![undefined, 1, 2, 3, 4, 5].includes(payload.survey.schema_version)) {
+  if (![undefined, 1, 2, 3, 4, 5, 6].includes(payload.survey.schema_version)) {
     throw new SurveyContractError("unsupported schema version");
+  }
+  if (payload.survey.schema_version === 6) {
+    const voice = normalizeVoiceV5Definition(payload.survey.questions);
+    if (!voice) throw new SurveyContractError("invalid revised monthly voice questions");
+    return {
+      status: payload.response ? "already_answered" : "ok",
+      schemaVersion: 6,
+      title: text(payload.survey.title, 500),
+      description: typeof payload.survey.description === "string"
+        ? payload.survey.description.slice(0, 2_000)
+        : "",
+      voice,
+      rewardEligible: payload.survey.reward !== null && payload.survey.reward !== undefined,
+      titleName: payload.response ? text(payload.survey.reward?.name_ja, 200) : null,
+      titleAwarded: false,
+    };
   }
   if (payload.survey.schema_version === 5) {
     const voice = normalizeVoiceV5Definition(payload.survey.questions);
@@ -690,7 +706,7 @@ export function parseSurveyPreview(payload, expectedSlug) {
   const survey = payload.survey;
   const title = survey?.slug === expectedSlug ? text(survey.title, 120) : null;
   if (!title || !hasOnlyKeys(survey, ["slug", "title", "description", "schema_version"]) ||
-    ![undefined, 1, 2, 3, 4, 5].includes(survey.schema_version)) {
+    ![undefined, 1, 2, 3, 4, 5, 6].includes(survey.schema_version)) {
     throw new SurveyContractError("invalid survey preview");
   }
   return {
@@ -698,7 +714,7 @@ export function parseSurveyPreview(payload, expectedSlug) {
     description: typeof survey.description === "string"
       ? survey.description.slice(0, 2_000)
       : "",
-    ...(survey.schema_version === 5 ? { schemaVersion: 5 } : {}),
+    ...([5, 6].includes(survey.schema_version) ? { schemaVersion: survey.schema_version } : {}),
   };
 }
 

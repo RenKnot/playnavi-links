@@ -76,8 +76,9 @@ function hideStates() {
 
 function showLogin(slug, preview, failed = false) {
   hideStates();
-  const isVoiceV5 = preview?.schemaVersion === 5;
+  const isVoiceV5 = [5, 6].includes(preview?.schemaVersion);
   elements.view?.classList.toggle("survey-schema-v5", isVoiceV5);
+  elements.view?.classList.toggle("survey-schema-v6", preview?.schemaVersion === 6);
   const notice = elements.login?.querySelector(".login-notice");
   elements.login?.querySelector(".login-heading")?.remove();
   if (notice) {
@@ -166,9 +167,19 @@ function showResult(result) {
   hideStates();
   const closed = result.status === "closed";
   const already = result.status === "already_answered";
+  const conciseCompletion = result.schemaVersion === 6 || elements.view?.classList.contains("survey-schema-v6");
+  if (result.schemaVersion === 6) {
+    elements.view?.classList.add("survey-schema-v5", "survey-schema-v6");
+  }
   setPage({
-    title: closed ? "アンケートは終了しました" : "回答ありがとうございました",
-    description: closed ? "このアンケートの受付は終了しています。" : "回答を受け付けました。",
+    title: closed
+      ? "アンケートは終了しました"
+      : already
+        ? "回答済みです"
+        : conciseCompletion
+          ? "回答受け付けました"
+          : "回答ありがとうございました",
+    description: closed ? "このアンケートの受付は終了しています。" : conciseCompletion ? "" : "回答を受け付けました。",
   });
   if (elements.resultIcon) elements.resultIcon.textContent = closed ? "–" : "✓";
   if (elements.resultHeading) {
@@ -176,18 +187,22 @@ function showResult(result) {
       ? "受付終了"
       : already
         ? "回答済みです"
-        : "回答ありがとうございました";
+        : conciseCompletion
+          ? "ご回答いただきありがとうございました"
+          : "回答ありがとうございました";
   }
   if (elements.resultDescription) {
     elements.resultDescription.textContent = closed
       ? "ご協力ありがとうございました。"
       : already
         ? "このアンケートへの回答はすでに完了しています。"
-        : "ご協力ありがとうございました。";
+        : conciseCompletion
+          ? "このまま画面を閉じて構いません。報酬のご提供まで今しばらくお待ちください。"
+          : "ご協力ありがとうございました。";
   }
   const hasReward = result.titleAwarded && result.titleName;
   if (hasReward && elements.titleName) elements.titleName.textContent = result.titleName;
-  setVisible(elements.reward, Boolean(hasReward));
+  setVisible(elements.reward, Boolean(hasReward) && !conciseCompletion);
   setVisible(elements.result, true);
 }
 
@@ -928,6 +943,13 @@ function buildVoicePages(slug, survey, values) {
   return pages;
 }
 
+function buildVoiceV6Pages(slug, survey, values, submissionToken, rerender) {
+  return buildVoiceV5Pages(slug, survey, values, submissionToken, rerender, {
+    schemaVersion: 6,
+    revisedUi: true,
+  });
+}
+
 function validIsoDate(value) {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const date = new Date(`${value}T00:00:00Z`);
@@ -1023,9 +1045,9 @@ function voiceV3Values(slug, voice, schemaVersion = 3) {
   return { values, submissionToken };
 }
 
-function voiceV5Values(slug, voice) {
+function voiceV5Values(slug, voice, schemaVersion = 5) {
   const stored = readDraft(slug);
-  const source = stored.schema_version === 5 && stored.values && typeof stored.values === "object"
+  const source = stored.schema_version === schemaVersion && stored.values && typeof stored.values === "object"
     ? stored.values : {};
   const featureIds = voice.features.map(({ id }) => id);
   const futureIds = voice.futureOptions.map(({ id }) => id);
@@ -1407,12 +1429,48 @@ function v5OptionalNote(fieldset, key, values, maxLength, onInput, {
   v5ControlRoot(fieldset).append(details);
 }
 
+function v6OptionalNote(fieldset, key, values, maxLength, onInput, {
+  summaryText = "回答について補足する（任意）",
+} = {}) {
+  const section = document.createElement("section");
+  section.className = "optional-note v6-optional-note";
+  const heading = document.createElement("h3");
+  heading.className = "optional-note-heading";
+  heading.textContent = summaryText;
+  const label = document.createElement("label");
+  label.className = "optional-note-label";
+  const labelCopy = document.createElement("span");
+  labelCopy.textContent = "補足したいことがあれば入力してください。";
+  const textarea = document.createElement("textarea");
+  textarea.rows = 3;
+  textarea.dataset.maxLength = String(maxLength);
+  textarea.value = values.answer_notes[key] || "";
+  const count = document.createElement("span");
+  count.className = "hint comment-count";
+  const update = () => {
+    const length = [...textarea.value].length;
+    count.textContent = `${length} / ${maxLength}文字`;
+    textarea.setAttribute("aria-invalid", String(length > maxLength));
+  };
+  textarea.addEventListener("input", () => {
+    values.answer_notes[key] = textarea.value;
+    update();
+    onInput();
+  });
+  update();
+  label.append(labelCopy, textarea);
+  section.append(heading, label, count);
+  v5ControlRoot(fieldset).append(section);
+}
+
 function v5FeatureSelection(fieldset, groups, exclusiveOptions, selected, {
   comments = null,
   commentMaxLength = 400,
   maxLength = Number.POSITIVE_INFINITY,
   onChange,
   onComment,
+  commentsAfterSelection = false,
+  onRenderSelection = null,
 }) {
   let currentSelected = [...selected];
   const exclusiveIds = new Set(exclusiveOptions.map(({ id }) => id));
@@ -1466,7 +1524,7 @@ function v5FeatureSelection(fieldset, groups, exclusiveOptions, selected, {
         });
         label.append(input, copy);
         row.append(label);
-        if (comments && input.checked) {
+        if (comments && input.checked && !commentsAfterSelection) {
           const label = document.createElement("label");
           label.className = "feature-comment-label";
           label.textContent = "この機能が役立っている理由や、今後も残してほしい点（任意）";
@@ -1523,12 +1581,97 @@ function v5FeatureSelection(fieldset, groups, exclusiveOptions, selected, {
     }
     exclusive.append(heading, choices);
     content.append(exclusive);
+    if (comments && commentsAfterSelection) {
+      const optionById = new Map(groups.flatMap(({ options }) => options).map((option) => [option.id, option]));
+      const selectedOptions = currentSelected.map((id) => optionById.get(id)).filter(Boolean);
+      if (selectedOptions.length) {
+        const commentSection = document.createElement("section");
+        commentSection.className = "feature-comment-section";
+        const commentHeading = document.createElement("h3");
+        commentHeading.textContent = "選んだ機能について";
+        const commentHelp = document.createElement("p");
+        commentHelp.className = "question-hint";
+        commentHelp.textContent = "選んだ機能ごとに、役立っている理由や今後も残してほしい点を入力できます。（任意）";
+        commentSection.append(commentHeading, commentHelp);
+        for (const option of selectedOptions) {
+          const label = document.createElement("label");
+          label.className = "feature-comment-label";
+          const labelCopy = document.createElement("span");
+          labelCopy.textContent = `${option.label}（任意）`;
+          const comment = document.createElement("textarea");
+          comment.rows = 2;
+          comment.dataset.maxLength = String(commentMaxLength);
+          comment.setAttribute("aria-label", `${option.label}が役立っている理由（任意）`);
+          comment.value = comments[option.id] || "";
+          const count = document.createElement("span");
+          count.className = "hint comment-count";
+          const updateCount = () => {
+            const length = [...comment.value].length;
+            count.textContent = `${length} / ${commentMaxLength}文字`;
+            comment.setAttribute("aria-invalid", String(length > commentMaxLength));
+          };
+          comment.addEventListener("input", () => {
+            if (comment.value.trim()) comments[option.id] = comment.value;
+            else delete comments[option.id];
+            updateCount();
+            onComment();
+          });
+          updateCount();
+          label.append(labelCopy, comment, count);
+          commentSection.append(label);
+        }
+        content.append(commentSection);
+      }
+    }
+    onRenderSelection?.([...currentSelected]);
     if (focusId && (normalIds.has(focusId) || exclusiveIds.has(focusId))) {
       content.querySelector(`input[value="${CSS.escape(focusId)}"]`)?.focus();
     }
   };
   v5ControlRoot(fieldset).append(content);
   render();
+}
+
+function v6UnusedReasonFields(voice, values, save, selected) {
+  const featureById = new Map(voice.features.map((feature) => [feature.id, feature]));
+  const selectedIds = selected.filter((id) => featureById.has(id));
+  const card = voiceFieldset(
+    "unused_reasons",
+    selectedIds.length
+      ? "選んだ機能をあまり使っていない理由を、それぞれ1つ選んでください。"
+      : "補足コメント（任意）",
+    { required: Boolean(selectedIds.length), className: "v5-question" },
+  );
+  const root = v5ControlRoot(card);
+  for (const featureId of selectedIds) {
+    const group = document.createElement("fieldset");
+    group.className = "unused-reason-group";
+    const legend = document.createElement("legend");
+    legend.textContent = featureById.get(featureId).label;
+    const choices = document.createElement("div");
+    choices.className = "choice-grid";
+    for (const reason of voice.unusedReasonOptions) {
+      const label = document.createElement("label");
+      label.className = "choice";
+      const input = document.createElement("input");
+      input.type = "radio";
+      input.name = `unused-reason-${featureId}`;
+      input.value = reason.id;
+      input.checked = values.unused_feature_reason_by_feature[featureId] === reason.id;
+      input.addEventListener("change", () => {
+        values.unused_feature_reason_by_feature[featureId] = reason.id;
+        save();
+      });
+      label.append(input, document.createTextNode(reason.label));
+      choices.append(label);
+    }
+    group.append(legend, choices);
+    root.append(group);
+  }
+  v6OptionalNote(card, "unused_features", values, voice.answerNoteMaxLength, save, {
+    summaryText: "あまり使っていない機能や、その理由について補足があれば教えてください。（任意）",
+  });
+  return card;
 }
 
 function v5ReasonBoard(fieldset, voice, values, save) {
@@ -2149,16 +2292,20 @@ function buildVoiceV4Pages(slug, survey, values, submissionToken, rerender) {
   });
 }
 
-function buildVoiceV5Pages(slug, survey, values, submissionToken, rerender) {
+function buildVoiceV5Pages(slug, survey, values, submissionToken, rerender, {
+  schemaVersion = 5,
+  revisedUi = false,
+} = {}) {
   const { voice } = survey;
-  const save = () => saveVoiceV3Draft(slug, submissionToken, values, 5);
+  const save = () => saveVoiceV3Draft(slug, submissionToken, values, schemaVersion);
   const change = (callback, { rebuild = false, previousPriority = values.future_priority } = {}) => {
     callback();
     pruneVoiceV5(voice, values, previousPriority);
     save();
     if (rebuild) rerender();
   };
-  const note = (field, key) => v5OptionalNote(field, key, values, voice.answerNoteMaxLength, save);
+  const optionalNote = revisedUi ? v6OptionalNote : v5OptionalNote;
+  const note = (field, key) => optionalNote(field, key, values, voice.answerNoteMaxLength, save);
   const pages = [{
     key: "intro",
     render: (page) => {
@@ -2234,11 +2381,15 @@ function buildVoiceV5Pages(slug, survey, values, submissionToken, rerender) {
     key: "unprompted",
     render: (page) => {
       page.append(voicePageTitle("ゲームについて感じていること"));
-      const field = voiceFieldset("unprompted_need", "ゲームを楽しむなかで、「こうできたらもっとよいのに」と感じることがあれば教えてください。（任意）", { required: false, className: "v5-question" });
+      const field = voiceFieldset("unprompted_need", revisedUi
+        ? "日頃ゲームを楽しむなかで、「こういうことがしたいのにできない」と感じることがあれば教えてください。（任意）"
+        : "ゲームを楽しむなかで、「こうできたらもっとよいのに」と感じることがあれば教えてください。（任意）", { required: false, className: "v5-question" });
       const hint = document.createElement("p");
       hint.className = "question-hint";
-      hint.textContent = "PlayNavi以外についてでもかまいません。思いつかなければ、空欄のまま次へ進めます。";
-      field.append(hint);
+      hint.textContent = revisedUi
+        ? "PlayNaviとは関係ないことでかまいません。思いつかなければ、空欄のまま次へ進めてください。"
+        : "PlayNavi以外についてでもかまいません。思いつかなければ、空欄のまま次へ進めます。";
+      (revisedUi ? v5ControlRoot(field) : field).append(hint);
       voiceTextarea(field, values.unprompted_need, voice.unpromptedMaxLength, (value) => change(() => { values.unprompted_need = value; }));
       page.append(field);
     },
@@ -2281,6 +2432,7 @@ function buildVoiceV5Pages(slug, survey, values, submissionToken, rerender) {
       v5FeatureSelection(field, featureGroups(), voice.q4ExclusiveOptions, values.valuable_features, {
         comments: values.valuable_feature_reasons,
         commentMaxLength: voice.valuableReasonMaxLength,
+        commentsAfterSelection: revisedUi,
         onChange: (next) => change(() => { values.valuable_features = next; }),
         onComment: save,
       });
@@ -2295,29 +2447,40 @@ function buildVoiceV5Pages(slug, survey, values, submissionToken, rerender) {
       const field = voiceFieldset("unused_features", "現在のPlayNaviで、あまり使っていない機能をすべて選んでください。", { className: "v5-question" });
       const hint = document.createElement("p");
       hint.className = "question-hint";
-      hint.textContent = "選んだ機能について、次の画面で使っていない理由を伺います。";
+      hint.textContent = revisedUi
+        ? "選んだ機能について、このページの下で使っていない理由を伺います。"
+        : "選んだ機能について、次の画面で使っていない理由を伺います。";
       v5ControlRoot(field).append(hint);
+      const reasonSection = revisedUi ? document.createElement("div") : null;
+      if (reasonSection) reasonSection.className = "unused-reason-section";
       const unusedExclusiveOptions = voice.q4ExclusiveOptions.map((option) => option.id === "none"
         ? { ...option, label: "あまり使っていない機能はない" }
         : option);
       v5FeatureSelection(field, featureGroups(), unusedExclusiveOptions, values.unused_features, {
         onChange: (next) => change(() => { values.unused_features = next; }),
         onComment: save,
+        onRenderSelection: revisedUi ? (selected) => {
+          reasonSection.replaceChildren(v6UnusedReasonFields(voice, values, save, selected));
+        } : null,
       });
-      if (!values.unused_features.some((id) => voice.features.some((feature) => feature.id === id))) note(field, "unused_features");
-      page.append(field);
+      if (revisedUi) page.append(field, reasonSection);
+      else {
+        if (!values.unused_features.some((id) => voice.features.some((feature) => feature.id === id))) note(field, "unused_features");
+        page.append(field);
+      }
     },
-    validate: () => validateVoiceV5Answers(voice, values).missing.filter((id) => id === "unused_features"),
+    validate: () => validateVoiceV5Answers(voice, values).missing.filter((id) =>
+      revisedUi ? ["unused_features", "unused_reasons"].includes(id) : id === "unused_features"),
   });
 
   const unusedFeatureIds = values.unused_features.filter((id) => voice.features.some((feature) => feature.id === id));
-  if (hasExperience && unusedFeatureIds.length) pages.push({
+  if (!revisedUi && hasExperience && unusedFeatureIds.length) pages.push({
     key: "unused_reasons",
     render: (page) => {
       page.append(voicePageTitle("使っていない理由"));
       const field = voiceFieldset("unused_reasons", "選んだ機能を、もっとも近い理由へ振り分けてください。", { className: "v5-question" });
       v5ReasonBoard(field, voice, values, save);
-      v5OptionalNote(field, "unused_features", values, voice.answerNoteMaxLength, save, {
+      optionalNote(field, "unused_features", values, voice.answerNoteMaxLength, save, {
         summaryText: "あまり使っていない機能や、その理由について補足があれば教えてください。（任意）",
       });
       page.append(field);
@@ -2333,7 +2496,7 @@ function buildVoiceV5Pages(slug, survey, values, submissionToken, rerender) {
       if (dormant) {
         const field = voiceFieldset("dormant_reason", "直近1ヶ月間、PlayNaviを使わなかった主な理由を1つ選んでください。", { className: "v5-question" });
         v5ChoiceGroup(field, "v5-dormant", voice.dormantReasonOptions, values.dormant_reason, (id) => change(() => { values.dormant_reason = id; }), ["other", "none", "unknown"]);
-        v5OptionalNote(field, "dormant_reason", values, voice.answerNoteMaxLength, save, {
+        optionalNote(field, "dormant_reason", values, voice.answerNoteMaxLength, save, {
           summaryText: "選んだ内容について、具体的に伝えたいことがあれば教えてください。（任意）",
         });
         page.append(field);
@@ -2343,15 +2506,25 @@ function buildVoiceV5Pages(slug, survey, values, submissionToken, rerender) {
           values.primary_problem = id;
           values.improvement_vs_candidate = "";
         }, { rebuild: true }), ["other", "none", "unknown"]);
-        v5OptionalNote(field, "primary_problem", values, voice.answerNoteMaxLength, save, {
+        optionalNote(field, "primary_problem", values, voice.answerNoteMaxLength, save, {
           summaryText: "選んだ内容について、具体的に伝えたいことがあれば教えてください。（任意）",
         });
         page.append(field);
+        if (revisedUi && concreteProblem(values.primary_problem)) {
+          const sectionTitle = document.createElement("h3");
+          sectionTitle.className = "voice-section-title";
+          sectionTitle.textContent = "困りごとがあったときの行動";
+          const outcome = voiceFieldset("problem_outcome", "その問題があったとき、最終的にどうしましたか？", { className: "v5-question" });
+          v5ChoiceGroup(outcome, "v5-outcome", voice.problemOutcomeOptions, values.problem_outcome, (id) => change(() => { values.problem_outcome = id; }), ["forgot"]);
+          note(outcome, "problem_outcome");
+          page.append(sectionTitle, outcome);
+        }
       }
     },
-    validate: () => validateVoiceV5Answers(voice, values).missing.filter((id) => ["primary_problem", "dormant_reason"].includes(id)),
+    validate: () => validateVoiceV5Answers(voice, values).missing.filter((id) =>
+      (revisedUi ? ["primary_problem", "dormant_reason", "problem_outcome"] : ["primary_problem", "dormant_reason"]).includes(id)),
   });
-  if (hasExperience && values.usage_1m !== "inactive_1m" && concreteProblem(values.primary_problem)) pages.push({
+  if (!revisedUi && hasExperience && values.usage_1m !== "inactive_1m" && concreteProblem(values.primary_problem)) pages.push({
     key: "outcome",
     render: (page) => {
       page.append(voicePageTitle("困りごとがあったときの行動"));
@@ -2520,7 +2693,7 @@ function createVoiceV3Controller(slug, survey, values, submissionToken, {
     });
     elements.back.onclick = () => render(pages[Math.max(0, current - 1)].key);
     elements.next.onclick = () => {
-      const invalidText = schemaVersion === 5
+      const invalidText = schemaVersion >= 5
         ? elements.questions.querySelector('textarea[aria-invalid="true"]')
         : null;
       if (invalidText) {
@@ -2570,6 +2743,15 @@ function createVoiceV5Controller(slug, survey, values, submissionToken) {
     buildPages: buildVoiceV5Pages,
     pruneAnswers: pruneVoiceV5,
     schemaVersion: 5,
+    fallbackPageKey: "play_segment",
+  });
+}
+
+function createVoiceV6Controller(slug, survey, values, submissionToken) {
+  return createVoiceV3Controller(slug, survey, values, submissionToken, {
+    buildPages: buildVoiceV6Pages,
+    pruneAnswers: pruneVoiceV5,
+    schemaVersion: 6,
     fallbackPageKey: "play_segment",
   });
 }
@@ -2768,6 +2950,7 @@ async function submitVoiceV3Survey(slug, survey, values, controller, submissionT
   pruneAnswers = pruneVoiceV3,
   validateAnswers = validateVoiceV3Answers,
   fallbackErrorId = "usage_30d",
+  schemaVersion = null,
 } = {}) {
   pruneAnswers(survey.voice, values);
   const result = validateAnswers(survey.voice, values);
@@ -2796,7 +2979,7 @@ async function submitVoiceV3Survey(slug, survey, values, controller, submissionT
     if (!response.ok) throw new Error("submit failed");
     const parsed = parseSubmitResult(payload);
     if (["submitted", "already_answered"].includes(parsed.status)) clearDraft(slug);
-    showResult(parsed);
+    showResult(schemaVersion ? { ...parsed, schemaVersion } : parsed);
   } catch {
     elements.error.textContent = "回答を送信できませんでした。入力内容はこの画面に保持されています。";
     setVisible(elements.error, true);
@@ -2822,10 +3005,32 @@ async function submitVoiceV5Survey(slug, survey, values, controller, submissionT
   });
 }
 
+async function submitVoiceV6Survey(slug, survey, values, controller, submissionToken) {
+  return submitVoiceV3Survey(slug, survey, values, controller, submissionToken, {
+    pruneAnswers: pruneVoiceV5,
+    validateAnswers: validateVoiceV5Answers,
+    fallbackErrorId: "play_frequency_1m",
+    schemaVersion: 6,
+  });
+}
+
 function showSurveyForm(slug, survey) {
   hideStates();
-  elements.view?.classList.toggle("survey-schema-v5", survey.schemaVersion === 5);
+  elements.view?.classList.toggle("survey-schema-v5", [5, 6].includes(survey.schemaVersion));
+  elements.view?.classList.toggle("survey-schema-v6", survey.schemaVersion === 6);
   setPage({ title: survey.title, description: survey.description });
+  if (survey.schemaVersion === 6) {
+    const { values, submissionToken } = voiceV5Values(slug, survey.voice, 6);
+    pruneVoiceV5(survey.voice, values);
+    saveVoiceV3Draft(slug, submissionToken, values, 6);
+    const controller = createVoiceV6Controller(slug, survey, values, submissionToken);
+    elements.form.onsubmit = (event) => {
+      event.preventDefault();
+      submitVoiceV6Survey(slug, survey, values, controller, submissionToken);
+    };
+    setVisible(elements.form, true);
+    return;
+  }
   if (survey.schemaVersion === 5) {
     const { values, submissionToken } = voiceV5Values(slug, survey.voice);
     pruneVoiceV5(survey.voice, values);

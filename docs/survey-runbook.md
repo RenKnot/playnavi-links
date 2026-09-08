@@ -235,6 +235,42 @@ v2, and v3 regression tests. Deploy Web, Edge, and the inactive v4 campaign in
 a coordinated staging window; stop if any layer reports a different definition
 key, answer key, stable option ID, schema version, or slug.
 
+### PlayNavi Voice revised monthly schema v6
+
+Schema v6 is an additive presentation revision of the frozen schema-v5 monthly
+campaign. It reuses the exact schema-v5 question definition, 29-key answer
+object, validation, normalization, aggregation, anonymous response storage,
+and reward separation. Existing schema-v5 surveys and their rendered flow must
+not change.
+
+The schema-v6 browser flow intentionally differs only in these ways:
+
+- optional question notes are visible immediately instead of using disclosure
+  controls;
+- selected valuable-feature comments appear together in a second section below
+  the complete feature list;
+- unused-feature selection, one required reason radio group per selected
+  feature, and the optional overall note share one page; no drag-and-drop board
+  or separate reason page is rendered;
+- `problem_outcome` remains a child of `primary_problem` and appears as the
+  second section on that page; it is not redefined as a child of the unrelated
+  optional `unprompted_need` question;
+- the completion screen uses the reviewed concise copy and does not display the
+  awarded-title panel.
+
+An authenticated campaign response is accepted once per `(survey_id, user_id)`
+by atomically consulting the separate reward-claim ledger. The answer row still
+contains no UID and has no key that joins it to the reward claim. A later read
+returns only an `already_submitted` marker, never the previous answers. A guest
+cannot be identified as a person, so guest submission-token idempotency remains
+the applicable boundary; strict person-level one-response enforcement requires
+authentication.
+
+Create schema v6 under a new slug while inactive, deploy Backend support before
+Web support, then atomically switch the staging announcement only after the v6
+read, submit, completion, and already-answered paths pass. Never mutate or
+delete the answered schema-v5 row.
+
 ### Verified v4 deployment state on 2026-09-07
 
 - Web PR #9 was merged to `main` as
