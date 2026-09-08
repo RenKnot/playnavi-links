@@ -183,27 +183,41 @@ test("schema-v5 guest flow works in real mobile Chrome", { timeout: 120_000 }, a
     assert.equal(await page.locator("#guest-login").textContent(), "報酬なしでログインせず回答する");
     assert.equal(await page.locator(".login-notice > li").count(), 3);
     assert.equal(await page.locator("#survey-description").textContent(), surveyV5Payload.survey.description);
-    assert.equal(await page.locator(".google-icon").getAttribute("src"), "/assets/icons/google-signin-light.png");
+    assert.equal(await page.locator("#apple-login span").textContent(), "Appleでサインイン");
+    assert.equal(await page.locator("#google-login span").textContent(), "Google でログイン");
+    assert.equal(await page.getByRole("link", { name: "Appleでサインイン" }).count(), 1);
+    assert.equal(await page.getByRole("link", { name: "Google でログイン" }).count(), 1);
+    assert.equal(await page.locator(".google-icon").getAttribute("src"), "/assets/icons/google.png");
     const providerLayout = await page.locator(".oauth").evaluateAll((buttons) => buttons.map((button) => {
       const buttonBounds = button.getBoundingClientRect();
       const iconBounds = button.querySelector("img").getBoundingClientRect();
       const textBounds = button.querySelector("span").getBoundingClientRect();
       return {
+        buttonLeft: buttonBounds.left,
         buttonCenter: (buttonBounds.left + buttonBounds.right) / 2,
+        buttonRight: buttonBounds.right,
+        groupCenter: (Math.min(iconBounds.left, textBounds.left) + Math.max(iconBounds.right, textBounds.right)) / 2,
+        iconLeft: iconBounds.left,
         textCenter: (textBounds.left + textBounds.right) / 2,
         iconRight: iconBounds.right,
         textLeft: textBounds.left,
         background: getComputedStyle(button).backgroundColor,
+        borderColor: getComputedStyle(button).borderColor,
       };
     }));
     for (const layout of providerLayout) {
-      assert.ok(Math.abs(layout.buttonCenter - layout.textCenter) <= 1, "provider label is centered in the whole button");
-      assert.ok(layout.iconRight < layout.textLeft, "provider icon stays in its left lane without overlapping the label");
+      assert.ok(Math.abs(layout.buttonCenter - layout.groupCenter) <= 1, "provider icon and label are centered as one group");
+      assert.ok(layout.textCenter > layout.buttonCenter + 10, "provider label follows the centered icon instead of centering separately");
+      assert.ok(layout.iconLeft > layout.buttonLeft + 32, "provider icon is not pinned to the button edge");
+      assert.ok(layout.iconRight < layout.textLeft, "provider icon does not overlap the label");
+      assert.ok(layout.textLeft - layout.iconRight >= 9, "provider icon and label keep a readable gap");
+      assert.ok(layout.buttonRight - layout.textLeft > 32, "provider label remains inside the touch target");
       assert.equal(layout.background, "rgb(255, 255, 255)");
+      assert.equal(layout.borderColor, "rgb(116, 119, 117)");
     }
-    const googlePng = PNG.sync.read(await readFile(join(REPO_ROOT, "assets/icons/google-signin-light.png")));
-    assert.ok([...Array(googlePng.width * googlePng.height).keys()]
-      .some((pixel) => googlePng.data[(pixel * 4) + 3] === 0), "Google mark has transparent outer pixels");
+    const googlePng = PNG.sync.read(await readFile(join(REPO_ROOT, "assets/icons/google.png")));
+    assert.deepEqual([...googlePng.data.subarray(0, 4)], [255, 255, 255, 255],
+      "Google mark uses a white backing that blends into the required white button");
 
     const authenticated = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: "ja-JP" });
     await authenticated.addCookies([{ name: "v5_auth", value: "1", url: fixture.origin }]);

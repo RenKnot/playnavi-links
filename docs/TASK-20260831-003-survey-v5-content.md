@@ -67,8 +67,8 @@ Survey v5
 
 ボタン:
 
-- `Appleでログイン`
-- `Googleでログイン`
+- `Appleでサインイン`
+- `Google でログイン`
 - `報酬なしでログインせず回答する`
 
 ### 2.5 アカウント回答者の「ご回答の前に」
@@ -1092,3 +1092,20 @@ schema v6／新slugへ、次の表示変更だけを分離する。
 受入条件は、schema v1〜v5の全回帰、schema v6の実Chrome完走、DnD非表示、
 機能別理由の保存、29キー完全一致、完了文言完全一致、回答済み再訪時のフォーム非表示、
 および同一UIDの同時送信で回答1件・報酬台帳1件である。
+
+## 28. 2026-09-08 final free-text revision (schema v7)
+
+回答済みのschema v1〜v6と保存済み回答は変更しない。schema v7は新slugで作成し、
+schema v6の表示と回答契約から次の2点だけを変更する。
+
+- `primary_problem`の条件付き追質問だった「困りごとがあったときの行動」
+  (`problem_outcome`)を質問、回答キー、`answer_notes`キーから完全に除く。
+- レビュー画面の直前に任意自由記述
+  `最後に、ここまでに書けていないことで言いたいことや伝えたいことがあればご自由にお書きください。`
+  (`final_comment`)を追加する。上限はUnicodeコードポイントで2000文字とする。
+
+schema v7の公開定義には`problem_outcome_options`を含めず、代わりに
+`final_comment_max_length: 2000`を含める。Web、プロキシ、Edge、DBは未知キー、
+欠落キー、2001コードポイントを拒否し、2000コードポイントは受理する。
+同じアンケートの改訂slugは共通の`response_group_id`を持つため、schema v6以前に
+認証回答済みのUIDへv7を再回答させない。別アンケートへの回答は妨げない。

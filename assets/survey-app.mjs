@@ -9,6 +9,7 @@ import {
   validateVoiceV3Answers,
   validateVoiceV4Answers,
   validateVoiceV5Answers,
+  validateVoiceV7Answers,
 } from "./survey-contract.mjs";
 
 const elements = {
@@ -76,9 +77,9 @@ function hideStates() {
 
 function showLogin(slug, preview, failed = false) {
   hideStates();
-  const isVoiceV5 = [5, 6].includes(preview?.schemaVersion);
+  const isVoiceV5 = [5, 6, 7].includes(preview?.schemaVersion);
   elements.view?.classList.toggle("survey-schema-v5", isVoiceV5);
-  elements.view?.classList.toggle("survey-schema-v6", preview?.schemaVersion === 6);
+  elements.view?.classList.toggle("survey-schema-v6", [6, 7].includes(preview?.schemaVersion));
   const notice = elements.login?.querySelector(".login-notice");
   elements.login?.querySelector(".login-heading")?.remove();
   if (notice) {
@@ -167,8 +168,8 @@ function showResult(result) {
   hideStates();
   const closed = result.status === "closed";
   const already = result.status === "already_answered";
-  const conciseCompletion = result.schemaVersion === 6 || elements.view?.classList.contains("survey-schema-v6");
-  if (result.schemaVersion === 6) {
+  const conciseCompletion = [6, 7].includes(result.schemaVersion) || elements.view?.classList.contains("survey-schema-v6");
+  if ([6, 7].includes(result.schemaVersion)) {
     elements.view?.classList.add("survey-schema-v5", "survey-schema-v6");
   }
   setPage({
@@ -951,6 +952,13 @@ function buildVoiceV6Pages(slug, survey, values, submissionToken, rerender) {
   });
 }
 
+function buildVoiceV7Pages(slug, survey, values, submissionToken, rerender) {
+  return buildVoiceV5Pages(slug, survey, values, submissionToken, rerender, {
+    schemaVersion: 7,
+    revisedUi: true,
+  });
+}
+
 function validIsoDate(value) {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const date = new Date(`${value}T00:00:00Z`);
@@ -1107,6 +1115,10 @@ function voiceV5Values(slug, voice, schemaVersion = 5) {
       typeof source.answer_notes?.[key] === "string" ? source.answer_notes[key] : "",
     ])),
   };
+  if (schemaVersion === 7) {
+    delete values.problem_outcome;
+    values.final_comment = string("final_comment");
+  }
   const submissionToken = typeof stored.submission_token === "string" && /^[A-Za-z0-9_-]{43}$/.test(stored.submission_token)
     ? stored.submission_token : randomToken();
   return { values, submissionToken };
@@ -1259,14 +1271,25 @@ function pruneVoiceV5(voice, values, previousPriority = values.future_priority) 
   }
 }
 
-function voiceTextarea(fieldset, value, maxLength, onInput, rows = 3) {
+function pruneVoiceV7(voice, values, previousPriority = values.future_priority) {
+  pruneVoiceV5(voice, values, previousPriority);
+  delete values.problem_outcome;
+  delete values.answer_notes.problem_outcome;
+}
+
+function voiceTextarea(fieldset, value, maxLength, onInput, rows = 3, { codePoints = false } = {}) {
   const textarea = document.createElement("textarea");
-  textarea.maxLength = maxLength;
+  if (codePoints) textarea.dataset.maxLength = String(maxLength);
+  else textarea.maxLength = maxLength;
   textarea.rows = rows;
   textarea.value = value;
   const count = document.createElement("span");
   count.className = "hint comment-count";
-  const update = () => { count.textContent = `${textarea.value.length} / ${maxLength}文字`; };
+  const update = () => {
+    const length = codePoints ? [...textarea.value].length : textarea.value.length;
+    count.textContent = `${length} / ${maxLength}文字`;
+    if (codePoints) textarea.setAttribute("aria-invalid", String(length > maxLength));
+  };
   textarea.addEventListener("input", () => {
     onInput(textarea.value);
     update();
@@ -2298,10 +2321,12 @@ function buildVoiceV5Pages(slug, survey, values, submissionToken, rerender, {
   revisedUi = false,
 } = {}) {
   const { voice } = survey;
+  const validateMonthlyAnswers = schemaVersion === 7 ? validateVoiceV7Answers : validateVoiceV5Answers;
+  const pruneMonthlyAnswers = schemaVersion === 7 ? pruneVoiceV7 : pruneVoiceV5;
   const save = () => saveVoiceV3Draft(slug, submissionToken, values, schemaVersion);
   const change = (callback, { rebuild = false, previousPriority = values.future_priority } = {}) => {
     callback();
-    pruneVoiceV5(voice, values, previousPriority);
+    pruneMonthlyAnswers(voice, values, previousPriority);
     save();
     if (rebuild) rerender();
   };
@@ -2349,7 +2374,7 @@ function buildVoiceV5Pages(slug, survey, values, submissionToken, rerender, {
         page.append(device);
       }
     },
-    validate: () => validateVoiceV5Answers(voice, values).missing.filter((id) => [
+    validate: () => validateMonthlyAnswers(voice, values).missing.filter((id) => [
       "reference_period_end_on", "play_frequency_1m", "primary_play_device_1m",
     ].includes(id)),
   }, {
@@ -2377,7 +2402,7 @@ function buildVoiceV5Pages(slug, survey, values, submissionToken, rerender, {
         page.append(satisfaction);
       }
     },
-    validate: () => validateVoiceV5Answers(voice, values).missing.filter((id) => ["usage_1m", "overall_satisfaction"].includes(id)),
+    validate: () => validateMonthlyAnswers(voice, values).missing.filter((id) => ["usage_1m", "overall_satisfaction"].includes(id)),
   }, {
     key: "unprompted",
     render: (page) => {
@@ -2415,7 +2440,7 @@ function buildVoiceV5Pages(slug, survey, values, submissionToken, rerender, {
       note(record, "recording_preference");
       page.append(info, record);
     },
-    validate: () => validateVoiceV5Answers(voice, values).missing.filter((id) => ["info_seek_days_1m", "recording_preference"].includes(id)),
+    validate: () => validateMonthlyAnswers(voice, values).missing.filter((id) => ["info_seek_days_1m", "recording_preference"].includes(id)),
   }];
 
   const hasExperience = Boolean(values.usage_1m) && values.usage_1m !== "never_used";
@@ -2440,7 +2465,7 @@ function buildVoiceV5Pages(slug, survey, values, submissionToken, rerender, {
       note(field, "valuable_features");
       page.append(field);
     },
-    validate: () => validateVoiceV5Answers(voice, values).missing.filter((id) => id === "valuable_features"),
+    validate: () => validateMonthlyAnswers(voice, values).missing.filter((id) => id === "valuable_features"),
   }, {
     key: "unused",
     render: (page) => {
@@ -2470,7 +2495,7 @@ function buildVoiceV5Pages(slug, survey, values, submissionToken, rerender, {
         page.append(field);
       }
     },
-    validate: () => validateVoiceV5Answers(voice, values).missing.filter((id) =>
+    validate: () => validateMonthlyAnswers(voice, values).missing.filter((id) =>
       revisedUi ? ["unused_features", "unused_reasons"].includes(id) : id === "unused_features"),
   });
 
@@ -2486,7 +2511,7 @@ function buildVoiceV5Pages(slug, survey, values, submissionToken, rerender, {
       });
       page.append(field);
     },
-    validate: () => validateVoiceV5Answers(voice, values).missing.filter((id) => id === "unused_reasons"),
+    validate: () => validateMonthlyAnswers(voice, values).missing.filter((id) => id === "unused_reasons"),
   });
 
   if (hasExperience) pages.push({
@@ -2511,7 +2536,7 @@ function buildVoiceV5Pages(slug, survey, values, submissionToken, rerender, {
           summaryText: "選んだ内容について、具体的に伝えたいことがあれば教えてください。（任意）",
         });
         page.append(field);
-        if (revisedUi && concreteProblem(values.primary_problem)) {
+        if (revisedUi && schemaVersion !== 7 && concreteProblem(values.primary_problem)) {
           const sectionTitle = document.createElement("h3");
           sectionTitle.className = "voice-section-title";
           sectionTitle.textContent = "困りごとがあったときの行動";
@@ -2522,8 +2547,10 @@ function buildVoiceV5Pages(slug, survey, values, submissionToken, rerender, {
         }
       }
     },
-    validate: () => validateVoiceV5Answers(voice, values).missing.filter((id) =>
-      (revisedUi ? ["primary_problem", "dormant_reason", "problem_outcome"] : ["primary_problem", "dormant_reason"]).includes(id)),
+    validate: () => validateMonthlyAnswers(voice, values).missing.filter((id) =>
+      (revisedUi && schemaVersion !== 7
+        ? ["primary_problem", "dormant_reason", "problem_outcome"]
+        : ["primary_problem", "dormant_reason"]).includes(id)),
   });
   if (!revisedUi && hasExperience && values.usage_1m !== "inactive_1m" && concreteProblem(values.primary_problem)) pages.push({
     key: "outcome",
@@ -2534,7 +2561,7 @@ function buildVoiceV5Pages(slug, survey, values, submissionToken, rerender, {
       note(field, "problem_outcome");
       page.append(field);
     },
-    validate: () => validateVoiceV5Answers(voice, values).missing.filter((id) => id === "problem_outcome"),
+    validate: () => validateMonthlyAnswers(voice, values).missing.filter((id) => id === "problem_outcome"),
   });
 
   pages.push({
@@ -2552,7 +2579,7 @@ function buildVoiceV5Pages(slug, survey, values, submissionToken, rerender, {
         page.append(field, other);
       } else page.append(field);
     },
-    validate: () => validateVoiceV5Answers(voice, values).missing.filter((id) => id === "future_role"),
+    validate: () => validateMonthlyAnswers(voice, values).missing.filter((id) => id === "future_role"),
   }, {
     key: "future_candidates",
     render: (page) => {
@@ -2574,7 +2601,7 @@ function buildVoiceV5Pages(slug, survey, values, submissionToken, rerender, {
         page.append(other);
       }
     },
-    validate: () => validateVoiceV5Answers(voice, values).missing.filter((id) => id === "future_candidates"),
+    validate: () => validateMonthlyAnswers(voice, values).missing.filter((id) => id === "future_candidates"),
   });
 
   const futureIds = new Set(voice.futureOptions.map(({ id }) => id));
@@ -2610,7 +2637,7 @@ function buildVoiceV5Pages(slug, survey, values, submissionToken, rerender, {
         }
       }
     },
-    validate: () => validateVoiceV5Answers(voice, values).missing.filter((id) => ["future_priority"].includes(id)),
+    validate: () => validateMonthlyAnswers(voice, values).missing.filter((id) => ["future_priority"].includes(id)),
   });
 
   const compareRequired = ["days_15_plus", "days_5_14", "days_1_4"].includes(values.usage_1m) &&
@@ -2630,7 +2657,23 @@ function buildVoiceV5Pages(slug, survey, values, submissionToken, rerender, {
       note(field, "improvement_vs_candidate");
       page.append(field);
     },
-    validate: () => validateVoiceV5Answers(voice, values).missing.filter((id) => id === "improvement_vs_candidate"),
+    validate: () => validateMonthlyAnswers(voice, values).missing.filter((id) => id === "improvement_vs_candidate"),
+  });
+  if (schemaVersion === 7) pages.push({
+    key: "final_comment",
+    render: (page) => {
+      page.append(voicePageTitle("最後に"));
+      const field = voiceFieldset(
+        "final_comment",
+        "最後に、ここまでに書けていないことで言いたいことや伝えたいことがあればご自由にお書きください。",
+        { required: false, className: "v5-question" },
+      );
+      voiceTextarea(field, values.final_comment, voice.finalCommentMaxLength, (value) => change(() => {
+        values.final_comment = value;
+      }), 8, { codePoints: true });
+      page.append(field);
+    },
+    validate: () => [],
   });
   pages.push({
     key: "review",
@@ -2698,7 +2741,7 @@ function createVoiceV3Controller(slug, survey, values, submissionToken, {
         ? elements.questions.querySelector('textarea[aria-invalid="true"]')
         : null;
       if (invalidText) {
-        elements.error.textContent = "自由記述は400文字以内で入力してください。";
+        elements.error.textContent = `自由記述は${invalidText.dataset.maxLength || 400}文字以内で入力してください。`;
         setVisible(elements.error, true);
         invalidText.focus();
         return;
@@ -2753,6 +2796,15 @@ function createVoiceV6Controller(slug, survey, values, submissionToken) {
     buildPages: buildVoiceV6Pages,
     pruneAnswers: pruneVoiceV5,
     schemaVersion: 6,
+    fallbackPageKey: "play_segment",
+  });
+}
+
+function createVoiceV7Controller(slug, survey, values, submissionToken) {
+  return createVoiceV3Controller(slug, survey, values, submissionToken, {
+    buildPages: buildVoiceV7Pages,
+    pruneAnswers: pruneVoiceV7,
+    schemaVersion: 7,
     fallbackPageKey: "play_segment",
   });
 }
@@ -3015,11 +3067,32 @@ async function submitVoiceV6Survey(slug, survey, values, controller, submissionT
   });
 }
 
+async function submitVoiceV7Survey(slug, survey, values, controller, submissionToken) {
+  return submitVoiceV3Survey(slug, survey, values, controller, submissionToken, {
+    pruneAnswers: pruneVoiceV7,
+    validateAnswers: validateVoiceV7Answers,
+    fallbackErrorId: "play_frequency_1m",
+    schemaVersion: 7,
+  });
+}
+
 function showSurveyForm(slug, survey) {
   hideStates();
-  elements.view?.classList.toggle("survey-schema-v5", [5, 6].includes(survey.schemaVersion));
-  elements.view?.classList.toggle("survey-schema-v6", survey.schemaVersion === 6);
+  elements.view?.classList.toggle("survey-schema-v5", [5, 6, 7].includes(survey.schemaVersion));
+  elements.view?.classList.toggle("survey-schema-v6", [6, 7].includes(survey.schemaVersion));
   setPage({ title: survey.title, description: survey.description });
+  if (survey.schemaVersion === 7) {
+    const { values, submissionToken } = voiceV5Values(slug, survey.voice, 7);
+    pruneVoiceV7(survey.voice, values);
+    saveVoiceV3Draft(slug, submissionToken, values, 7);
+    const controller = createVoiceV7Controller(slug, survey, values, submissionToken);
+    elements.form.onsubmit = (event) => {
+      event.preventDefault();
+      submitVoiceV7Survey(slug, survey, values, controller, submissionToken);
+    };
+    setVisible(elements.form, true);
+    return;
+  }
   if (survey.schemaVersion === 6) {
     const { values, submissionToken } = voiceV5Values(slug, survey.voice, 6);
     pruneVoiceV5(survey.voice, values);

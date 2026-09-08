@@ -13,6 +13,7 @@ import {
   VOICE_V3_ANSWER_KEYS,
   VOICE_V4_ANSWER_KEYS,
   VOICE_V5_ANSWER_KEYS,
+  VOICE_V7_ANSWER_KEYS,
 } from "../../../assets/survey-contract.mjs";
 
 const MAX_ANSWERS = 100;
@@ -30,7 +31,7 @@ const VOICE_KEYS = [
 const SUBMISSION_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
 
 function boundedJson(value, depth = 0, budget = { entries: 0 }) {
-  if (typeof value === "string") return value.length <= 2_000;
+  if (typeof value === "string") return [...value].length <= 2_000;
   if (depth >= 4 || !value || typeof value !== "object") return false;
   if (Array.isArray(value)) {
     if (value.length > 100 || new Set(value).size !== value.length) return false;
@@ -58,6 +59,10 @@ export function validAnswers(value) {
   const isVoiceV5 = [
     "play_frequency_1m", "usage_1m", "valuable_feature_reasons", "unused_features", "answer_notes",
   ].some((key) => Object.hasOwn(value, key));
+  if (Object.hasOwn(value, "final_comment")) {
+    if (entries.length !== VOICE_V7_ANSWER_KEYS.length || entries.some(([key]) => !VOICE_V7_ANSWER_KEYS.includes(key))) return false;
+    return boundedJson(value);
+  }
   if (isVoiceV5) {
     if (entries.length !== VOICE_V5_ANSWER_KEYS.length || entries.some(([key]) => !VOICE_V5_ANSWER_KEYS.includes(key))) return false;
     return boundedJson(value);

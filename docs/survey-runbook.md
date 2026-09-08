@@ -275,6 +275,33 @@ Web support, then atomically switch the staging announcement only after the v6
 read, submit, completion, and already-answered paths pass. Never mutate or
 delete the answered schema-v5 row.
 
+### PlayNavi Voice final free-text schema v7
+
+Schema v7 is a new physical survey revision. It preserves every schema-v1–v6
+definition and stored response, removes `problem_outcome` and its nested note
+from the exact answer shape, and omits `problem_outcome_options` from the public
+question definition. Immediately before review it adds the optional
+`final_comment` question with the exact reviewed Japanese copy and a 2,000
+Unicode-code-point limit. The definition declares
+`kind=playnavi_voice_2026_reviewed_final` and
+`final_comment_max_length=2000`; Web must reject any mismatch rather than
+guessing the revision from labels.
+
+All physical revisions of this questionnaire share a durable
+`response_group_id`. Authenticated read and submit therefore return the
+answer-free `already_submitted` result when that UID already has a reward claim
+for any earlier revision in the group. Unrelated surveys use different groups
+and remain independently answerable. The existing `public.users` row lock
+serializes submissions across two revision slugs. Guest token idempotency is
+unchanged because a guest has no durable person identifier.
+
+Create v7 inactive, deploy matching Backend and Web support, verify the exact
+key set plus 2,000/2,001-code-point boundaries, then switch the staging
+announcement atomically. Do not mutate, copy, or delete an earlier response or
+reward claim to test v7. A person who already answered an earlier revision must
+use another registered staging account for the new-answer E2E; use the original
+account only to verify the cross-revision `already_submitted` path.
+
 ### Verified v4 deployment state on 2026-09-07
 
 - Web PR #9 was merged to `main` as
