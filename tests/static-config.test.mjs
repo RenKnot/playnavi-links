@@ -172,7 +172,6 @@ test("survey code loads only on survey routes and login copy matches stored-data
   assert.match(html, /<img class="oauth-icon google-icon" src="\/assets\/icons\/google\.png" alt="" aria-hidden="true">/);
   assert.match(html, /<img class="oauth-icon apple-icon" src="\/assets\/icons\/apple\.png" alt="" aria-hidden="true">/);
   assert.match(html, /<span>Appleでサインイン<\/span>/);
-  assert.match(html, /このアンケートから新規登録は行いません。登録済みアカウントの確認だけを行います。/);
   assert.match(html, /<span>Google でログイン<\/span>/);
   assert.match(html, /報酬なしでログインせずに回答する/);
   assert.match(surveyApp, /title: preview\?\.title \|\| "アンケート"/);

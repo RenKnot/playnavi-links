@@ -188,7 +188,6 @@ test("schema-v5 guest flow works in real mobile Chrome", { timeout: 120_000 }, a
     );
     assert.equal(await page.locator(".oauth").count(), 2);
     assert.equal(await page.locator("#guest-login").count(), 1);
-    assert.match(await page.locator(".apple-login-note").textContent(), /このアンケートから新規登録は行いません/);
 
     await page.goto(`${fixture.origin}/surveys/${SLUG}`, { waitUntil: "networkidle" });
     await page.locator(".login-heading").waitFor();

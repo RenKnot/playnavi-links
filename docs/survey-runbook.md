@@ -334,10 +334,12 @@ browser which drops the Host-only state cookie can recover the failure display.
 That path is never sufficient to validate OAuth or create a session: the cookie
 state, nonce and Google PKCE checks remain mandatory.
 
-Apple owns the authorization sheet and may describe its confirmation as
-creating an account even though PlayNavi performs no signup. Keep the visible
-pre-authorization note beside the Apple button. App 4.2.2 announcement entry
-uses the existing handoff instead and does not show the Apple sheet.
+Treat an Apple authorization sheet that asks an existing native-app user to
+create a PlayNavi account as a release-stopping configuration signal. Before
+accepting Apple E2E, verify that the production Services ID is associated with
+the native app's primary App ID and repeat the native/Web comparison with the
+same Apple Account. App 4.2.2 announcement entry uses the existing handoff and
+does not show the Apple sheet.
 
 1. Register exact callback `https://links.playnavilab.com/api/auth/callback`
    on both the dedicated Google Web client and Apple Services ID. Do not allow
