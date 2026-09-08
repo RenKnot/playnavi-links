@@ -116,11 +116,20 @@ test("schema-v6 revised flow works in real mobile Chrome", { timeout: 120_000 },
   await access(CHROME_PATH, constants.X_OK).catch(() => assert.fail(`Real Chrome is required at ${CHROME_PATH}`));
   const fixture = await fixtureServer();
   const browser = await chromium.launch({ executablePath: CHROME_PATH, headless: true });
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, locale: "ja-JP" });
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+    locale: "ja-JP",
+    reducedMotion: "reduce",
+  });
   const page = await context.newPage();
+  const draft = completeDraft();
+  draft.values.info_seek_days_1m = "";
+  draft.values.recording_preference = "";
   await page.addInitScript(({ slug, draft }) => {
     sessionStorage.setItem(`pn_survey_draft:${slug}`, JSON.stringify(draft));
-  }, { slug: SLUG, draft: completeDraft() });
+  }, { slug: SLUG, draft });
   try {
     await page.goto(`${fixture.origin}/surveys/${SLUG}`, { waitUntil: "networkidle" });
     await page.locator('[data-step="intro"]').waitFor();
@@ -140,6 +149,24 @@ test("schema-v6 revised flow works in real mobile Chrome", { timeout: 120_000 },
     });
     assert.equal(hintBeforeInput, true);
     await next(page);
+    assert.equal(await page.locator(".survey-step-page").getAttribute("data-step"), "style_segment");
+    await page.locator('input[name="v5-info-seeking"]').last().click();
+    await page.waitForFunction(() => document.activeElement?.closest("[data-error-id]")?.dataset.errorId === "recording_preference");
+    const position = await page.locator('[data-error-id="recording_preference"]').evaluate((target) => {
+      const heading = target.querySelector(".v5-question-heading").getBoundingClientRect();
+      const progress = document.querySelector(".survey-progress").getBoundingClientRect();
+      return {
+        headingTop: heading.top,
+        headingBottom: heading.bottom,
+        progressBottom: progress.bottom,
+        viewportHeight: window.innerHeight,
+      };
+    });
+    assert.ok(position.headingTop >= position.progressBottom,
+      `next heading starts below sticky progress (${position.headingTop}px < ${position.progressBottom}px)`);
+    assert.ok(position.headingBottom <= position.viewportHeight,
+      `next heading remains visible (${position.headingBottom}px > ${position.viewportHeight}px)`);
+    await page.locator('input[name="v5-record-detail"]').first().click();
     await next(page);
 
     assert.equal(await page.locator(".feature-comment-section > h3").textContent(), "選んだ機能について");

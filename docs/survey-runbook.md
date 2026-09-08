@@ -115,7 +115,11 @@ X-PlayNavi-Web-Secret: <independent 256-bit broker secret>
 
 The privileged Supabase function exact-matches
 `auth.identities(provider, provider_id)` and an active PlayNavi profile. It
-does not create a user and never merges on email. Only `session_token` is set
+does not create a user and never merges on email. Active means the matched Auth
+account is neither deleted nor currently suspended and its non-deleted
+`public.users` row has the nonempty trimmed display name required by the App's
+registration-completion gate. An Auth identity alone is rejected with the same
+generic login failure as every other non-member case. Only `session_token` is set
 for at most 60 minutes as
 `__Host-pn_survey_session; Secure; HttpOnly; SameSite=Lax; Path=/`. Read and
 submit send it server-to-server as `X-PlayNavi-Survey-Session`; it is never

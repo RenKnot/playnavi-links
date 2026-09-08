@@ -524,7 +524,8 @@ function fieldsetHasAnswer(fieldset) {
 
 function moveToVoiceTarget(target) {
   if (!target) return;
-  target.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "center" });
+  const block = target.closest?.(".schema-v6-step") ? "start" : "center";
+  target.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block });
   const control = target.matches?.("button, input, select, textarea, [tabindex]")
     ? target
     : target.querySelector?.("input, select, textarea, button, [tabindex]");

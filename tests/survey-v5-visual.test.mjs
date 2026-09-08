@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import { chromium } from "playwright-core";
+import { PNG } from "pngjs";
 import { VOICE_V5_ANSWER_KEYS, VOICE_V5_ANSWER_NOTE_KEYS } from "../assets/survey-contract.mjs";
 import { surveyV5Payload } from "./fixtures/survey-v5-payload.mjs";
 
@@ -182,6 +183,27 @@ test("schema-v5 guest flow works in real mobile Chrome", { timeout: 120_000 }, a
     assert.equal(await page.locator("#guest-login").textContent(), "報酬なしでログインせず回答する");
     assert.equal(await page.locator(".login-notice > li").count(), 3);
     assert.equal(await page.locator("#survey-description").textContent(), surveyV5Payload.survey.description);
+    assert.equal(await page.locator(".google-icon").getAttribute("src"), "/assets/icons/google-signin-light.png");
+    const providerLayout = await page.locator(".oauth").evaluateAll((buttons) => buttons.map((button) => {
+      const buttonBounds = button.getBoundingClientRect();
+      const iconBounds = button.querySelector("img").getBoundingClientRect();
+      const textBounds = button.querySelector("span").getBoundingClientRect();
+      return {
+        buttonCenter: (buttonBounds.left + buttonBounds.right) / 2,
+        textCenter: (textBounds.left + textBounds.right) / 2,
+        iconRight: iconBounds.right,
+        textLeft: textBounds.left,
+        background: getComputedStyle(button).backgroundColor,
+      };
+    }));
+    for (const layout of providerLayout) {
+      assert.ok(Math.abs(layout.buttonCenter - layout.textCenter) <= 1, "provider label is centered in the whole button");
+      assert.ok(layout.iconRight < layout.textLeft, "provider icon stays in its left lane without overlapping the label");
+      assert.equal(layout.background, "rgb(255, 255, 255)");
+    }
+    const googlePng = PNG.sync.read(await readFile(join(REPO_ROOT, "assets/icons/google-signin-light.png")));
+    assert.ok([...Array(googlePng.width * googlePng.height).keys()]
+      .some((pixel) => googlePng.data[(pixel * 4) + 3] === 0), "Google mark has transparent outer pixels");
 
     const authenticated = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: "ja-JP" });
     await authenticated.addCookies([{ name: "v5_auth", value: "1", url: fixture.origin }]);

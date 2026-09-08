@@ -8,14 +8,14 @@ const sha256 = async (path) => createHash("sha256")
   .update(await readFile(new URL(path, import.meta.url)))
   .digest("hex");
 
-test("survey login reuses the reviewed App provider marks byte-for-byte", async () => {
+test("survey login uses transparent provider marks", async () => {
   assert.equal(
     await sha256("../assets/icons/apple.png"),
     "ebc00067f204c9f44dda5d99def910e7d884556f46570092bf6fb75dc2ed7f91",
   );
   assert.equal(
-    await sha256("../assets/icons/google.png"),
-    "a0f46b17437d558e91660b02e9613d9feb746bb1cf6ed34c4c3b325b6762f983",
+    await sha256("../assets/icons/google-signin-light.png"),
+    "5340caf2ee16575d86efef251f34cfa86475f99a9c883b6e991fbe4e0b75e553",
   );
 });
 
@@ -24,9 +24,11 @@ test("survey login mirrors the App button and warning visual contract", async ()
   assert.match(css, /#survey-title\s*\{[\s\S]*font-size: clamp\(32px, 8vw, 40px\)/);
   assert.match(css, /#survey-title::after\s*\{[\s\S]*background: linear-gradient/);
   assert.match(css, /\.oauth-actions\s*\{[^}]*width: min\(92vw, 420px\);[^}]*gap: 14px/);
-  assert.match(css, /\.oauth\s*\{[^}]*height: 52px;[^}]*grid-template-columns: 30px minmax\(0, 1fr\) 30px;[^}]*border: 2px solid #d6e0e5;[^}]*border-radius: 14px;[^}]*background: #f2f4f6;/);
-  assert.match(css, /\.oauth-icon\s*\{[^}]*grid-column: 1;[^}]*width: 30px;[^}]*height: 25px/);
-  assert.match(css, /\.oauth span\s*\{[^}]*grid-column: 2/);
+  assert.match(css, /\.oauth\s*\{[^}]*position: relative;[^}]*height: 52px;[^}]*justify-content: center;[^}]*border: 2px solid #e0e0e0;[^}]*border-radius: 14px;[^}]*background: #fff;[^}]*box-shadow: 0 4px 10px/);
+  assert.match(css, /\.oauth-icon\s*\{[^}]*position: absolute;[^}]*left: 16px;[^}]*top: 50%;[^}]*transform: translateY\(-50%\)/);
+  assert.match(css, /\.apple-icon\s*\{[^}]*width: 31px;[^}]*height: 44px/);
+  assert.match(css, /\.google-icon\s*\{[^}]*width: 44px;[^}]*height: 44px/);
+  assert.match(css, /\.oauth span\s*\{[^}]*text-align: center/);
   assert.match(css, /#survey-description\.auth-warning\s*\{[^}]*color: var\(--warning\);[^}]*font-weight: 700/);
 });
 
@@ -165,7 +167,7 @@ test("survey code loads only on survey routes and login copy matches stored-data
     "",
   ]);
   assert.match(html, /<li id="survey-guide" class="hidden"><\/li>/);
-  assert.match(html, /<img class="oauth-icon google-icon" src="\/assets\/icons\/google\.png" alt="" aria-hidden="true">/);
+  assert.match(html, /<img class="oauth-icon google-icon" src="\/assets\/icons\/google-signin-light\.png" alt="" aria-hidden="true">/);
   assert.match(html, /<img class="oauth-icon apple-icon" src="\/assets\/icons\/apple\.png" alt="" aria-hidden="true">/);
   assert.match(html, /報酬なしでログインせずに回答する/);
   assert.match(surveyApp, /title: preview\?\.title \|\| "アンケート"/);
