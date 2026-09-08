@@ -2713,7 +2713,8 @@ function createVoiceV3Controller(slug, survey, values, submissionToken, {
     if (current < 0) current = 0;
     currentKey = pages[current].key;
     const container = document.createElement("section");
-    container.className = `survey-step-page voice-step-page reviewed-voice-step schema-v${schemaVersion}-step`;
+    const revisedMonthlyClass = schemaVersion === 7 ? " schema-v6-step" : "";
+    container.className = `survey-step-page voice-step-page reviewed-voice-step schema-v${schemaVersion}-step${revisedMonthlyClass}`;
     container.dataset.step = currentKey;
     pages[current].render(container);
     elements.questions.replaceChildren(container);

@@ -262,6 +262,68 @@ test("schema-v6 revised flow works in real mobile Chrome", { timeout: 120_000 },
   }
 });
 
+test("schema-v7 keeps the next question heading visible after tap-forward", { timeout: 120_000 }, async (t) => {
+  await access(CHROME_PATH, constants.X_OK).catch(() => assert.fail(`Real Chrome is required at ${CHROME_PATH}`));
+  const fixture = await fixtureServer(surveyV7Payload, V7_SLUG);
+  const browser = await chromium.launch({ executablePath: CHROME_PATH, headless: true });
+  try {
+    for (const viewport of [
+      { name: "iPhone-width", width: 390, height: 844 },
+      { name: "Android-width", width: 412, height: 915 },
+    ]) {
+      await t.test(viewport.name, async () => {
+        const context = await browser.newContext({
+          viewport: { width: viewport.width, height: viewport.height },
+          hasTouch: true,
+          isMobile: true,
+          locale: "ja-JP",
+          reducedMotion: "reduce",
+        });
+        const page = await context.newPage();
+        const draft = completeDraft(surveyV7Payload);
+        draft.values.info_seek_days_1m = "";
+        draft.values.recording_preference = "";
+        await page.addInitScript(({ slug, draft }) => {
+          sessionStorage.setItem(`pn_survey_draft:${slug}`, JSON.stringify(draft));
+        }, { slug: V7_SLUG, draft });
+        try {
+          await page.goto(`${fixture.origin}/surveys/${V7_SLUG}`, { waitUntil: "networkidle" });
+          await page.locator('[data-step="intro"]').waitFor();
+          await next(page);
+          await next(page);
+          await next(page);
+          await next(page);
+          assert.equal(await page.locator(".survey-step-page").getAttribute("data-step"), "style_segment");
+          assert.equal(await page.locator(".survey-step-page.schema-v6-step.schema-v7-step").count(), 1);
+          await page.locator('input[name="v5-info-seeking"]').last().click();
+          await page.waitForFunction(() =>
+            document.activeElement?.closest("[data-error-id]")?.dataset.errorId === "recording_preference"
+          );
+          const position = await page.locator('[data-error-id="recording_preference"]').evaluate((target) => {
+            const heading = target.querySelector(".v5-question-heading").getBoundingClientRect();
+            const progress = document.querySelector(".survey-progress").getBoundingClientRect();
+            return {
+              headingTop: heading.top,
+              headingBottom: heading.bottom,
+              progressBottom: progress.bottom,
+              viewportHeight: window.innerHeight,
+            };
+          });
+          assert.ok(position.headingTop >= position.progressBottom,
+            `next heading starts below sticky progress (${position.headingTop}px < ${position.progressBottom}px)`);
+          assert.ok(position.headingBottom <= position.viewportHeight,
+            `next heading remains visible (${position.headingBottom}px > ${position.viewportHeight}px)`);
+        } finally {
+          await context.close();
+        }
+      });
+    }
+  } finally {
+    await browser.close();
+    await fixture.close();
+  }
+});
+
 test("schema-v7 removes the outcome question and ends with 2000-code-point free text", { timeout: 120_000 }, async () => {
   await access(CHROME_PATH, constants.X_OK).catch(() => assert.fail(`Real Chrome is required at ${CHROME_PATH}`));
   const fixture = await fixtureServer(surveyV7Payload, V7_SLUG);
