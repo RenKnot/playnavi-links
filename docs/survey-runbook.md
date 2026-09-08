@@ -334,12 +334,15 @@ browser which drops the Host-only state cookie can recover the failure display.
 That path is never sufficient to validate OAuth or create a session: the cookie
 state, nonce and Google PKCE checks remain mandatory.
 
-Treat an Apple authorization sheet that asks an existing native-app user to
-create a PlayNavi account as a release-stopping configuration signal. Before
-accepting Apple E2E, verify that the production Services ID is associated with
-the native app's primary App ID and repeat the native/Web comparison with the
-same Apple Account. App 4.2.2 announcement entry uses the existing handoff and
-does not show the Apple sheet.
+Apple controls the authorization-sheet copy, and its documented authorization
+parameters do not provide a sign-in-versus-sign-up display mode. Do not infer
+configuration health from that copy alone. Before accepting Apple E2E, verify
+that the production Services ID is associated with the native app's primary App
+ID, then complete one controlled Web authorization with the same Apple Account.
+Pass only when it returns to the Survey as the existing member; an
+account-not-found or generic authentication failure is release-stopping. The Web
+flow still never creates or merges a PlayNavi account. App 4.2.2 announcement
+entry uses the existing handoff and does not show the Apple sheet.
 
 1. Register exact callback `https://links.playnavilab.com/api/auth/callback`
    on both the dedicated Google Web client and Apple Services ID. Do not allow
