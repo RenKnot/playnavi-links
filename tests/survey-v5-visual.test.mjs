@@ -177,6 +177,19 @@ test("schema-v5 guest flow works in real mobile Chrome", { timeout: 120_000 }, a
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, locale: "ja-JP", reducedMotion: "reduce" });
   const page = await context.newPage();
   try {
+    await page.goto(`${fixture.origin}/surveys/${SLUG}?auth=account_not_found`, { waitUntil: "networkidle" });
+    await page.locator(".login-heading").waitFor();
+    assert.equal(new URL(page.url()).search, "");
+    assert.equal(await page.locator("#link-view").isHidden(), true);
+    assert.equal(await page.locator("#survey-view").isVisible(), true);
+    assert.equal(
+      await page.locator("#survey-description").textContent(),
+      "このログイン方法に紐づくPlayNaviアカウントが見つかりませんでした。新規登録は行われていません。別のログイン方法を試すか、報酬なしで回答してください。",
+    );
+    assert.equal(await page.locator(".oauth").count(), 2);
+    assert.equal(await page.locator("#guest-login").count(), 1);
+    assert.match(await page.locator(".apple-login-note").textContent(), /このアンケートから新規登録は行いません/);
+
     await page.goto(`${fixture.origin}/surveys/${SLUG}`, { waitUntil: "networkidle" });
     await page.locator(".login-heading").waitFor();
     assert.equal(await page.locator(".login-heading").textContent(), "回答方法を選択してください");

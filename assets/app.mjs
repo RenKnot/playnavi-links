@@ -72,6 +72,15 @@ function showHome() {
   showStores();
 }
 
+function showSurveyLoginFailure() {
+  hideActions();
+  setContent({
+    heading: "アンケートのログインを完了できませんでした",
+    description:
+      "新規登録は行われていません。元のアンケートのリンクをもう一度開き、別のログイン方法またはゲスト回答をお試しください。",
+  });
+}
+
 function showFailure(kind, retry) {
   hideActions();
   setContent(
@@ -220,6 +229,10 @@ function start() {
   }
   if (path === "/" || path === "") {
     showHome();
+    return;
+  }
+  if (path === "/survey-login-error") {
+    showSurveyLoginFailure();
     return;
   }
 

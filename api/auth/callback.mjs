@@ -2,6 +2,7 @@ import {
   clearOAuthState,
   exchangeProviderCode,
   readOAuthState,
+  returnPathFromOAuthState,
   verifyProviderIdentity,
 } from "../_lib/auth.mjs";
 import {
@@ -11,19 +12,31 @@ import {
 } from "../_lib/config.mjs";
 import { PRIVATE_HEADERS, firstQueryValue, safeReturnPath } from "../_lib/http.mjs";
 import { setSurveySession } from "../_lib/survey-session.mjs";
-import { callSurveyFunction } from "../_lib/upstream.mjs";
+import { UpstreamError, callSurveyFunction } from "../_lib/upstream.mjs";
 
 function finish(response, path) {
   for (const [name, value] of Object.entries(PRIVATE_HEADERS)) response.setHeader(name, value);
   clearOAuthState(response);
   return response.redirect(303, path);
 }
+
+export function authFailureReason(error) {
+  return error instanceof UpstreamError &&
+      error.status === 404 && error.code === "EXISTING_IDENTITY_NOT_FOUND"
+    ? "account_not_found"
+    : "failed";
+}
+
 export default async function handler(request, response) {
-  if (request.method !== "GET") return finish(response, "/?auth=failed");
+  if (request.method !== "GET") return finish(response, "/survey-login-error");
 
   const state = readOAuthState(request);
-  const returnPath = safeReturnPath(state?.returnPath);
   const returnedState = firstQueryValue(request.query.state);
+  const returnPath = safeReturnPath(state?.returnPath);
+  // The encoded same-origin Survey path is used only to render a failure page
+  // when a browser drops the Host-only state cookie across the provider hop.
+  // It never makes an OAuth response valid and cannot create a session.
+  const failureReturnPath = returnPath || returnPathFromOAuthState(returnedState);
   const code = firstQueryValue(request.query.code);
   if (
     !returnPath ||
@@ -33,7 +46,10 @@ export default async function handler(request, response) {
     code.length < 16 ||
     code.length > 2_048
   ) {
-    return finish(response, returnPath ? `${returnPath}?auth=failed` : "/?auth=failed");
+    return finish(
+      response,
+      failureReturnPath ? `${failureReturnPath}?auth=failed` : "/survey-login-error",
+    );
   }
 
   try {
@@ -75,7 +91,8 @@ export default async function handler(request, response) {
     }
     setSurveySession(response, surveySession.session_token, surveySession.expires_at);
     return finish(response, returnPath);
-  } catch {
-    return finish(response, `${returnPath}?auth=failed`);
+  } catch (error) {
+    const reason = authFailureReason(error);
+    return finish(response, `${returnPath}?auth=${reason}`);
   }
 }

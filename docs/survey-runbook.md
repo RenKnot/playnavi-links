@@ -325,6 +325,20 @@ account only to verify the cross-revision `already_submitted` path.
 
 ## External authentication setup
 
+The Web flow never signs up or merges a PlayNavi account. It verifies the
+provider token and exact-matches its subject to an existing provider identity.
+An unknown identity returns to the Survey with an account-not-found message and
+the guest option; it must never fall through to the normal app-install home.
+The OAuth state carries only an allowlisted same-origin Survey path so that a
+browser which drops the Host-only state cookie can recover the failure display.
+That path is never sufficient to validate OAuth or create a session: the cookie
+state, nonce and Google PKCE checks remain mandatory.
+
+Apple owns the authorization sheet and may describe its confirmation as
+creating an account even though PlayNavi performs no signup. Keep the visible
+pre-authorization note beside the Apple button. App 4.2.2 announcement entry
+uses the existing handoff instead and does not show the Apple sheet.
+
 1. Register exact callback `https://links.playnavilab.com/api/auth/callback`
    on both the dedicated Google Web client and Apple Services ID. Do not allow
    arbitrary production paths or hosts.

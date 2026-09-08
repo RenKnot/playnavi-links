@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 
 import { SignJWT, createRemoteJWKSet, importPKCS8, jwtVerify } from "jose";
 
-import { appendSetCookie, parseCookies, serializeCookie } from "./http.mjs";
+import { appendSetCookie, parseCookies, safeReturnPath, serializeCookie } from "./http.mjs";
 
 export const OAUTH_STATE_COOKIE = "__Host-pn_oauth_state";
 const STATE_MAX_AGE_SECONDS = 600;
@@ -12,6 +12,27 @@ const APPLE_CLIENT_SECRET_LIFETIME_SECONDS = 300;
 
 const opaque = () => randomBytes(32).toString("base64url");
 const challenge = (verifier) => createHash("sha256").update(verifier).digest("base64url");
+
+function stateValue(returnPath) {
+  const safePath = safeReturnPath(returnPath);
+  if (!safePath) throw new Error("Invalid OAuth return path");
+  return `${opaque()}.${Buffer.from(safePath, "utf8").toString("base64url")}`;
+}
+
+export function returnPathFromOAuthState(value) {
+  if (typeof value !== "string") return null;
+  const [randomPart, encodedPath, extra] = value.split(".");
+  if (extra !== undefined || !/^[A-Za-z0-9_-]{43}$/.test(randomPart) ||
+      !/^[A-Za-z0-9_-]{1,128}$/.test(encodedPath)) return null;
+  try {
+    const path = Buffer.from(encodedPath, "base64url").toString("utf8");
+    return Buffer.from(path, "utf8").toString("base64url") === encodedPath
+      ? safeReturnPath(path)
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 export function setOAuthState(response, value) {
   appendSetCookie(
@@ -41,7 +62,7 @@ export function readOAuthState(request) {
       typeof value.createdAt !== "number" ||
       value.createdAt > Date.now() ||
       Date.now() - value.createdAt > STATE_MAX_AGE_SECONDS * 1_000 ||
-      !/^[A-Za-z0-9_-]{43}$/.test(value.state) ||
+      returnPathFromOAuthState(value.state) !== safeReturnPath(value.returnPath) ||
       !/^[A-Za-z0-9_-]{43}$/.test(value.nonce)
     ) return null;
     if (value.provider === "google" && !/^[A-Za-z0-9_-]{43}$/.test(value.codeVerifier)) return null;
@@ -53,7 +74,7 @@ export function readOAuthState(request) {
 
 export function createAuthorization(provider, providerConfig, redirectUri, returnPath) {
   if (!["google", "apple"].includes(provider)) throw new Error("Unsupported provider");
-  const state = opaque();
+  const state = stateValue(returnPath);
   const nonce = opaque();
   const value = { provider, state, nonce, returnPath, createdAt: Date.now() };
   let url;

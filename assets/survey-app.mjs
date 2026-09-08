@@ -75,7 +75,7 @@ function hideStates() {
   }
 }
 
-function showLogin(slug, preview, failed = false) {
+function showLogin(slug, preview, authFailure = null) {
   hideStates();
   const isVoiceV5 = [5, 6, 7].includes(preview?.schemaVersion);
   elements.view?.classList.toggle("survey-schema-v5", isVoiceV5);
@@ -115,10 +115,12 @@ function showLogin(slug, preview, failed = false) {
   }
   setPage({
     title: preview?.title || "アンケート",
-    description: failed
-      ? "ログインを完了できませんでした。PlayNaviで利用しているアカウントでもう一度お試しください。"
+    description: authFailure === "account_not_found"
+      ? "このログイン方法に紐づくPlayNaviアカウントが見つかりませんでした。新規登録は行われていません。別のログイン方法を試すか、報酬なしで回答してください。"
+      : authFailure
+      ? "ログインを完了できませんでした。別のログイン方法を試すか、報酬なしで回答してください。"
       : isVoiceV5 ? preview?.description || "" : "",
-    descriptionTone: failed ? "warning" : "default",
+    descriptionTone: authFailure ? "warning" : "default",
   });
   if (elements.guide && !isVoiceV5) {
     elements.guide.textContent = preview?.description || "";
@@ -3163,7 +3165,7 @@ function showSurveyForm(slug, survey) {
   setVisible(elements.form, true);
 }
 
-async function loadSurvey(slug, authFailed = false) {
+async function loadSurvey(slug, authFailure = null) {
   hideStates();
   setPage({ title: "PlayNaviアンケート", description: "アンケートを準備しています。", loading: true });
   try {
@@ -3175,7 +3177,7 @@ async function loadSurvey(slug, authFailed = false) {
     });
     if (response.status === 401) {
       const preview = parseSurveyPreview(await response.json(), slug);
-      return showLogin(slug, preview, authFailed);
+      return showLogin(slug, preview, authFailure);
     }
     if (response.status === 403) {
       return showLogin(slug, null, true);
@@ -3221,13 +3223,15 @@ export async function startSurvey(slug) {
   setVisible(elements.view, true);
 
   const params = new URLSearchParams(window.location.search);
-  const authFailed = params.get("auth") === "failed";
+  const authFailure = ["failed", "account_not_found"].includes(params.get("auth"))
+    ? params.get("auth")
+    : null;
   const fragment = new URLSearchParams(window.location.hash.slice(1));
   const handoff = fragment.get("handoff");
 
   // Remove every fragment value before any network call. The handoff code is
   // retained only in this local variable and is never written to storage/DOM.
-  if (window.location.hash || authFailed) {
+  if (window.location.hash || authFailure) {
     window.history.replaceState(null, "", window.location.pathname);
   }
 
@@ -3235,7 +3239,7 @@ export async function startSurvey(slug) {
     setPage({ title: "PlayNaviアンケート", description: "ログイン情報を確認しています。", loading: true });
     const exchanged = await exchangeHandoff(handoff, slug);
     if (exchanged === null) return;
-    if (!exchanged) return loadSurvey(slug, true);
+    if (!exchanged) return loadSurvey(slug, "failed");
   }
-  return loadSurvey(slug, authFailed);
+  return loadSurvey(slug, authFailure);
 }
