@@ -10,6 +10,7 @@ import {
   createAuthorization,
   exchangeProviderCode,
   readOAuthState,
+  returnPathFromOAuthState,
   setOAuthState,
 } from "../api/_lib/auth.mjs";
 import {
@@ -19,6 +20,8 @@ import {
   serializeCookie,
 } from "../api/_lib/http.mjs";
 import legacyRouteDisabled from "../api/legacy-route-disabled.mjs";
+import authCallback, { authFailureReason } from "../api/auth/callback.mjs";
+import { UpstreamError } from "../api/_lib/upstream.mjs";
 
 function mockResponse() {
   const headers = new Map();
@@ -91,6 +94,63 @@ test("OAuth state is short-lived, Host-only, and readable only from its cookie",
   assert.match(cookie, /Path=\/;/);
   const cookiePair = cookie.split(";", 1)[0];
   assert.deepEqual(readOAuthState({ headers: { cookie: cookiePair } }), authorization.state);
+  assert.equal(returnPathFromOAuthState(redirect.searchParams.get("state")), "/surveys/launch-2026");
+  assert.equal(returnPathFromOAuthState(`${"a".repeat(43)}.L2FkbWlu`), null);
+  for (const unsafe of [
+    "https://evil.example/surveys/launch-2026",
+    "/surveys/../admin",
+    `/surveys/${"a".repeat(64)}`,
+  ]) {
+    const encoded = Buffer.from(unsafe, "utf8").toString("base64url");
+    assert.equal(returnPathFromOAuthState(`${"a".repeat(43)}.${encoded}`), null);
+  }
+  assert.equal(returnPathFromOAuthState("not-a-state"), null);
+  assert.throws(() => createAuthorization(
+    "google",
+    { clientId: "google-client-id", clientSecret: "server-only" },
+    "https://links.playnavilab.com/api/auth/callback",
+    "/admin",
+  ));
+});
+
+test("OAuth callback restores only the Survey failure page when its cookie is missing", async () => {
+  const authorization = createAuthorization(
+    "google",
+    { clientId: "google-client-id", clientSecret: "server-only" },
+    "https://links.playnavilab.com/api/auth/callback",
+    "/surveys/launch-2026",
+  );
+  const response = mockResponse();
+  response.redirect = (status, path) => {
+    response.statusCode = status;
+    response.redirectPath = path;
+    return response;
+  };
+
+  await authCallback({
+    method: "GET",
+    headers: {},
+    query: { state: authorization.state.state, code: "x".repeat(32) },
+  }, response);
+
+  assert.equal(response.statusCode, 303);
+  assert.equal(response.redirectPath, "/surveys/launch-2026?auth=failed");
+  assert.doesNotMatch(response.redirectPath, /^\/$|App Store/);
+  assert.equal(response.getHeader("Cache-Control"), "private, no-store, max-age=0");
+  assert.match(String(response.getHeader("Set-Cookie")), /Max-Age=0/);
+});
+
+test("OAuth callback has a dedicated fail-closed destination and reason", async () => {
+  const response = mockResponse();
+  response.redirect = (status, path) => {
+    response.statusCode = status;
+    response.redirectPath = path;
+    return response;
+  };
+  await authCallback({ method: "GET", headers: {}, query: {} }, response);
+  assert.equal(response.redirectPath, "/survey-login-error");
+  assert.equal(authFailureReason(new UpstreamError(404, "EXISTING_IDENTITY_NOT_FOUND")), "account_not_found");
+  assert.equal(authFailureReason(new UpstreamError(503)), "failed");
 });
 
 test("Apple uses only documented authorization parameters", () => {

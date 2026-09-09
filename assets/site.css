@@ -139,6 +139,14 @@ p { margin: 0 0 24px; color: var(--muted); font-size: 14px; line-height: 1.7; }
 .apple-icon { width: 20px; height: 24px; }
 .google-icon { width: 24px; height: 24px; }
 .oauth span { flex: 0 1 auto; text-align: left; }
+.oauth-provider { display: grid; gap: 6px; }
+.apple-login-note {
+  margin: 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: left;
+}
 .guest {
   min-height: 52px;
   border: 2px solid var(--primary);

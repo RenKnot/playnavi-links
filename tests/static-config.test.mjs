@@ -172,14 +172,30 @@ test("survey code loads only on survey routes and login copy matches stored-data
   assert.match(html, /<img class="oauth-icon google-icon" src="\/assets\/icons\/google\.png" alt="" aria-hidden="true">/);
   assert.match(html, /<img class="oauth-icon apple-icon" src="\/assets\/icons\/apple\.png" alt="" aria-hidden="true">/);
   assert.match(html, /<span>Appleでサインイン<\/span>/);
+  assert.match(html, /id="apple-login"[^>]+aria-describedby="apple-login-note"/);
+  assert.match(html, /Apple側の仕様で「新規登録」という表示になることがありますが、内部的にはサインインとして処理されるので問題ありません。/);
   assert.match(html, /<span>Google でログイン<\/span>/);
   assert.match(html, /報酬なしでログインせずに回答する/);
   assert.match(surveyApp, /title: preview\?\.title \|\| "アンケート"/);
-  assert.ok(html.indexOf('id="apple-login"') < html.indexOf('id="google-login"'));
-  assert.match(surveyApp, /descriptionTone: failed \? "warning" : "default"/);
+  assert.ok(html.indexOf('id="apple-login"') < html.indexOf('id="apple-login-note"'));
+  assert.ok(html.indexOf('id="apple-login-note"') < html.indexOf('id="google-login"'));
+  assert.match(surveyApp, /descriptionTone: authFailure \? "warning" : "default"/);
+  assert.match(surveyApp, /authFailure === "account_not_found"/);
+  assert.match(surveyApp, /新規登録は行われていません。別のログイン方法を試すか/);
   assert.match(surveyApp, /classList\.toggle\("auth-warning", descriptionTone === "warning"\)/);
   assert.match(surveyApp, /setAttribute\("role", "alert"\)/);
   assert.match(surveyApp, /removeAttribute\("role"\)/);
   assert.doesNotMatch(html, /PlayNaviの登録時と同じログイン方法/);
   assert.doesNotMatch(html, /アンケート内容は匿名での回答になります。/);
+});
+
+test("lost OAuth state never falls through to the app-install home", async () => {
+  const callback = await readFile(new URL("../api/auth/callback.mjs", import.meta.url), "utf8");
+  const app = await readFile(new URL("../assets/app.mjs", import.meta.url), "utf8");
+
+  assert.match(callback, /returnPathFromOAuthState\(returnedState\)/);
+  assert.match(callback, /"\/survey-login-error"/);
+  assert.match(callback, /error\.code === "EXISTING_IDENTITY_NOT_FOUND"/);
+  assert.match(app, /path === "\/survey-login-error"/);
+  assert.match(app, /新規登録は行われていません。元のアンケートのリンクをもう一度開き/);
 });
