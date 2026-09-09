@@ -341,8 +341,12 @@ that the production Services ID is associated with the native app's primary App
 ID, then complete one controlled Web authorization with the same Apple Account.
 Pass only when it returns to the Survey as the existing member; an
 account-not-found or generic authentication failure is release-stopping. The Web
-flow still never creates or merges a PlayNavi account. App 4.2.2 announcement
-entry uses the existing handoff and does not show the Apple sheet.
+flow still never creates or merges a PlayNavi account. Controlled production E2E
+confirmed that the first Web authorization for an Apple Account can use account-
+creation copy, complete as the existing member, and use sign-in copy in another
+browser afterwards. Keep the visible explanation directly associated with the
+Apple button. App 4.2.2 announcement entry uses the existing handoff and does not
+show the Apple sheet.
 
 1. Register exact callback `https://links.playnavilab.com/api/auth/callback`
    on both the dedicated Google Web client and Apple Services ID. Do not allow

@@ -172,10 +172,13 @@ test("survey code loads only on survey routes and login copy matches stored-data
   assert.match(html, /<img class="oauth-icon google-icon" src="\/assets\/icons\/google\.png" alt="" aria-hidden="true">/);
   assert.match(html, /<img class="oauth-icon apple-icon" src="\/assets\/icons\/apple\.png" alt="" aria-hidden="true">/);
   assert.match(html, /<span>Appleでサインイン<\/span>/);
+  assert.match(html, /id="apple-login"[^>]+aria-describedby="apple-login-note"/);
+  assert.match(html, /Appleの初回確認では「アカウントを作成」と表示されますが、PlayNaviの新規登録は行われません。続けると既存アカウントでログインします。/);
   assert.match(html, /<span>Google でログイン<\/span>/);
   assert.match(html, /報酬なしでログインせずに回答する/);
   assert.match(surveyApp, /title: preview\?\.title \|\| "アンケート"/);
-  assert.ok(html.indexOf('id="apple-login"') < html.indexOf('id="google-login"'));
+  assert.ok(html.indexOf('id="apple-login"') < html.indexOf('id="apple-login-note"'));
+  assert.ok(html.indexOf('id="apple-login-note"') < html.indexOf('id="google-login"'));
   assert.match(surveyApp, /descriptionTone: authFailure \? "warning" : "default"/);
   assert.match(surveyApp, /authFailure === "account_not_found"/);
   assert.match(surveyApp, /新規登録は行われていません。別のログイン方法を試すか/);

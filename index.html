@@ -38,10 +38,13 @@
             <li id="survey-guide" class="hidden"></li>
           </ul>
           <div class="actions oauth-actions">
-            <a id="apple-login" class="button oauth apple" href="#">
-              <img class="oauth-icon apple-icon" src="/assets/icons/apple.png" alt="" aria-hidden="true">
-              <span>Appleでサインイン</span>
-            </a>
+            <div class="oauth-provider">
+              <a id="apple-login" class="button oauth apple" href="#" aria-describedby="apple-login-note">
+                <img class="oauth-icon apple-icon" src="/assets/icons/apple.png" alt="" aria-hidden="true">
+                <span>Appleでサインイン</span>
+              </a>
+              <p id="apple-login-note" class="apple-login-note">Appleの初回確認では「アカウントを作成」と表示されますが、PlayNaviの新規登録は行われません。続けると既存アカウントでログインします。</p>
+            </div>
             <a id="google-login" class="button oauth google" href="#">
               <img class="oauth-icon google-icon" src="/assets/icons/google.png" alt="" aria-hidden="true">
               <span>Google でログイン</span>

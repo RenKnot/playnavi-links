@@ -188,6 +188,22 @@ test("schema-v5 guest flow works in real mobile Chrome", { timeout: 120_000 }, a
     );
     assert.equal(await page.locator(".oauth").count(), 2);
     assert.equal(await page.locator("#guest-login").count(), 1);
+    assert.equal(
+      await page.locator("#apple-login-note").textContent(),
+      "Appleの初回確認では「アカウントを作成」と表示されますが、PlayNaviの新規登録は行われません。続けると既存アカウントでログインします。",
+    );
+    assert.equal(await page.locator("#apple-login").getAttribute("aria-describedby"), "apple-login-note");
+    const loginLayout = await page.evaluate(() => ({
+      clientWidth: document.documentElement.clientWidth,
+      actions: document.querySelector(".oauth-actions")?.getBoundingClientRect().toJSON(),
+      provider: document.querySelector(".oauth-provider")?.getBoundingClientRect().toJSON(),
+      note: document.querySelector("#apple-login-note")?.getBoundingClientRect().toJSON(),
+    }));
+    assert.ok(
+      loginLayout.note.left >= 0 && loginLayout.note.right <= loginLayout.clientWidth &&
+        loginLayout.provider.left >= 0 && loginLayout.provider.right <= loginLayout.clientWidth,
+      `login overflow: ${JSON.stringify(loginLayout)}`,
+    );
 
     await page.goto(`${fixture.origin}/surveys/${SLUG}`, { waitUntil: "networkidle" });
     await page.locator(".login-heading").waitFor();
