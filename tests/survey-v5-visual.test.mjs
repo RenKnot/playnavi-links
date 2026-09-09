@@ -190,7 +190,7 @@ test("schema-v5 guest flow works in real mobile Chrome", { timeout: 120_000 }, a
     assert.equal(await page.locator("#guest-login").count(), 1);
     assert.equal(
       await page.locator("#apple-login-note").textContent(),
-      "Appleの初回確認では「アカウントを作成」と表示されますが、PlayNaviの新規登録は行われません。続けると既存アカウントでログインします。",
+      "Apple側の仕様で「新規登録」という表示になることがありますが、内部的にはサインインとして処理されるので問題ありません。",
     );
     assert.equal(await page.locator("#apple-login").getAttribute("aria-describedby"), "apple-login-note");
     const loginLayout = await page.evaluate(() => ({

@@ -173,7 +173,7 @@ test("survey code loads only on survey routes and login copy matches stored-data
   assert.match(html, /<img class="oauth-icon apple-icon" src="\/assets\/icons\/apple\.png" alt="" aria-hidden="true">/);
   assert.match(html, /<span>Appleでサインイン<\/span>/);
   assert.match(html, /id="apple-login"[^>]+aria-describedby="apple-login-note"/);
-  assert.match(html, /Appleの初回確認では「アカウントを作成」と表示されますが、PlayNaviの新規登録は行われません。続けると既存アカウントでログインします。/);
+  assert.match(html, /Apple側の仕様で「新規登録」という表示になることがありますが、内部的にはサインインとして処理されるので問題ありません。/);
   assert.match(html, /<span>Google でログイン<\/span>/);
   assert.match(html, /報酬なしでログインせずに回答する/);
   assert.match(surveyApp, /title: preview\?\.title \|\| "アンケート"/);
