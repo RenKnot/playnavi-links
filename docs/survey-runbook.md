@@ -1,5 +1,21 @@
 # Survey web runbook
 
+## September 2026 deferred title correction
+
+For schema v7 `playnavi-voice-2026-09`, the authenticated read response supplies
+the active campaign title name. The introduction and completion screen display
+that name and state that the title will be delivered later. A successful submit
+returns the same reward object with `awarded=false`: the database stores the
+anonymous answer and the separate UID-only entitlement claim, but does not yet
+create title ownership. After the fixed response deadline, the reviewed
+production close-and-grant SQL creates ownership for the claim set. Guest reads
+and submits have `reward=null`, so guest UI never promises a title.
+
+Deploy the database defer correction before this Web copy. During a mixed
+deployment, `awarded=true` remains rendered as an already-acquired title so the
+page never tells a user to wait for a title that was actually granted. Schema
+v1-v6 retain their previous display contract.
+
 ## Delivery path and intentionally new server surface
 
 This repository previously deployed only static files and two rewrites. That
