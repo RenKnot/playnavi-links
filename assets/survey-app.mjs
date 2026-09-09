@@ -201,9 +201,9 @@ function showResult(result) {
         ? "このアンケートへの回答はすでに完了しています。"
         : result.schemaVersion === 7
           ? result.titleAwarded && result.titleName
-            ? `称号「${result.titleName}」を獲得しました。このまま画面を閉じて構いません。`
+            ? `称号「${result.titleName}」を付与しました。このまま画面を閉じて構いません。`
             : result.titleName
-              ? `称号「${result.titleName}」は後日お贈りします。このまま画面を閉じて構いません。`
+              ? `称号「${result.titleName}」はすでに付与済みです。このまま画面を閉じて構いません。`
               : "このまま画面を閉じて構いません。"
         : conciseCompletion
           ? "このまま画面を閉じて構いません。報酬のご提供まで今しばらくお待ちください。"
@@ -2347,9 +2347,9 @@ function buildVoiceV5Pages(slug, survey, values, submissionToken, rerender, {
       intro.querySelector("p").remove();
       intro.querySelector("ul").replaceChildren();
       const messages = survey.rewardEligible ? schemaVersion === 7 ? [
-        "匿名形式のアンケートです。（ログイン情報は、後日の称号付与対象の判定にのみ利用します）",
-        `回答内容にかかわらず、回答を送信した方へ称号「${survey.titleName}」を後日お贈りします。`,
-        "称号は、PlayNaviのプロフィールやログカードに設定できます。",
+        "匿名形式のアンケートです。（ログイン情報は、称号付与の判定にのみ利用します）",
+        `回答内容にかかわらず、回答を送信すると称号「${survey.titleName}」を受け取れます。`,
+        "称号は回答送信と同時に付与され、PlayNaviのプロフィールやログカードに設定できます。",
       ] : [
         "匿名形式のアンケートです。（ログイン情報は、報酬付与の判定にのみ利用します）",
         "回答内容にかかわらず、回答を送信すると報酬（称号）を受け取れます。",
@@ -2698,9 +2698,7 @@ function buildVoiceV5Pages(slug, survey, values, submissionToken, rerender, {
       const privacy = document.createElement("p");
       privacy.className = "privacy-note";
       privacy.textContent = survey.rewardEligible
-        ? schemaVersion === 7
-          ? "ログイン情報は、後日の称号付与対象の判定にだけ使い、回答本体へ保存しません。"
-          : "ログイン情報は称号付与の判定にだけ使い、回答本体へ保存しません。"
+        ? "ログイン情報は称号付与の判定にだけ使い、回答本体へ保存しません。"
         : "ゲスト回答では称号を受け取れません。回答本体にログイン情報は含まれません。";
       review.append(noteCopy, privacy);
       page.append(review);

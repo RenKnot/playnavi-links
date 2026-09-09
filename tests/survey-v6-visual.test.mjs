@@ -98,7 +98,7 @@ async function fixtureServer(payload = surveyV6Payload, slug = SLUG) {
           status: "ok",
           submission: { submitted_at: "2026-09-08T00:00:00Z", already_submitted: false },
           reward: schemaVersion === 7
-            ? { awarded: false, name_ja: "Founding Contributor" }
+            ? { awarded: true, name_ja: "Founding Contributor" }
             : { awarded: true, name_ja: "テスト称号" },
         }));
         return;
@@ -295,9 +295,9 @@ test("schema-v7 keeps the next question heading visible after tap-forward", { ti
           await page.goto(`${fixture.origin}/surveys/${V7_SLUG}`, { waitUntil: "networkidle" });
           await page.locator('[data-step="intro"]').waitFor();
           assert.deepEqual(await page.locator(".voice-intro li").allTextContents(), [
-            "匿名形式のアンケートです。（ログイン情報は、後日の称号付与対象の判定にのみ利用します）",
-            "回答内容にかかわらず、回答を送信した方へ称号「Founding Contributor」を後日お贈りします。",
-            "称号は、PlayNaviのプロフィールやログカードに設定できます。",
+            "匿名形式のアンケートです。（ログイン情報は、称号付与の判定にのみ利用します）",
+            "回答内容にかかわらず、回答を送信すると称号「Founding Contributor」を受け取れます。",
+            "称号は回答送信と同時に付与され、PlayNaviのプロフィールやログカードに設定できます。",
           ]);
           await next(page);
           await next(page);
@@ -374,7 +374,7 @@ test("schema-v7 removes the outcome question and ends with 2000-code-point free 
     await page.locator("#survey-submit").click();
     await page.locator("#result-heading").waitFor();
     assert.equal(await page.locator("#result-description").textContent(),
-      "称号「Founding Contributor」は後日お贈りします。このまま画面を閉じて構いません。");
+      "称号「Founding Contributor」を付与しました。このまま画面を閉じて構いません。");
     assert.equal(await page.locator("#title-reward").isHidden(), true);
     assert.equal(fixture.submissions.length, 1);
     assert.deepEqual(Object.keys(fixture.submissions[0].answers), VOICE_V7_ANSWER_KEYS);
