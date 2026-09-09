@@ -37,6 +37,7 @@ const surveyV7Payload = {
       kind: "playnavi_voice_2026_reviewed_final",
       final_comment_max_length: 2_000,
     },
+    reward: { name_ja: "Founding Contributor" },
   },
 };
 delete surveyV7Payload.survey.questions.problem_outcome_options;
@@ -75,6 +76,7 @@ function completeDraft(payload = surveyV6Payload) {
 
 async function fixtureServer(payload = surveyV6Payload, slug = SLUG) {
   const submissions = [];
+  const schemaVersion = payload.survey.schema_version;
   const server = createServer(async (request, response) => {
     try {
       const url = new URL(request.url, "http://127.0.0.1");
@@ -95,7 +97,9 @@ async function fixtureServer(payload = surveyV6Payload, slug = SLUG) {
         response.end(JSON.stringify({
           status: "ok",
           submission: { submitted_at: "2026-09-08T00:00:00Z", already_submitted: false },
-          reward: { awarded: true, name_ja: "テスト称号" },
+          reward: schemaVersion === 7
+            ? { awarded: true, name_ja: "Founding Contributor" }
+            : { awarded: true, name_ja: "テスト称号" },
         }));
         return;
       }
@@ -139,6 +143,7 @@ test("schema-v6 reuses the frozen v5 answer contract additively", () => {
 
 test("schema-v7 has a distinct exact final-feedback contract", () => {
   const survey = parseSurveyRead(surveyV7Payload, V7_SLUG);
+  assert.equal(survey.titleName, "Founding Contributor");
   const draft = completeDraft(surveyV7Payload);
   draft.values.unused_feature_reason_by_feature.avatar_cover = "not_needed";
   const result = validateVoiceV7Answers(survey.voice, draft.values);
@@ -289,6 +294,11 @@ test("schema-v7 keeps the next question heading visible after tap-forward", { ti
         try {
           await page.goto(`${fixture.origin}/surveys/${V7_SLUG}`, { waitUntil: "networkidle" });
           await page.locator('[data-step="intro"]').waitFor();
+          assert.deepEqual(await page.locator(".voice-intro li").allTextContents(), [
+            "匿名形式のアンケートです。（ログイン情報は、称号付与の判定にのみ利用します）",
+            "回答内容にかかわらず、回答を送信すると称号「Founding Contributor」を受け取れます。",
+            "称号は回答送信と同時に付与され、PlayNaviのプロフィールやログカードに設定できます。",
+          ]);
           await next(page);
           await next(page);
           await next(page);
@@ -363,6 +373,9 @@ test("schema-v7 removes the outcome question and ends with 2000-code-point free 
     assert.equal(await page.locator(".survey-step-page").getAttribute("data-step"), "review");
     await page.locator("#survey-submit").click();
     await page.locator("#result-heading").waitFor();
+    assert.equal(await page.locator("#result-description").textContent(),
+      "称号「Founding Contributor」を付与しました。このまま画面を閉じて構いません。");
+    assert.equal(await page.locator("#title-reward").isHidden(), true);
     assert.equal(fixture.submissions.length, 1);
     assert.deepEqual(Object.keys(fixture.submissions[0].answers), VOICE_V7_ANSWER_KEYS);
     assert.equal(fixture.submissions[0].answers.final_comment, atLimit);

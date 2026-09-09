@@ -1,5 +1,19 @@
 # Survey web runbook
 
+## September 2026 campaign title naming
+
+For schema v7 `playnavi-voice-2026-09`, the authenticated read response supplies
+the active campaign title name. In production that row was renamed to
+`Founding Contributor` without changing the Survey row, so the introduction and
+completion screen read the name from the API instead of hard-coding it. The
+copy states that the title is granted when the answer is submitted: the
+database stores the anonymous answer, the separate UID-only reward claim and
+the title ownership in one transaction and returns `awarded=true`. A retry, or
+an account that already owned the title, returns `awarded=false` and the
+completion screen then says the title is already granted. Guest reads and
+submits have `reward=null`, so guest UI never promises a title. Schema v1-v6
+retain their previous display contract.
+
 ## Delivery path and intentionally new server surface
 
 This repository previously deployed only static files and two rewrites. That

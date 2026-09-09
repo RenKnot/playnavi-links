@@ -636,6 +636,12 @@ export function parseSurveyRead(payload, expectedSlug) {
   if (payload.survey.schema_version === 7) {
     const voice = normalizeVoiceV7Definition(payload.survey.questions);
     if (!voice) throw new SurveyContractError("invalid final monthly voice questions");
+    const titleName = payload.survey.reward === null || payload.survey.reward === undefined
+      ? null
+      : text(payload.survey.reward?.name_ja, 200);
+    if (payload.survey.reward && !titleName) {
+      throw new SurveyContractError("invalid survey reward");
+    }
     return {
       status: payload.response ? "already_answered" : "ok",
       schemaVersion: 7,
@@ -645,7 +651,7 @@ export function parseSurveyRead(payload, expectedSlug) {
         : "",
       voice,
       rewardEligible: payload.survey.reward !== null && payload.survey.reward !== undefined,
-      titleName: payload.response ? text(payload.survey.reward?.name_ja, 200) : null,
+      titleName,
       titleAwarded: false,
     };
   }
