@@ -28,7 +28,7 @@ Bridge から起動された Agent は、作業開始時に**必ず次の順で*
 | primary app repo | `playnavi_app` |
 | profile 内の全リポ | `playnavi_app`, `playnavi_supabase`, `playnavi_batch_gamedata`, `playnavi_social_processor`, `playnavi_links`, `playnavi_bridge` |
 | 開発方針 | 設計承認あり（実装前に設計を提示し operator の GO を待つ） |
-| クラウド操作 | STG 直結 (`DEV_BRIDGE_STAGING_DIRECT=1`)。STG project `wffhdhdxdrmobgojxddo`。本番 ref は hook が拒否 |
+| クラウド操作 | **STG 直結**。STG project `wffhdhdxdrmobgojxddo` に対して psql / supabase CLI / Management API を Agent 自身が実行できる（`PLAYNAVI_STG_*` と `DEV_BRIDGE_STAGING_DIRECT=1` が注入される）。SQL 適用・RPC 検証・実データ EXPLAIN・index 確認は operator に依頼せず自分で行う。本番 ref `irbtguncoatqfikctreq` への直接操作は hook が拒否する。なお `cloud-capabilities` は親ブローカー系統の可否を返すもので、そこが `enabled: false` でも STG 直結は使える |
 | Expo | このリポでは無効（`playnavi_app` 側で管理） |
 | Slack 依頼チャンネル | `#playnavi-requests` |
 
