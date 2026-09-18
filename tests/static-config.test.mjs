@@ -61,6 +61,7 @@ test("production-only legacy routes stay ahead of safe fallbacks and the SPA", a
     "/api/share-links/:code",
     "/api/share-links/:code",
     "/api/share-links/:code",
+    "/api/share-links/:code",
     "/api/surveys/:surveySlug/responses",
     "/api/surveys/:surveySlug",
     "/s/:code",
@@ -68,18 +69,50 @@ test("production-only legacy routes stay ahead of safe fallbacks and the SPA", a
     "/(.*)",
   ]);
 
-  const productionHosts = ["links.playnavilab.com", "playnavi-links.vercel.app"];
-  for (const source of ["/auth/steam/callback", "/api/share-links/:code"]) {
+  // The allowlist differs per route because share links are minted on a host
+  // that never serves the Steam callback.
+  const productionHostsBySource = {
+    "/auth/steam/callback": [
+      "links.playnavilab.com",
+      "playnavi-links.vercel.app",
+    ],
+    "/api/share-links/:code": [
+      "playnavi.app",
+      "links.playnavilab.com",
+      "playnavi-links.vercel.app",
+    ],
+  };
+  for (const [source, productionHosts] of Object.entries(productionHostsBySource)) {
     const routes = config.rewrites.filter((route) => route.source === source);
+    assert.equal(routes.length, productionHosts.length + 1);
     assert.deepEqual(
-      routes.slice(0, 2).map((route) => route.has),
+      routes.slice(0, productionHosts.length).map((route) => route.has),
       productionHosts.map((host) => [{ type: "host", value: host }]),
     );
     assert.match(routes[0].destination, /^https:\/\/irbtguncoatqfikctreq\.supabase\.co\//);
-    assert.equal(routes[1].destination, routes[0].destination);
-    assert.equal(routes[2].destination, "/api/legacy-route-disabled");
-    assert.equal(routes[2].has, undefined);
+    for (const route of routes.slice(1, productionHosts.length)) {
+      assert.equal(route.destination, routes[0].destination);
+    }
+    const fallback = routes[productionHosts.length];
+    assert.equal(fallback.destination, "/api/legacy-route-disabled");
+    assert.equal(fallback.has, undefined);
   }
+});
+
+test("the host that mints share URLs can reach the resolver on its own origin", async () => {
+  // Share URLs are minted as https://playnavi.app/s/{code} (SHORT_LINK_ORIGIN in
+  // playnavi-supabase supabase/functions/_shared/shortLinkContract.ts) and the SPA
+  // fetches SHORT_LINK_RESOLVER_URL ("/api/share-links") on its own origin. If that
+  // host is missing from the rewrite allowlist, every shared link on the web falls
+  // through to the local deny fallback and shows "リンクを開けません".
+  const config = await readJson("../vercel.json");
+  const allowedHosts = config.rewrites
+    .filter((route) => route.source === "/api/share-links/:code" && route.has)
+    .flatMap((route) => route.has.map((condition) => condition.value));
+  assert.ok(
+    allowedHosts.includes("playnavi.app"),
+    "playnavi.app must reach short-links-resolve",
+  );
 });
 
 test("dynamic survey API routes are explicitly mapped before the SPA fallback", async () => {
