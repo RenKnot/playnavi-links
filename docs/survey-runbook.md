@@ -88,11 +88,16 @@ URL, even when a Deployment Protection Exception could make it public.
 Application-layer handoff/session/provider checks remain mandatory.
 
 This repository also serves production Steam callbacks and short-link
-resolution. Their external Supabase rewrites are host-allowlisted to
-`links.playnavilab.com` and `playnavi-links.vercel.app`. Every other host,
-including the Survey staging host, receives a local private `404` for those two
-paths and cannot reach the production Supabase project. Keep the guarded routes
-ahead of their local deny fallback and the SPA catch-all; verify the ordering
+resolution. Their external Supabase rewrites are host-allowlisted. The Steam
+callback allows `links.playnavilab.com` and `playnavi-links.vercel.app`.
+Short-link resolution additionally allows `playnavi.app`, because share URLs are
+minted as `https://playnavi.app/s/{code}` and the SPA fetches
+`/api/share-links` on its own origin: without that host every shared link on the
+web reaches the deny fallback and renders "リンクを開けません" even though the
+link itself is valid. Every other host, including the Survey staging host,
+receives a local private `404` for those two paths and cannot reach the
+production Supabase project. Keep the guarded routes ahead of their local deny
+fallback and the SPA catch-all; verify the ordering and the per-route host lists
 with `tests/static-config.test.mjs` before deploying either project.
 
 Do not append a Shareable Link or automation-bypass secret to the app URL.
