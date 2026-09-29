@@ -1,4 +1,9 @@
 {
+  "functions": {
+    "api/share-preview.mjs": {
+      "includeFiles": "index.html"
+    }
+  },
   "headers": [
     {
       "source": "/.well-known/apple-app-site-association",
@@ -123,7 +128,35 @@
     },
     {
       "source": "/s/:code",
-      "destination": "/index.html"
+      "destination": "/api/share-preview?code=:code"
+    },
+    {
+      "source": "/game/:id",
+      "has": [
+        { "type": "host", "value": "links.playnavilab.com" }
+      ],
+      "destination": "/api/share-preview?kind=game&id=:id"
+    },
+    {
+      "source": "/users/:ownerId/custom-rankings/:rankingId",
+      "has": [
+        { "type": "host", "value": "links.playnavilab.com" }
+      ],
+      "destination": "/api/share-preview?kind=ranking&ownerId=:ownerId&rankingId=:rankingId"
+    },
+    {
+      "source": "/users/:id",
+      "has": [
+        { "type": "host", "value": "links.playnavilab.com" }
+      ],
+      "destination": "/api/share-preview?kind=user&id=:id"
+    },
+    {
+      "source": "/catalogs/:id",
+      "has": [
+        { "type": "host", "value": "links.playnavilab.com" }
+      ],
+      "destination": "/api/share-preview?kind=catalog&id=:id"
     },
     {
       "source": "/surveys/:surveySlug",
