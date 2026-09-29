@@ -1,5 +1,6 @@
 import {
   ResolveError,
+  aiReturnTargetFromPath,
   canonicalTargetFromPath,
   resolveShortLink,
   shortCodeFromPath,
@@ -154,6 +155,18 @@ function openCanonicalTarget(target) {
   }, LAUNCH_TIMEOUT_MS);
 }
 
+function showAiReturnTarget(target) {
+  hideActions();
+  setContent({
+    heading: "PlayNaviに戻る",
+    description: "下のボタンからアプリを開いてください。リンクの内容はアプリで確認されます。",
+  });
+  if (platform !== "other") {
+    configurePrimary("PlayNaviアプリで開く", manualHrefForCanonical(target));
+  }
+  showStores();
+}
+
 async function openShortLink(code) {
   hideActions();
   setContent({
@@ -233,6 +246,13 @@ function start() {
   }
   if (path === "/survey-login-error") {
     showSurveyLoginFailure();
+    return;
+  }
+
+  if (path === "/a") {
+    const target = aiReturnTargetFromPath(`${path}${window.location.search}${window.location.hash}`);
+    if (target) showAiReturnTarget(target);
+    else showFailure("unavailable");
     return;
   }
 
