@@ -41,9 +41,10 @@ test("Android association uses the reviewed Play App Signing certificate", async
   ]);
 });
 
-test("AASA includes short links without removing canonical routes", async () => {
+test("AASA includes the exact AI return path and existing link routes", async () => {
   const aasa = await readJson("../.well-known/apple-app-site-association");
   assert.deepEqual(aasa.applinks.details[0].paths, [
+    "/a",
     "/s/*",
     "/users/*",
     "/catalogs/*",
@@ -64,6 +65,7 @@ test("production-only legacy routes stay ahead of safe fallbacks and the SPA", a
     "/api/share-links/:code",
     "/api/surveys/:surveySlug/responses",
     "/api/surveys/:surveySlug",
+    "/a",
     "/s/:code",
     "/surveys/:surveySlug",
     "/(.*)",
@@ -97,6 +99,19 @@ test("production-only legacy routes stay ahead of safe fallbacks and the SPA", a
     assert.equal(fallback.destination, "/api/legacy-route-disabled");
     assert.equal(fallback.has, undefined);
   }
+});
+
+test("AI return path receives the SPA and private document headers", async () => {
+  const config = await readJson("../vercel.json");
+  const route = config.rewrites.find((entry) => entry.source === "/a");
+  assert.equal(route?.destination, "/index.html");
+  assert.ok(config.rewrites.indexOf(route) < config.rewrites.findIndex((entry) => entry.source === "/(.*)"));
+  const headers = Object.fromEntries(
+    config.headers.find((entry) => entry.source === "/a").headers.map(({ key, value }) => [key, value]),
+  );
+  assert.equal(headers["Cache-Control"], "no-store");
+  assert.equal(headers["Referrer-Policy"], "no-referrer");
+  assert.equal(headers["X-Robots-Tag"], "noindex, nofollow");
 });
 
 test("the host that mints share URLs can reach the resolver on its own origin", async () => {

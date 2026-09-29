@@ -2,12 +2,18 @@ export const CANONICAL_ORIGIN = "https://links.playnavilab.com";
 // Browser calls the same-origin Vercel proxy. vercel.json owns the upstream EF
 // name and can change it without shipping a different browser-side origin.
 export const SHORT_LINK_RESOLVER_URL = "/api/share-links";
+export const AI_RETURN_ORIGIN = "https://playnavi.app";
 
 const SHORT_CODE_PATTERN = /^[A-Za-z0-9_-]{16}$/;
 const UUID_PATTERN =
   "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
 const GAME_ID_PATTERN = "[1-9][0-9]{0,18}";
 const PG_BIGINT_MAX = "9223372036854775807";
+const AI_RETURN_ACTIONS = new Set(["log", "wishlist"]);
+const AI_RETURN_PROVIDERS = new Set(["chatgpt", "perplexity", "claude", "gemini"]);
+const AI_RETURN_INTENTS = new Set([
+  "reviews_no_spoiler", "fit_for_me", "similar", "which_platform", "stuck", "series_order",
+]);
 
 const CANONICAL_PATTERNS = [
   { type: "log", pattern: new RegExp(`^/game/${GAME_ID_PATTERN}\\?logId=${UUID_PATTERN}$`) },
@@ -52,6 +58,38 @@ export function canonicalTargetFromPath(path) {
     // `/s/{code}` must never reach this conversion. Only an allowlisted canonical
     // path returned above can become a custom-scheme URL.
     schemeUrl: `playnavi:/${path}`,
+  };
+}
+
+export function aiReturnTargetFromPath(path) {
+  // This route is a separate app-return contract, never a short-link resolver
+  // target. Rebuild the URL from known values before presenting a browser link.
+  if (typeof path !== "string" || !path.startsWith("/a?")) return null;
+  let url;
+  try {
+    url = new URL(path, AI_RETURN_ORIGIN);
+  } catch {
+    return null;
+  }
+  if (url.origin !== AI_RETURN_ORIGIN || url.pathname !== "/a" || url.hash) return null;
+  const params = url.searchParams;
+  const keys = ["act", "g", "src", "i", "at"];
+  if ([...params.keys()].length !== keys.length ||
+      keys.some((key) => params.getAll(key).length !== 1)) return null;
+  const [action, gameIdText, provider, intent, createdAtText] =
+    keys.map((key) => params.get(key));
+  if (!AI_RETURN_ACTIONS.has(action) || !/^[1-9][0-9]*$/.test(gameIdText) ||
+      !Number.isSafeInteger(Number(gameIdText)) ||
+      !AI_RETURN_PROVIDERS.has(provider) || !AI_RETURN_INTENTS.has(intent) ||
+      !/^[0-9]{13}$/.test(createdAtText)) return null;
+
+  const canonicalPath = `/a?${new URLSearchParams({
+    act: action, g: gameIdText, src: provider, i: intent, at: createdAtText,
+  })}`;
+  return {
+    canonicalPath,
+    canonicalUrl: `${AI_RETURN_ORIGIN}${canonicalPath}`,
+    schemeUrl: `playnavi:/${canonicalPath}`,
   };
 }
 

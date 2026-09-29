@@ -19,7 +19,7 @@ class FakeElement {
   }
 }
 
-function installBrowser(pathname) {
+function installBrowser(pathname, search = "", userAgent = "node-test") {
   const initiallyHidden = new Set([
     "primary-btn",
     "retry-btn",
@@ -40,7 +40,7 @@ function installBrowser(pathname) {
   for (const id of initiallyHidden) getElementById(id);
   const location = {
     pathname,
-    search: "",
+    search,
     hash: "",
     origin: "https://links.playnavilab.com",
     href: "",
@@ -64,7 +64,7 @@ function installBrowser(pathname) {
         addEventListener() {},
       },
     },
-    navigator: { configurable: true, value: { userAgent: "node-test" } },
+    navigator: { configurable: true, value: { userAgent } },
     window: {
       configurable: true,
       value: {
@@ -88,14 +88,14 @@ function installBrowser(pathname) {
   };
 }
 
-async function importEntrypointWithoutSurvey(pathname) {
+async function importEntrypointWithoutSurvey(pathname, search = "", userAgent = "node-test") {
   const temp = await mkdtemp(path.join(os.tmpdir(), "playnavi-links-entrypoint-"));
   await copyFile(new URL("../assets/app.mjs", import.meta.url), path.join(temp, "app.mjs"));
   await copyFile(
     new URL("../assets/link-routing.mjs", import.meta.url),
     path.join(temp, "link-routing.mjs"),
   );
-  const browser = installBrowser(pathname);
+  const browser = installBrowser(pathname, search, userAgent);
   try {
     await import(`${pathToFileURL(path.join(temp, "app.mjs")).href}?case=${Date.now()}`);
     await new Promise((resolve) => setImmediate(resolve));
@@ -114,6 +114,49 @@ test("home route starts even when the Survey module is unavailable", async () =>
     assert.equal(browser.elements.get("heading").textContent, "ゲームとの出会いを、もっと楽しく");
     assert.equal(browser.elements.get("primary-btn").hidden, false);
     assert.equal(browser.elements.get("survey-view").hidden, true);
+  } finally {
+    browser.restore();
+    await rm(temp, { recursive: true, force: true });
+  }
+});
+
+test("AI return fallback offers a manual app link with the validated query", async () => {
+  const search = "?act=log&g=42&src=claude&i=stuck&at=1790645000000";
+  const { browser, temp } = await importEntrypointWithoutSurvey("/a", search, "Android");
+  try {
+    assert.equal(browser.elements.get("heading").textContent, "PlayNaviに戻る");
+    assert.equal(browser.elements.get("primary-btn").href, `playnavi://a${search}`);
+    assert.equal(browser.location.href, "", "the fallback must not auto-open an unverified app route");
+    assert.equal(browser.elements.get("store-buttons").hidden, false);
+  } finally {
+    browser.restore();
+    await rm(temp, { recursive: true, force: true });
+  }
+});
+
+test("iOS fallback uses the existing cross-domain manual handoff", async () => {
+  const search = "?act=wishlist&g=42&src=chatgpt&i=similar&at=1790645000000";
+  const { browser, temp } = await importEntrypointWithoutSurvey("/a", search, "iPhone");
+  try {
+    assert.equal(
+      browser.elements.get("primary-btn").href,
+      `https://playnavi-links.vercel.app/a${search}`,
+    );
+    assert.equal(browser.location.href, "");
+  } finally {
+    browser.restore();
+    await rm(temp, { recursive: true, force: true });
+  }
+});
+
+test("invalid AI return link never becomes an app launch button", async () => {
+  const { browser, temp } = await importEntrypointWithoutSurvey(
+    "/a", "?act=moment&g=42&src=chatgpt&i=stuck&at=1790645000000", "Android",
+  );
+  try {
+    assert.equal(browser.elements.get("heading").textContent, "リンクを開けません");
+    assert.equal(browser.elements.get("primary-btn").href, "/");
+    assert.equal(browser.location.href, "");
   } finally {
     browser.restore();
     await rm(temp, { recursive: true, force: true });

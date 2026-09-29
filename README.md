@@ -32,6 +32,21 @@ The browser accepts only a successful payload whose `status`, `code`,
 five allowlisted `game`, `log`, `user`, `ranking`, or `catalog` route shapes.
 An absolute URL from the API is never used for navigation.
 
+## AI return link
+
+`https://playnavi.app/a?act=log|wishlist&g={game_id}&src={provider}&i={intent}&at={epoch_ms}`
+is reserved for returning from an AI answer to the app. The association file
+matches exactly `/a`; `vercel.json` also routes that path to the browser
+fallback. The fallback accepts only the reviewed action, provider, intent,
+positive game ID, and timestamp shapes, then preserves those values in a
+manual app-open link. It does not auto-open the custom scheme. The app validates
+link age and the action again before doing anything.
+
+The `/a` association and browser fallback must be published with an app build
+that handles `/a`. Older installed builds may claim the associated link but
+cannot handle the new route. The separate PlayNavi web gateway must also keep
+`/a` ahead of its catch-all rewrite when it takes over `playnavi.app`.
+
 ## Validation
 
 ```sh

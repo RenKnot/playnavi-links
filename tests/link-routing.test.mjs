@@ -3,7 +3,9 @@ import test from "node:test";
 
 import {
   CANONICAL_ORIGIN,
+  AI_RETURN_ORIGIN,
   ResolveError,
+  aiReturnTargetFromPath,
   canonicalTargetFromPath,
   isValidShortCode,
   resolveShortLink,
@@ -23,6 +25,35 @@ test("accepts only an exact 16-character short code", () => {
   assert.equal(shortCodeFromPath(`/s/${CODE}/extra`), null);
   assert.equal(isValidShortCode("too-short"), false);
   assert.equal(isValidShortCode("123456789012345!"), false);
+});
+
+test("AI return link keeps only the exact reviewed query contract", () => {
+  const path = "/a?act=wishlist&g=42&src=chatgpt&i=reviews_no_spoiler&at=1790645000000";
+  assert.deepEqual(aiReturnTargetFromPath(path), {
+    canonicalPath: path,
+    canonicalUrl: `${AI_RETURN_ORIGIN}${path}`,
+    schemeUrl: `playnavi:/${path}`,
+  });
+  assert.equal(
+    aiReturnTargetFromPath("/a?at=1790645000000&i=stuck&src=claude&g=42&act=log")?.canonicalPath,
+    "/a?act=log&g=42&src=claude&i=stuck&at=1790645000000",
+  );
+});
+
+test("AI return link rejects unsupported actions and query injection", () => {
+  for (const path of [
+    "/a", "/a/", "/a/extra?act=log&g=42&src=chatgpt&i=stuck&at=1790645000000",
+    "/a?act=moment&g=42&src=chatgpt&i=stuck&at=1790645000000",
+    "/a?act=log&g=42&src=chatgpt&i=stuck&at=1790645000000&next=https://evil.example",
+    "/a?act=log&act=wishlist&g=42&src=chatgpt&i=stuck&at=1790645000000",
+    "/a?act=log&g=0&src=chatgpt&i=stuck&at=1790645000000",
+    "/a?act=log&g=9007199254740992&src=chatgpt&i=stuck&at=1790645000000",
+    "/a?act=log&g=42&src=evil&i=stuck&at=1790645000000",
+    "/a?act=log&g=42&src=chatgpt&i=wrong&at=1790645000000",
+    "/a?act=log&g=42&src=chatgpt&i=stuck&at=nope",
+    "/a?act=log&g=42&src=chatgpt&i=stuck&at=1790645000000#fragment",
+    "//evil.example/a?act=log&g=42&src=chatgpt&i=stuck&at=1790645000000",
+  ]) assert.equal(aiReturnTargetFromPath(path), null, path);
 });
 
 test("allowlists the five canonical target shapes", () => {
