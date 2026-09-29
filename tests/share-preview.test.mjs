@@ -96,11 +96,29 @@ test("canonical routes retain their own URL and send exactly one path parameter 
   assert.equal(previewTarget({ headers: { host: "playnavi.app" }, query: { kind: "game", id: "42" } }), null);
 });
 
+test("Vercel's matched host query stays out of all five canonical cards", () => {
+  const host = "links.playnavilab.com";
+  const cases = [
+    [{ kind: "game", id: "42" }, "/game/42"],
+    [{ kind: "game", id: "42", logId: USER }, `/game/42?logId=${USER}`],
+    [{ kind: "user", id: USER }, `/users/${USER}`],
+    [{ kind: "ranking", ownerId: USER, rankingId: RANKING }, `/users/${USER}/custom-rankings/${RANKING}`],
+    [{ kind: "catalog", id: USER }, `/catalogs/${USER}`],
+  ];
+  for (const [query, path] of cases) {
+    assert.deepEqual(previewTarget({ headers: { host }, query: { ...query, host } }), {
+      url: `https://${host}${path}`,
+      upstreamParam: "path",
+      upstreamValue: path,
+    });
+  }
+});
+
 test("a game log sends its query inside the single H-1 path parameter", async () => {
   let upstreamUrl;
   const response = await invoke({
     headers: { host: "links.playnavilab.com" },
-    query: { kind: "game", id: "42", logId: USER },
+    query: { kind: "game", id: "42", logId: USER, host: "links.playnavilab.com" },
   }, {
     fetchImpl: async (url) => {
       upstreamUrl = url;
@@ -134,7 +152,9 @@ test("invalid host, code, path, or extra query never calls the upstream", async 
     { query: { code: [CODE, "other"] } },
     { headers: { host: "links.playnavilab.com" }, query: { kind: "game", id: "0" } },
     { headers: { host: "links.playnavilab.com" }, query: { kind: "game", id: "42", logId: "bad" } },
-    { headers: { host: "links.playnavilab.com" }, query: { kind: "user", id: USER, extra: "x" } },
+    { headers: { host: "links.playnavilab.com" }, query: { kind: "game", id: "42", host: "evil.example" } },
+    { headers: { host: "links.playnavilab.com" }, query: { kind: "game", id: "42", host: ["links.playnavilab.com", "evil.example"] } },
+    { headers: { host: "links.playnavilab.com" }, query: { kind: "user", id: USER, host: "links.playnavilab.com", extra: "x" } },
   ];
   for (const request of invalid) {
     const response = await invoke(request, { fetchImpl });
