@@ -52,7 +52,7 @@ test("AASA includes the exact AI return path and existing link routes", async ()
   ]);
 });
 
-test("production-only legacy routes stay ahead of safe fallbacks and the SPA", async () => {
+test("production-only legacy routes and share preview stay ahead of safe fallbacks and the SPA", async () => {
   const config = await readJson("../vercel.json");
   const sources = config.rewrites.map(({ source }) => source);
   assert.deepEqual(sources, [
@@ -67,6 +67,10 @@ test("production-only legacy routes stay ahead of safe fallbacks and the SPA", a
     "/api/surveys/:surveySlug",
     "/a",
     "/s/:code",
+    "/game/:id",
+    "/users/:ownerId/custom-rankings/:rankingId",
+    "/users/:id",
+    "/catalogs/:id",
     "/surveys/:surveySlug",
     "/(.*)",
   ]);
@@ -99,6 +103,30 @@ test("production-only legacy routes stay ahead of safe fallbacks and the SPA", a
     assert.equal(fallback.destination, "/api/legacy-route-disabled");
     assert.equal(fallback.has, undefined);
   }
+});
+
+test("share preview uses the original HTML and only the approved share routes", async () => {
+  const config = await readJson("../vercel.json");
+  assert.deepEqual(config.functions?.["api/share-preview.mjs"], { includeFiles: "index.html" });
+  assert.equal(
+    config.rewrites.find((entry) => entry.source === "/s/:code")?.destination,
+    "/api/share-preview?code=:code",
+  );
+  const canonical = [
+    ["/game/:id", "/api/share-preview?kind=game&id=:id"],
+    ["/users/:ownerId/custom-rankings/:rankingId", "/api/share-preview?kind=ranking&ownerId=:ownerId&rankingId=:rankingId"],
+    ["/users/:id", "/api/share-preview?kind=user&id=:id"],
+    ["/catalogs/:id", "/api/share-preview?kind=catalog&id=:id"],
+  ];
+  for (const [source, destination] of canonical) {
+    const route = config.rewrites.find((entry) => entry.source === source);
+    assert.deepEqual(route?.has, [{ type: "host", value: "links.playnavilab.com" }]);
+    assert.equal(route?.destination, destination);
+  }
+  const sources = config.rewrites.map(({ source }) => source);
+  assert.ok(sources.indexOf("/users/:ownerId/custom-rankings/:rankingId") < sources.indexOf("/users/:id"));
+  assert.ok(sources.indexOf("/s/:code") < sources.indexOf("/(.*)"));
+  assert.equal(await readFile(new URL("../robots.txt", import.meta.url), "utf8"), "User-agent: *\nAllow: /\n");
 });
 
 test("AI return path receives the SPA and private document headers", async () => {
