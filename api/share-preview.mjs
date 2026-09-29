@@ -9,7 +9,10 @@ import {
 } from "./_lib/share-preview.mjs";
 
 const TEMPLATE_PATH = join(process.cwd(), "index.html");
-const UPSTREAM_TIMEOUT_MS = 1500;
+// The function runs in hnd1 next to the Tokyo Supabase project (vercel.json).
+// Cold Edge Function starts can exceed 1.5s, and a timed-out fetch leaves the
+// generic card in SNS caches, so allow up to 3s before falling back.
+export const UPSTREAM_TIMEOUT_MS = 3000;
 const DOCUMENT_HEADERS = {
   "Content-Type": "text/html; charset=utf-8",
   "Cache-Control": "no-store",

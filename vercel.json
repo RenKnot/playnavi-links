@@ -1,7 +1,8 @@
 {
   "functions": {
     "api/share-preview.mjs": {
-      "includeFiles": "index.html"
+      "includeFiles": "index.html",
+      "regions": ["hnd1"]
     }
   },
   "headers": [

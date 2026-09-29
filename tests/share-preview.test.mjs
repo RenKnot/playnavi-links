@@ -9,7 +9,7 @@ import {
   previewTarget,
   renderPreviewHtml,
 } from "../api/_lib/share-preview.mjs";
-import { createSharePreviewHandler } from "../api/share-preview.mjs";
+import { createSharePreviewHandler, UPSTREAM_TIMEOUT_MS } from "../api/share-preview.mjs";
 
 const CODE = "AbC_dEf-12345678";
 const USER = "12345678-1234-1234-1234-123456789abc";
@@ -183,24 +183,39 @@ test("404, 500, malformed JSON, and unsafe image use the generic card", async ()
   }
 });
 
-test("an actual slow HTTP upstream is cut off at about 1.5 seconds", async () => {
+async function withSlowUpstream(delayMs, run) {
   const server = createServer((_request, response) => {
-    setTimeout(() => response.end(JSON.stringify({ status: "ok", card: GENERIC_CARD })), 2000);
+    setTimeout(() => response.end(JSON.stringify({
+      status: "ok",
+      card: { title: "Slow", description: "x", image_url: "https://example.com/slow.jpg" },
+    })), delayMs);
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address();
   try {
-    const start = performance.now();
-    const response = await invoke({ query: { code: CODE } }, {
-      metaUrl: `http://127.0.0.1:${address.port}/preview`,
-    });
-    const elapsedMs = performance.now() - start;
-    assert.equal(tag(response.body, "og:title"), GENERIC_CARD.title);
-    assert.ok(elapsedMs >= 1400 && elapsedMs < 1900, `elapsed ${elapsedMs}ms`);
+    return await run(`http://127.0.0.1:${server.address().port}/preview`);
   } finally {
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
   }
+}
+
+test("an upstream answering in 2 seconds still produces the specific card", async () => {
+  // Production cold starts took about 1.5-2s and fell back to the generic card.
+  await withSlowUpstream(2000, async (metaUrl) => {
+    const response = await invoke({ query: { code: CODE } }, { metaUrl });
+    assert.equal(tag(response.body, "og:title"), "Slow");
+  });
+});
+
+test("an actual slow HTTP upstream is cut off at about 3 seconds", async () => {
+  assert.equal(UPSTREAM_TIMEOUT_MS, 3000);
+  await withSlowUpstream(4000, async (metaUrl) => {
+    const start = performance.now();
+    const response = await invoke({ query: { code: CODE } }, { metaUrl });
+    const elapsedMs = performance.now() - start;
+    assert.equal(tag(response.body, "og:title"), GENERIC_CARD.title);
+    assert.ok(elapsedMs >= 2900 && elapsedMs < 3400, `elapsed ${elapsedMs}ms`);
+  });
 });
 
 test("non-GET requests and a missing template do not fetch upstream", async () => {

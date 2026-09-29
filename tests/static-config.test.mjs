@@ -107,7 +107,10 @@ test("production-only legacy routes and share preview stay ahead of safe fallbac
 
 test("share preview uses the original HTML and only the approved share routes", async () => {
   const config = await readJson("../vercel.json");
-  assert.deepEqual(config.functions?.["api/share-preview.mjs"], { includeFiles: "index.html" });
+  assert.deepEqual(config.functions?.["api/share-preview.mjs"], {
+    includeFiles: "index.html",
+    regions: ["hnd1"],
+  });
   assert.equal(
     config.rewrites.find((entry) => entry.source === "/s/:code")?.destination,
     "/api/share-preview?code=:code",
