@@ -92,13 +92,18 @@ export function previewTarget(request) {
     ranking: ["kind", "ownerId", "rankingId"],
     catalog: ["id", "kind"],
   }[kind];
+  // Vercel adds the matched `has: { type: "host" }` value to the rewritten
+  // function query. It is routing metadata, not part of the shared URL.
+  if (query.host !== undefined && query.host !== host) return null;
+  const internalKeys = new Set(requiredKeys);
+  if (query.host === host) internalKeys.add("host");
   const url = withExtraQuery(
     `https://${host}${path}`,
     query,
-    new Set(requiredKeys),
+    internalKeys,
   );
   if (!url) return null;
-  const hasExtraQuery = keys.some((key) => !requiredKeys.includes(key));
+  const hasExtraQuery = keys.some((key) => !internalKeys.has(key));
   return {
     url,
     // The canonical resolver accepts only exact paths. Preserve the requested
