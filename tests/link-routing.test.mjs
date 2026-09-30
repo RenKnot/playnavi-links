@@ -40,10 +40,26 @@ test("AI return link keeps only the exact reviewed query contract", () => {
   );
 });
 
+test("AI return link for a moment keeps session and text as data only", () => {
+  const text = encodeURIComponent("やっと倒せた & 次は港町");
+  const target = aiReturnTargetFromPath(`/a?t=${text}&s=0123ABCD&at=1790645000000&src=chatgpt&g=42&act=moment`);
+  assert.equal(target?.canonicalPath,
+    `/a?act=moment&g=42&src=chatgpt&at=1790645000000&s=0123ABCD&t=${new URLSearchParams({ t: "やっと倒せた & 次は港町" }).toString().slice(2)}`);
+  assert.equal(new URL(target.canonicalUrl).searchParams.get("t"), "やっと倒せた & 次は港町");
+  assert.equal(aiReturnTargetFromPath("/a?act=moment&g=42&src=claude&at=1790645000000")?.canonicalPath,
+    "/a?act=moment&g=42&src=claude&at=1790645000000");
+});
+
 test("AI return link rejects unsupported actions and query injection", () => {
   for (const path of [
     "/a", "/a/", "/a/extra?act=log&g=42&src=chatgpt&i=stuck&at=1790645000000",
-    "/a?act=moment&g=42&src=chatgpt&i=stuck&at=1790645000000",
+    "/a?act=share&g=42&src=chatgpt&i=stuck&at=1790645000000",
+    "/a?act=log&g=42&src=chatgpt&at=1790645000000",
+    "/a?act=log&g=42&src=chatgpt&i=stuck&at=1790645000000&s=0123ABCD",
+    "/a?act=moment&g=42&src=chatgpt&at=1790645000000&s=bad",
+    "/a?act=moment&g=42&src=chatgpt&at=1790645000000&t=a&t=b",
+    "/a?act=moment&g=42&src=chatgpt&at=1790645000000&next=https://evil.example",
+    `/a?act=moment&g=42&src=chatgpt&at=1790645000000&t=${"x".repeat(2001)}`,
     "/a?act=log&g=42&src=chatgpt&i=stuck&at=1790645000000&next=https://evil.example",
     "/a?act=log&act=wishlist&g=42&src=chatgpt&i=stuck&at=1790645000000",
     "/a?act=log&g=0&src=chatgpt&i=stuck&at=1790645000000",
