@@ -35,6 +35,8 @@ An absolute URL from the API is never used for navigation.
 ## AI return link
 
 `https://playnavi.app/a?act=log|wishlist&g={game_id}&src={provider}&i={intent}&at={epoch_ms}`
+
+`https://playnavi.app/a?act=moment&g={game_id}&src={provider}&at={epoch_ms}[&s={session_id}][&t={text}]` (V5: moment text is only an editable initial value in the app)
 is reserved for returning from an AI answer to the app. The association file
 matches exactly `/a`; `vercel.json` also routes that path to the browser
 fallback. The fallback accepts only the reviewed action, provider, intent,

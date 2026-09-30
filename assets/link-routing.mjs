@@ -9,7 +9,11 @@ const UUID_PATTERN =
   "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
 const GAME_ID_PATTERN = "[1-9][0-9]{0,18}";
 const PG_BIGINT_MAX = "9223372036854775807";
-const AI_RETURN_ACTIONS = new Set(["log", "wishlist"]);
+const AI_RETURN_ACTIONS = new Set(["log", "wishlist", "moment"]);
+// act=moment (V5 group 7): today's session id (play_sessions.id alphabet) and the
+// AI-written moment text. The app only uses them as editable initial values.
+const AI_RETURN_SESSION_PATTERN = /^[0-9A-HJKMNP-TV-Z]{8}$/;
+const AI_RETURN_TEXT_MAX = 2000;
 const AI_RETURN_PROVIDERS = new Set(["chatgpt", "perplexity", "claude", "gemini"]);
 const AI_RETURN_INTENTS = new Set([
   "reviews_no_spoiler", "fit_for_me", "similar", "which_platform", "stuck", "series_order",
@@ -73,19 +77,35 @@ export function aiReturnTargetFromPath(path) {
   }
   if (url.origin !== AI_RETURN_ORIGIN || url.pathname !== "/a" || url.hash) return null;
   const params = url.searchParams;
-  const keys = ["act", "g", "src", "i", "at"];
-  if ([...params.keys()].length !== keys.length ||
-      keys.some((key) => params.getAll(key).length !== 1)) return null;
-  const [action, gameIdText, provider, intent, createdAtText] =
-    keys.map((key) => params.get(key));
+  const action = params.get("act");
+  // log / wishlist keep the exact five-key contract. moment may omit i and may add s / t.
+  const required = action === "moment" ? ["act", "g", "src", "at"] : ["act", "g", "src", "i", "at"];
+  const optional = action === "moment" ? ["i", "s", "t"] : [];
+  const allowed = new Set([...required, ...optional]);
+  const present = [...new Set(params.keys())];
+  if (present.some((key) => !allowed.has(key)) ||
+      required.some((key) => !params.has(key)) ||
+      present.some((key) => params.getAll(key).length !== 1)) return null;
+  const gameIdText = params.get("g");
+  const provider = params.get("src");
+  const intent = params.get("i");
+  const createdAtText = params.get("at");
   if (!AI_RETURN_ACTIONS.has(action) || !/^[1-9][0-9]*$/.test(gameIdText) ||
       !Number.isSafeInteger(Number(gameIdText)) ||
-      !AI_RETURN_PROVIDERS.has(provider) || !AI_RETURN_INTENTS.has(intent) ||
+      !AI_RETURN_PROVIDERS.has(provider) ||
+      (intent !== null && !AI_RETURN_INTENTS.has(intent)) ||
       !/^[0-9]{13}$/.test(createdAtText)) return null;
+  const session = params.get("s");
+  const text = params.get("t");
+  if (session !== null && !AI_RETURN_SESSION_PATTERN.test(session)) return null;
+  if (text !== null && Array.from(text).length > AI_RETURN_TEXT_MAX) return null;
 
-  const canonicalPath = `/a?${new URLSearchParams({
-    act: action, g: gameIdText, src: provider, i: intent, at: createdAtText,
-  })}`;
+  const rebuilt = new URLSearchParams({ act: action, g: gameIdText, src: provider });
+  if (intent !== null) rebuilt.set("i", intent);
+  rebuilt.set("at", createdAtText);
+  if (session !== null) rebuilt.set("s", session);
+  if (text !== null) rebuilt.set("t", text);
+  const canonicalPath = `/a?${rebuilt}`;
   return {
     canonicalPath,
     canonicalUrl: `${AI_RETURN_ORIGIN}${canonicalPath}`,

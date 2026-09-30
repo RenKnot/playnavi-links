@@ -149,9 +149,22 @@ test("iOS fallback uses the existing cross-domain manual handoff", async () => {
   }
 });
 
+test("moment return link keeps session and text in the app handoff", async () => {
+  const search = "?act=moment&g=42&src=chatgpt&at=1790645000000&s=0123ABCD&t=%E6%9C%AC%E6%96%87";
+  const { browser, temp } = await importEntrypointWithoutSurvey("/a", search, "iPhone");
+  try {
+    assert.equal(browser.elements.get("heading").textContent, "PlayNaviに戻る");
+    assert.equal(browser.elements.get("primary-btn").href, `https://playnavi-links.vercel.app/a${search}`);
+    assert.equal(browser.location.href, "");
+  } finally {
+    browser.restore();
+    await rm(temp, { recursive: true, force: true });
+  }
+});
+
 test("invalid AI return link never becomes an app launch button", async () => {
   const { browser, temp } = await importEntrypointWithoutSurvey(
-    "/a", "?act=moment&g=42&src=chatgpt&i=stuck&at=1790645000000", "Android",
+    "/a", "?act=share&g=42&src=chatgpt&i=stuck&at=1790645000000", "Android",
   );
   try {
     assert.equal(browser.elements.get("heading").textContent, "リンクを開けません");
