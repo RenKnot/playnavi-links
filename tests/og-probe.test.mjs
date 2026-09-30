@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { test } from "node:test";
 import {
   createOgProbeHandler,
@@ -9,6 +10,21 @@ import {
   PROBE_TEXT,
   PROBE_WIDTH,
 } from "../api/og-probe.mjs";
+
+async function withServer(handler, check) {
+  const server = createServer((request, response) => {
+    Promise.resolve(handler(request, response)).catch((error) => {
+      response.statusCode = 500;
+      response.end(String(error));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    return await check(`http://127.0.0.1:${server.address().port}`);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+}
 
 test("the font request includes only the Japanese proof text and accepts a TrueType subset", async () => {
   const font = new Uint8Array([0, 1, 0, 0, 1]);
@@ -40,19 +56,17 @@ test("the proof endpoint only renders a bare GET, so the CDN keeps one cached im
   let fontLoads = 0;
   const fontLoader = async () => { fontLoads += 1; };
   const handler = createOgProbeHandler({ fontLoader });
+  await withServer(handler, async (origin) => {
+    const methodResponse = await fetch(`${origin}/api/og-probe`, { method: "POST" });
+    assert.equal(methodResponse.status, 405);
+    assert.equal(methodResponse.headers.get("Allow"), "GET");
 
-  const methodResponse = await handler({ method: "POST", url: "https://playnavi.app/api/og-probe" });
-  assert.equal(methodResponse.status, 405);
-  assert.equal(methodResponse.headers.get("Allow"), "GET");
-
-  for (const url of [
-    "https://playnavi.app/api/og-probe?v=1",
-    "https://playnavi.app/api/og-probe?text=%E3%81%82",
-  ]) {
-    const queried = await handler({ method: "GET", url });
-    assert.equal(queried.status, 404, url);
-    assert.equal(queried.headers.get("Cache-Control"), "no-store");
-  }
+    for (const query of ["?v=1", "?text=%E3%81%82"]) {
+      const queried = await fetch(`${origin}/api/og-probe${query}`);
+      assert.equal(queried.status, 404, query);
+      assert.equal(queried.headers.get("Cache-Control"), "no-store");
+    }
+  });
   assert.equal(fontLoads, 0);
 });
 
@@ -74,14 +88,16 @@ test("live Google Fonts subset renders an actual 1200×630 Japanese PNG", {
   skip: process.env.PLAYNAVI_OG_PROBE_LIVE !== "1",
 }, async () => {
   const handler = createOgProbeHandler();
-  const response = await handler({ method: "GET", url: "https://playnavi.app/api/og-probe" });
-  assert.equal(response.status, 200);
-  assert.equal(response.headers.get("content-type"), "image/png");
-  assert.equal(response.headers.get("cache-control"), PROBE_CACHE_CONTROL);
+  await withServer(handler, async (origin) => {
+    const response = await fetch(`${origin}/api/og-probe`);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("content-type"), "image/png");
+    assert.equal(response.headers.get("cache-control"), PROBE_CACHE_CONTROL);
 
-  const png = Buffer.from(await response.arrayBuffer());
-  assert.equal(png.subarray(0, 8).toString("hex"), "89504e470d0a1a0a");
-  assert.equal(png.readUInt32BE(16), PROBE_WIDTH);
-  assert.equal(png.readUInt32BE(20), PROBE_HEIGHT);
-  assert.ok(png.length > 10_000);
+    const png = Buffer.from(await response.arrayBuffer());
+    assert.equal(png.subarray(0, 8).toString("hex"), "89504e470d0a1a0a");
+    assert.equal(png.readUInt32BE(16), PROBE_WIDTH);
+    assert.equal(png.readUInt32BE(20), PROBE_HEIGHT);
+    assert.ok(png.length > 10_000);
+  });
 });
