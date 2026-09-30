@@ -3,6 +3,9 @@
     "api/share-preview.mjs": {
       "includeFiles": "index.html",
       "regions": ["hnd1"]
+    },
+    "api/og-probe.mjs": {
+      "regions": ["hnd1"]
     }
   },
   "headers": [

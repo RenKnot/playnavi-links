@@ -52,19 +52,22 @@ function getFont() {
   return fontPromise;
 }
 
-export function createOgProbeHandler({
-  deploymentEnv = process.env.VERCEL_ENV,
-  fontLoader = getFont,
-} = {}) {
+// Preview deployments sit behind Vercel Authentication, so the probe is
+// measured on production. It renders one fixed image and takes no input.
+export function createOgProbeHandler({ fontLoader = getFont } = {}) {
   return async function handler(request) {
-    // System variables can be disabled in project settings, so unknown is closed.
-    if (deploymentEnv !== "preview" && deploymentEnv !== "development") {
-      return new Response("Not Found", { status: 404 });
-    }
     if (request.method !== "GET") {
       return new Response("Method Not Allowed", {
         status: 405,
         headers: { Allow: "GET" },
+      });
+    }
+    // The CDN keys on the query string; refusing it keeps every request on
+    // the single cached image instead of forcing a fresh render.
+    if (new URL(request.url, "https://playnavi.app").search !== "") {
+      return new Response("Not Found", {
+        status: 404,
+        headers: { "Cache-Control": "no-store" },
       });
     }
 

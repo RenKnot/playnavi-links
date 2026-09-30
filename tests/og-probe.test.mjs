@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import {
   createOgProbeHandler,
@@ -35,19 +36,31 @@ test("the font loader rejects a stylesheet that redirects font loading elsewhere
   );
 });
 
-test("the proof endpoint is inert in production and only accepts GET", async () => {
+test("the proof endpoint only renders a bare GET, so the CDN keeps one cached image", async () => {
   let fontLoads = 0;
   const fontLoader = async () => { fontLoads += 1; };
-  const production = createOgProbeHandler({ deploymentEnv: "production", fontLoader });
-  assert.equal((await production({ method: "GET" })).status, 404);
-  const unknown = createOgProbeHandler({ deploymentEnv: "unknown", fontLoader });
-  assert.equal((await unknown({ method: "GET" })).status, 404);
+  const handler = createOgProbeHandler({ fontLoader });
 
-  const preview = createOgProbeHandler({ deploymentEnv: "preview", fontLoader });
-  const methodResponse = await preview({ method: "POST" });
+  const methodResponse = await handler({ method: "POST", url: "https://playnavi.app/api/og-probe" });
   assert.equal(methodResponse.status, 405);
   assert.equal(methodResponse.headers.get("Allow"), "GET");
+
+  for (const url of [
+    "https://playnavi.app/api/og-probe?v=1",
+    "https://playnavi.app/api/og-probe?text=%E3%81%82",
+  ]) {
+    const queried = await handler({ method: "GET", url });
+    assert.equal(queried.status, 404, url);
+    assert.equal(queried.headers.get("Cache-Control"), "no-store");
+  }
   assert.equal(fontLoads, 0);
+});
+
+test("the proof endpoint runs next to the share preview in Tokyo", async () => {
+  const config = JSON.parse(
+    await readFile(new URL("../vercel.json", import.meta.url), "utf8"),
+  );
+  assert.deepEqual(config.functions?.["api/og-probe.mjs"], { regions: ["hnd1"] });
 });
 
 test("the proof response has the PNG dimensions and a short CDN cache policy", async () => {
@@ -60,8 +73,8 @@ test("the proof response has the PNG dimensions and a short CDN cache policy", a
 test("live Google Fonts subset renders an actual 1200×630 Japanese PNG", {
   skip: process.env.PLAYNAVI_OG_PROBE_LIVE !== "1",
 }, async () => {
-  const preview = createOgProbeHandler({ deploymentEnv: "preview" });
-  const response = await preview({ method: "GET" });
+  const handler = createOgProbeHandler();
+  const response = await handler({ method: "GET", url: "https://playnavi.app/api/og-probe" });
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("content-type"), "image/png");
   assert.equal(response.headers.get("cache-control"), PROBE_CACHE_CONTROL);
