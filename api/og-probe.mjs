@@ -55,20 +55,18 @@ function getFont() {
 // Preview deployments sit behind Vercel Authentication, so the probe is
 // measured on production. It renders one fixed image and takes no input.
 export function createOgProbeHandler({ fontLoader = getFont } = {}) {
-  return async function handler(request) {
+  return async function handler(request, response) {
     if (request.method !== "GET") {
-      return new Response("Method Not Allowed", {
-        status: 405,
-        headers: { Allow: "GET" },
-      });
+      response.statusCode = 405;
+      response.setHeader("Allow", "GET");
+      return response.end("Method Not Allowed");
     }
     // The CDN keys on the query string; refusing it keeps every request on
     // the single cached image instead of forcing a fresh render.
     if (new URL(request.url, "https://playnavi.app").search !== "") {
-      return new Response("Not Found", {
-        status: 404,
-        headers: { "Cache-Control": "no-store" },
-      });
+      response.statusCode = 404;
+      response.setHeader("Cache-Control", "no-store");
+      return response.end("Not Found");
     }
 
     try {
@@ -98,16 +96,16 @@ export function createOgProbeHandler({ fontLoader = getFont } = {}) {
         height: PROBE_HEIGHT,
         fonts: [{ name: "Noto Sans JP", data: font, weight: 700, style: "normal" }],
       });
-      // ImageResponse defaults to one year of immutable browser caching.
-      // Replace that value after construction; its headers option appends it.
-      image.headers.set("Cache-Control", PROBE_CACHE_CONTROL);
-      return image;
+      const png = Buffer.from(await image.arrayBuffer());
+      response.statusCode = 200;
+      response.setHeader("Content-Type", "image/png");
+      response.setHeader("Cache-Control", PROBE_CACHE_CONTROL);
+      return response.end(png);
     } catch (error) {
       console.error("OG feasibility probe failed:", error);
-      return new Response("Image unavailable", {
-        status: 503,
-        headers: { "Cache-Control": "no-store" },
-      });
+      response.statusCode = 503;
+      response.setHeader("Cache-Control", "no-store");
+      return response.end("Image unavailable");
     }
   };
 }
