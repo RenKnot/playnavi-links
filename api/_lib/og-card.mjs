@@ -187,6 +187,20 @@ export function loadStaticAssets(root = process.cwd()) {
   return staticAssets;
 }
 
+// The shared profile-cover presets are app-bundled images; their storage
+// URLs are identifiers with no stored object (404), so this site ships copies.
+const PRESET_COVER = /^https:\/\/[a-z0-9]+\.supabase\.co\/storage\/v1\/object\/public\/profile-covers\/presets\/v1\/(profile_hero_[1-9]\.webp)$/;
+export function presetCoverFile(url, root = process.cwd()) {
+  const match = typeof url === "string" ? PRESET_COVER.exec(url) : null;
+  return match ? join(root, "assets", "og", "profile-covers", "v1", match[1]) : null;
+}
+
+async function loadImage(url, fetchImpl) {
+  const file = presetCoverFile(url);
+  if (file) return await readFile(file).catch(() => null);
+  return await fetchImage(url, fetchImpl);
+}
+
 // Fetches every distinct URL once, then derives the drawn sizes.
 export async function loadCardImages(large, fetchImpl) {
   const urls = new Set();
@@ -200,7 +214,7 @@ export async function loadCardImages(large, fetchImpl) {
     if (large.owner_avatar_url) urls.add(large.owner_avatar_url);
   }
   const raw = new Map(await Promise.all(
-    [...urls].map(async (url) => [url, await fetchImage(url, fetchImpl)]),
+    [...urls].map(async (url) => [url, await loadImage(url, fetchImpl)]),
   ));
   const get = (url) => (url ? raw.get(url) ?? null : null);
 
@@ -212,7 +226,8 @@ export async function loadCardImages(large, fetchImpl) {
   if (large.layout === "profile") {
     const [avatar, background] = await Promise.all([
       pngUri(get(large.avatar_url), AVATAR, AVATAR),
-      blurUri(get(large.background_url)),
+      // A background that cannot be loaded falls back to the blurred avatar.
+      blurUri(get(large.background_url) ?? get(large.avatar_url)),
     ]);
     return { avatar, background };
   }
