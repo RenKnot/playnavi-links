@@ -4,7 +4,8 @@
       "includeFiles": "index.html",
       "regions": ["hnd1"]
     },
-    "api/og-probe.mjs": {
+    "api/og.mjs": {
+      "includeFiles": "{logo.png,assets/og/**}",
       "regions": ["hnd1"]
     }
   },

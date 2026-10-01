@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   GENERIC_CARD,
+  largeCardImageUrl,
   PREVIEW_META_URL,
   previewTarget,
   renderPreviewHtml,
@@ -62,6 +63,7 @@ export function createSharePreviewHandler({
       template,
       card ?? GENERIC_CARD,
       target?.url ?? "https://playnavi.app/",
+      largeCardImageUrl(card, target),
     );
     for (const [name, value] of Object.entries(DOCUMENT_HEADERS)) {
       response.setHeader(name, value);
