@@ -15,7 +15,8 @@ export const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const FONT_TIMEOUT_MS = 2200;
 const MAX_INPUT_PIXELS = 40_000_000;
 
-const COVER = { game: [330, 440], grid: [240, 320] };
+const COVER = { game: [330, 440], grid: [240, 320], gridCompact: [204, 272] };
+const OWNER_AVATAR = 44;
 const AVATAR = 200;
 const LOGO_W = 160;
 const BADGE = [64, 100];
@@ -71,12 +72,12 @@ export function cachedFont(text, weight, fetchImpl) {
 
 // Fixed labels drawn by the layouts plus every dynamic string, deduplicated
 // and sorted so identical character sets share one cache entry.
-const FIXED_TEXT = "0123456789+,.販売・開発さん総ログ数本プレイ中クリア実況視聴済断念積みゲーあと作品";
+const FIXED_TEXT = "0123456789+,.販売・開発さんのプロフィール総ログ数本プレイ中クリア実況視聴済断念積みゲーあと作品";
 export function cardText(large) {
   const parts = [FIXED_TEXT];
   if (large.layout === "game") parts.push(large.heading ?? "", large.title, large.publisher ?? "", large.developer ?? "");
   if (large.layout === "profile") parts.push(large.name);
-  if (large.layout === "grid") parts.push(large.title, large.subtitle);
+  if (large.layout === "grid") parts.push(large.title, large.subtitle, large.description ?? "");
   return [...new Set([...parts.join("")])].filter((c) => c.trim()).sort().join("");
 }
 
@@ -194,7 +195,10 @@ export async function loadCardImages(large, fetchImpl) {
     if (large.avatar_url) urls.add(large.avatar_url);
     if (large.background_url) urls.add(large.background_url);
   }
-  if (large.layout === "grid") for (const url of large.cover_urls) urls.add(url);
+  if (large.layout === "grid") {
+    for (const url of large.cover_urls) urls.add(url);
+    if (large.owner_avatar_url) urls.add(large.owner_avatar_url);
+  }
   const raw = new Map(await Promise.all(
     [...urls].map(async (url) => [url, await fetchImage(url, fetchImpl)]),
   ));
@@ -213,11 +217,13 @@ export async function loadCardImages(large, fetchImpl) {
     return { avatar, background };
   }
   const buffers = large.cover_urls.map(get);
-  const [background, ...covers] = await Promise.all([
+  const coverSize = large.description ? COVER.gridCompact : COVER.grid;
+  const [background, owner, ...covers] = await Promise.all([
     blurUri(buffers.find(Boolean) ?? null),
-    ...buffers.map((buffer) => coverUri(buffer, ...COVER.grid)),
+    pngUri(get(large.owner_avatar_url), OWNER_AVATAR, OWNER_AVATAR),
+    ...buffers.map((buffer) => coverUri(buffer, ...coverSize)),
   ]);
-  return { background, covers };
+  return { background, owner, covers };
 }
 
 // ---------------------------------------------------------------- layouts
@@ -303,7 +309,9 @@ function profileCard(large, images, assets) {
       boxShadow: "0 12px 36px rgba(0,0,0,0.45)" })
     : div({ width: AVATAR, height: AVATAR, borderRadius: 24, backgroundColor: "#334155",
       border: "4px solid rgba(255,255,255,0.9)" });
-  const name = div({ fontSize: 66, color: "#FFFFFF", fontWeight: 900, maxWidth: 800, ...ELLIPSIS }, `${large.name}さん`);
+  const label = `${large.name}さんのプロフィール`;
+  const nameSize = label.length <= 12 ? 66 : label.length <= 16 ? 54 : 44;
+  const name = div({ fontSize: nameSize, color: "#FFFFFF", fontWeight: 900, maxWidth: 800, ...ELLIPSIS }, label);
   if (!stats) {
     return frame(
       assets,
@@ -344,16 +352,30 @@ function profileCard(large, images, assets) {
 }
 
 function gridCard(large, images, assets) {
-  const [cw, ch] = COVER.grid;
+  const [cw, ch] = large.description ? COVER.gridCompact : COVER.grid;
   const covers = images.covers;
   const remaining = covers.length > 0 ? large.total_count - covers.length : 0;
+  // Owner line: icon + "○○さんのランキング/カタログ".
+  const owner = large.subtitle
+    ? div(
+      { alignItems: "center", marginTop: 10 },
+      images.owner
+        ? img(images.owner, { width: OWNER_AVATAR, height: OWNER_AVATAR, borderRadius: 10,
+          border: "2px solid rgba(255,255,255,0.85)" })
+        : null,
+      div({ fontSize: 26, color: "#E2E8F0", fontWeight: 700, marginLeft: images.owner ? 12 : 0, ...ELLIPSIS },
+        large.subtitle),
+    )
+    : null;
   const heading = div(
     { flexDirection: "column", maxWidth: W - 128 },
     div({ fontSize: large.title.length > 18 ? 48 : 56, color: "#FFFFFF", fontWeight: 900, lineHeight: 1.2,
       ...ELLIPSIS }, large.title),
-    large.subtitle
-      ? div({ fontSize: 26, color: "#E2E8F0", fontWeight: 700, marginTop: 6, ...ELLIPSIS }, large.subtitle)
+    large.description
+      ? div({ fontSize: 24, color: "#F1F5F9", fontWeight: 700, lineHeight: 1.4, marginTop: 6,
+        maxHeight: 68, overflow: "hidden", lineClamp: 2 }, large.description)
       : null,
+    owner,
   );
   if (covers.length === 0) {
     return frame(assets, images.background,
@@ -384,7 +406,8 @@ function gridCard(large, images, assets) {
     assets,
     images.background,
     div({ position: "absolute", left: 64, right: 64, top: 44 }, heading),
-    div({ position: "absolute", left: 0, right: 0, top: 196, justifyContent: "center" }, ...items),
+    div({ position: "absolute", left: 0, right: 0, top: large.description ? 268 : 210, justifyContent: "center" },
+      ...items),
   );
 }
 

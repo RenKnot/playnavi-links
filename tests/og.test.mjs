@@ -38,8 +38,14 @@ test("validLarge accepts the three layouts and normalizes key order", () => {
   assert.deepEqual(validLarge(GAME), GAME);
   assert.deepEqual(validLarge({ ...PROFILE, stats: null }), { ...PROFILE, stats: null });
   assert.deepEqual(validLarge(PROFILE), PROFILE);
-  assert.deepEqual(validLarge(GRID), GRID);
-  assert.deepEqual(validLarge({ ...GRID, cover_urls: [], total_count: 0 }), { ...GRID, cover_urls: [], total_count: 0 });
+  const gridOut = { ...GRID, description: null, owner_avatar_url: null };
+  assert.deepEqual(validLarge(GRID), gridOut);
+  // New optional grid fields pass through; unknown keys are dropped, not fatal.
+  const withOwner = { ...GRID, description: "説明", owner_avatar_url: COVER };
+  assert.deepEqual(validLarge({ ...withOwner, future_field: 1 }), withOwner);
+  assert.deepEqual(validLarge({ ...GAME, extra: 1 }), GAME);
+  assert.deepEqual(validLarge({ ...GRID, cover_urls: [], total_count: 0 }),
+    { ...gridOut, cover_urls: [], total_count: 0 });
   assert.deepEqual(validLarge({ ...GAME, heading: null, publisher: null, developer: null, cover_url: null }),
     { ...GAME, heading: null, publisher: null, developer: null, cover_url: null });
 });
@@ -48,7 +54,7 @@ test("validLarge rejects wrong types, long text, bad counts and disallowed image
   const rejects = [
     null, "x", [], {}, { ...GAME, layout: "other" },
     { ...GAME, title: "" }, { ...GAME, title: 5 }, { ...GAME, title: "x".repeat(201) },
-    { ...GAME, extra: 1 }, { ...GAME, cover_url: "http://images.igdb.com/a.jpg" },
+    { ...GAME, cover_url: "http://images.igdb.com/a.jpg" },
     { ...GAME, cover_url: "https://example.com/a.jpg" },
     { ...GAME, cover_url: "https://images.igdb.com.evil.example/a.jpg" },
     { ...GAME, cover_url: "https://user@images.igdb.com/a.jpg" },
@@ -57,10 +63,12 @@ test("validLarge rejects wrong types, long text, bad counts and disallowed image
     { ...PROFILE, stats: { ...PROFILE.stats, total: "1" } },
     { ...PROFILE, stats: { ...PROFILE.stats, total: Number.MAX_SAFE_INTEGER + 1 } },
     { ...PROFILE, stats: { total: 1 } },
+    { ...PROFILE, stats: [] },
     { ...PROFILE, background_url: "javascript:alert(1)" },
     { ...GRID, ranked: "yes" }, { ...GRID, cover_urls: [COVER, COVER, COVER, COVER] },
     { ...GRID, cover_urls: ["https://example.com/a.jpg"] }, { ...GRID, total_count: -3 },
-    { ...GRID, subtitle: null },
+    { ...GRID, subtitle: null }, { ...GRID, owner_avatar_url: "https://example.com/a.png" },
+    { ...GRID, description: "x".repeat(201) },
   ];
   for (const large of rejects) assert.equal(validLarge(large), null, JSON.stringify(large));
 });

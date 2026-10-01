@@ -14,9 +14,10 @@ const STAT_KEYS = ["total", "playing", "completed", "streaming_completed", "drop
 class Invalid extends Error {}
 const fail = () => { throw new Invalid(); };
 
-function onlyKeys(object, keys) {
+// Unknown keys are ignored (the result is rebuilt from known keys only), so
+// the edge function can add fields before this site learns about them.
+function onlyKeys(object) {
   if (!object || typeof object !== "object" || Array.isArray(object)) fail();
-  for (const key of Object.keys(object)) if (!keys.includes(key)) fail();
 }
 function text(value, { nullable = false, allowEmpty = false } = {}) {
   if (value === null && nullable) return null;
@@ -53,7 +54,7 @@ export function validLarge(large) {
     if (!large || typeof large !== "object") return null;
     switch (large.layout) {
       case "game":
-        onlyKeys(large, ["layout", "heading", "title", "publisher", "developer", "cover_url"]);
+        onlyKeys(large);
         return {
           layout: "game",
           heading: text(large.heading, { nullable: true }),
@@ -63,10 +64,10 @@ export function validLarge(large) {
           cover_url: imageUrl(large.cover_url),
         };
       case "profile": {
-        onlyKeys(large, ["layout", "name", "avatar_url", "background_url", "stats"]);
+        onlyKeys(large);
         let stats = null;
         if (large.stats !== null) {
-          onlyKeys(large.stats, STAT_KEYS);
+          onlyKeys(large.stats);
           stats = Object.fromEntries(STAT_KEYS.map((key) => [key, count(large.stats[key])]));
         }
         return {
@@ -78,13 +79,20 @@ export function validLarge(large) {
         };
       }
       case "grid":
-        onlyKeys(large, ["layout", "title", "subtitle", "ranked", "cover_urls", "total_count"]);
+        onlyKeys(large);
         if (typeof large.ranked !== "boolean") fail();
         if (!Array.isArray(large.cover_urls) || large.cover_urls.length > 3) fail();
         return {
           layout: "grid",
           title: text(large.title),
           subtitle: text(large.subtitle, { allowEmpty: true }),
+          // Optional: older edge-function responses do not carry these.
+          description: large.description === undefined
+            ? null
+            : text(large.description, { nullable: true }),
+          owner_avatar_url: large.owner_avatar_url === undefined
+            ? null
+            : imageUrl(large.owner_avatar_url),
           ranked: large.ranked,
           cover_urls: large.cover_urls.map((url) => {
             if (!allowedImageUrl(url)) fail();
