@@ -77,6 +77,12 @@ export function previewTarget(request) {
     case "user":
       path = `/users/${id}`;
       break;
+    case "best_games":
+      path = `/users/${id}/best-games`;
+      break;
+    case "diagnosis":
+      path = `/users/${id}/diagnosis`;
+      break;
     case "ranking":
       path = `/users/${ownerId}/custom-rankings/${rankingId}`;
       break;
@@ -90,6 +96,8 @@ export function previewTarget(request) {
   const requiredKeys = {
     game: logId === null ? ["id", "kind"] : ["id", "kind", "logId"],
     user: ["id", "kind"],
+    best_games: ["id", "kind"],
+    diagnosis: ["id", "kind"],
     ranking: ["kind", "ownerId", "rankingId"],
     catalog: ["id", "kind"],
   }[kind];

@@ -72,8 +72,10 @@ test("AI return link rejects unsupported actions and query injection", () => {
   ]) assert.equal(aiReturnTargetFromPath(path), null, path);
 });
 
-test("allowlists the five canonical target shapes", () => {
+test("allowlists the seven canonical target shapes", () => {
   const cases = [
+    [`/users/${UUID_A}/best-games`, "best_games"],
+    [`/users/${UUID_A}/diagnosis`, "diagnosis"],
     ["/game/42", "game"],
     [`/game/42?logId=${UUID_A}`, "log"],
     [`/users/${UUID_A}`, "user"],
@@ -109,6 +111,12 @@ test("rejects arbitrary URLs, schemes, queries, fragments, and short paths", () 
     "/game/9223372036854775808",
     "/game/12345678901234567890",
     `/users/${UUID_A}?x=1`,
+    `/users/${UUID_A}/best-games/`,
+    `/users/${UUID_A}/best-games?x=1`,
+    `/users/${UUID_A}/diagnosis/extra`,
+    `/users/${UUID_A}/Diagnosis`,
+    `/users/not-a-uuid/best-games`,
+    `/users/${UUID_A}/bestgames`,
     `/s/${CODE}`,
   ]) {
     assert.equal(canonicalTargetFromPath(value), null, value);

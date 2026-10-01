@@ -18,6 +18,8 @@ const MAX_INPUT_PIXELS = 40_000_000;
 const COVER = { game: [330, 440], grid: [240, 320], gridCompact: [204, 272] };
 const OWNER_AVATAR = 44;
 const AVATAR = 200;
+const ILLUSTRATION = 300;
+const DIAGNOSIS_ACCENT = "#70D5E2";
 const LOGO_W = 160;
 const BADGE = [64, 100];
 
@@ -72,12 +74,18 @@ export function cachedFont(text, weight, fetchImpl) {
 
 // Fixed labels drawn by the layouts plus every dynamic string, deduplicated
 // and sorted so identical character sets share one cache entry.
-const FIXED_TEXT = "0123456789+,.販売・開発さんのプロフィール総ログ数本プレイ中クリア実況視聴済断念積みゲーあと作品";
+// "…" is drawn by textOverflow: ellipsis, so it must be in every subset.
+const FIXED_TEXT = "0123456789+,.…─販売・開発さんのプロフィール総ログ数本プレイ中クリア実況視聴済断念積みゲーあと作品" +
+  "ゲーマーDNA対戦没入論理感覚自立仲間集中広範";
 export function cardText(large) {
   const parts = [FIXED_TEXT];
   if (large.layout === "game") parts.push(large.heading ?? "", large.title, large.publisher ?? "", large.developer ?? "");
   if (large.layout === "profile") parts.push(large.name);
   if (large.layout === "grid") parts.push(large.title, large.subtitle, large.description ?? "");
+  if (large.layout === "diagnosis") {
+    parts.push(large.name, large.type_name, large.title ?? "");
+    for (const axis of large.axes) parts.push(axis.left, axis.right);
+  }
   return [...new Set([...parts.join("")])].filter((c) => c.trim()).sort().join("");
 }
 
@@ -209,6 +217,10 @@ export async function loadCardImages(large, fetchImpl) {
     if (large.avatar_url) urls.add(large.avatar_url);
     if (large.background_url) urls.add(large.background_url);
   }
+  if (large.layout === "diagnosis") {
+    if (large.avatar_url) urls.add(large.avatar_url);
+    if (large.illustration_url) urls.add(large.illustration_url);
+  }
   if (large.layout === "grid") {
     for (const url of large.cover_urls) urls.add(url);
     if (large.owner_avatar_url) urls.add(large.owner_avatar_url);
@@ -230,6 +242,15 @@ export async function loadCardImages(large, fetchImpl) {
       blurUri(get(large.background_url) ?? get(large.avatar_url)),
     ]);
     return { avatar, background };
+  }
+  if (large.layout === "diagnosis") {
+    const illustration = get(large.illustration_url);
+    const [art, owner, background] = await Promise.all([
+      pngUri(illustration, ILLUSTRATION, ILLUSTRATION),
+      pngUri(get(large.avatar_url), OWNER_AVATAR, OWNER_AVATAR),
+      blurUri(illustration ?? get(large.avatar_url)),
+    ]);
+    return { illustration: art, owner, background };
   }
   const buffers = large.cover_urls.map(get);
   const coverSize = large.description ? COVER.gridCompact : COVER.grid;
@@ -325,8 +346,10 @@ function profileCard(large, images, assets) {
     : div({ width: AVATAR, height: AVATAR, borderRadius: 24, backgroundColor: "#334155",
       border: "4px solid rgba(255,255,255,0.9)" });
   const label = `${large.name}さんのプロフィール`;
-  const nameSize = label.length <= 12 ? 66 : label.length <= 16 ? 54 : 44;
-  const name = div({ fontSize: nameSize, color: "#FFFFFF", fontWeight: 900, maxWidth: 800, ...ELLIPSIS }, label);
+  // Japanese glyphs are about 1em wide: size the label to the 832px column
+  // (1200 - 2x64 padding - avatar - gap) so most names fit untruncated.
+  const nameSize = Math.max(36, Math.min(66, Math.floor(820 / label.length)));
+  const name = div({ fontSize: nameSize, color: "#FFFFFF", fontWeight: 900, maxWidth: 832, ...ELLIPSIS }, label);
   if (!stats) {
     return frame(
       assets,
@@ -426,7 +449,73 @@ function gridCard(large, images, assets) {
   );
 }
 
+const AXIS_BAR = 360;
+const AXIS_DOT = 26;
+
+function typeNameSize(name) {
+  const length = name.length;
+  if (length <= 9) return 64;
+  if (length <= 11) return 56;
+  return 48;
+}
+
+function diagnosisCard(large, images, assets) {
+  const accent = large.color ?? DIAGNOSIS_ACCENT;
+  const art = images.illustration
+    ? img(images.illustration, { width: ILLUSTRATION, height: ILLUSTRATION, borderRadius: 24,
+      border: "4px solid rgba(255,255,255,0.92)", boxShadow: "0 16px 48px rgba(0,0,0,0.55)",
+      backgroundColor: "#FFFFFF" })
+    : placeholder(ILLUSTRATION, ILLUSTRATION, 24);
+  const owner = div(
+    { alignItems: "center" },
+    images.owner
+      ? img(images.owner, { width: OWNER_AVATAR, height: OWNER_AVATAR, borderRadius: 10,
+        border: "2px solid rgba(255,255,255,0.85)", flexShrink: 0 })
+      : null,
+    div({ fontSize: 26, color: "#E2E8F0", fontWeight: 700, marginLeft: images.owner ? 12 : 0, ...ELLIPSIS },
+      `${large.name}さんのゲーマーDNA`),
+  );
+  const typeName = div({ fontSize: typeNameSize(large.type_name), color: accent, fontWeight: 900, lineHeight: 1.2,
+    marginTop: 12, lineClamp: 2, overflow: "hidden" }, large.type_name);
+  const title = large.title
+    ? div({ marginTop: 10 },
+      div({ fontSize: 26, color: "#FFFFFF", fontWeight: 700, padding: "4px 18px", borderRadius: 999,
+        backgroundColor: "rgba(8,14,26,0.55)", border: `2px solid ${accent}`, maxWidth: 680, ...ELLIPSIS },
+      `─ ${large.title} ─`))
+    : null;
+  const axisLabel = (value, align) => div({ width: 96, fontSize: 24, color: "#F1F5F9", fontWeight: 700,
+    justifyContent: align, ...ELLIPSIS }, value);
+  const axes = div(
+    { flexDirection: "column", marginTop: 22 },
+    ...large.axes.map((axis, i) =>
+      div(
+        { alignItems: "center", marginTop: i === 0 ? 0 : 14 },
+        axisLabel(axis.left, "flex-end"),
+        div(
+          { position: "relative", width: AXIS_BAR, height: AXIS_DOT, marginLeft: 18, marginRight: 18,
+            alignItems: "center" },
+          div({ width: AXIS_BAR, height: 8, borderRadius: 4, backgroundColor: "rgba(255,255,255,0.32)" }),
+          div({ position: "absolute", left: Math.round(((AXIS_BAR - AXIS_DOT) * axis.position) / 100), top: 0,
+            width: AXIS_DOT, height: AXIS_DOT, borderRadius: AXIS_DOT / 2, backgroundColor: accent,
+            border: "3px solid #FFFFFF", boxShadow: "0 2px 8px rgba(0,0,0,0.45)" }),
+        ),
+        axisLabel(axis.right, "flex-start"),
+      )
+    ),
+  );
+  return frame(
+    assets,
+    images.background,
+    div(
+      { ...FULL, alignItems: "center", padding: "0 64px 40px 72px" },
+      art,
+      div({ flexDirection: "column", marginLeft: 52, flex: 1, minWidth: 0 }, owner, typeName, title, axes),
+    ),
+  );
+}
+
 export function cardElement(large, images, assets) {
+  if (large.layout === "diagnosis") return diagnosisCard(large, images, assets);
   if (large.layout === "game") return gameCard(large, images, assets);
   if (large.layout === "profile") return profileCard(large, images, assets);
   return gridCard(large, images, assets);

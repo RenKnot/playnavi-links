@@ -9,6 +9,9 @@ export const ALLOWED_IMAGE_HOSTS = new Set([
   "playnavi.app",
 ]);
 const MAX_TEXT = 200;
+const AXIS_LABEL_MAX = 10;
+const TYPE_CODE = /^[ce][bf][is][dw]$/;
+const COLOR = /^#[0-9A-Fa-f]{6}$/;
 const STAT_KEYS = ["total", "playing", "completed", "streaming_completed", "dropped", "want_to_play"];
 
 class Invalid extends Error {}
@@ -41,6 +44,15 @@ export function allowedImageUrl(value) {
   } catch {
     return false;
   }
+}
+function axis(value) {
+  onlyKeys(value);
+  const left = text(value.left);
+  const right = text(value.right);
+  if (left.length > AXIS_LABEL_MAX || right.length > AXIS_LABEL_MAX) fail();
+  const { position } = value;
+  if (!Number.isInteger(position) || position < 0 || position > 100) fail();
+  return { left, right, position };
 }
 function imageUrl(value) {
   if (value === null) return null;
@@ -99,6 +111,22 @@ export function validLarge(large) {
             return url;
           }),
           total_count: count(large.total_count),
+        };
+      case "diagnosis":
+        onlyKeys(large);
+        if (typeof large.type_code !== "string" || !TYPE_CODE.test(large.type_code)) fail();
+        if (large.color !== null && (typeof large.color !== "string" || !COLOR.test(large.color))) fail();
+        if (!Array.isArray(large.axes) || large.axes.length !== 4) fail();
+        return {
+          layout: "diagnosis",
+          name: text(large.name),
+          avatar_url: imageUrl(large.avatar_url),
+          type_name: text(large.type_name),
+          title: text(large.title, { nullable: true }),
+          type_code: large.type_code,
+          illustration_url: imageUrl(large.illustration_url),
+          color: large.color,
+          axes: large.axes.map(axis),
         };
       default:
         return null;

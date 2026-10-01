@@ -23,6 +23,8 @@ const CANONICAL_PATTERNS = [
   { type: "log", pattern: new RegExp(`^/game/${GAME_ID_PATTERN}\\?logId=${UUID_PATTERN}$`) },
   { type: "game", pattern: new RegExp(`^/game/${GAME_ID_PATTERN}$`) },
   { type: "ranking", pattern: new RegExp(`^/users/${UUID_PATTERN}/custom-rankings/${UUID_PATTERN}$`) },
+  { type: "best_games", pattern: new RegExp(`^/users/${UUID_PATTERN}/best-games$`) },
+  { type: "diagnosis", pattern: new RegExp(`^/users/${UUID_PATTERN}/diagnosis$`) },
   { type: "user", pattern: new RegExp(`^/users/${UUID_PATTERN}$`) },
   { type: "catalog", pattern: new RegExp(`^/catalogs/${UUID_PATTERN}$`) },
 ];
