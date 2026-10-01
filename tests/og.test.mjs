@@ -245,3 +245,34 @@ test("share pages without a valid large card keep the small card unchanged", asy
   assert.equal(renderPreviewHtml(template, card, "https://playnavi.app/"),
     renderPreviewHtml(template, card, "https://playnavi.app/", null));
 });
+
+test("profile-cover presets are read from the bundled copies, never fetched", async () => {
+  const { presetCoverFile, loadCardImages } = await import("../api/_lib/og-card.mjs");
+  const host = "https://abcdefghijklmnop.supabase.co/storage/v1/object/public/profile-covers/presets/v1";
+  assert.match(presetCoverFile(`${host}/profile_hero_9.webp`), /assets\/og\/profile-covers\/v1\/profile_hero_9\.webp$/);
+  for (const bad of [`${host}/profile_hero_10.webp`, `${host}/../x.webp`, `${host}/profile_hero_1.webp?x=1`,
+    "https://example.com/storage/v1/object/public/profile-covers/presets/v1/profile_hero_1.webp", null]) {
+    assert.equal(presetCoverFile(bad), null, String(bad));
+  }
+  let fetched = 0;
+  const images = await loadCardImages(
+    { layout: "profile", name: "a", avatar_url: null, background_url: `${host}/profile_hero_2.webp`, stats: null },
+    async () => { fetched += 1; throw new Error("network"); },
+  );
+  assert.equal(fetched, 0);
+  assert.match(images.background ?? "", /^data:image\//);
+});
+
+test("an unloadable profile background falls back to the blurred avatar", async () => {
+  const { loadCardImages } = await import("../api/_lib/og-card.mjs");
+  const sharp = (await import("sharp")).default;
+  const png = await sharp({ create: { width: 8, height: 8, channels: 3, background: "#336699" } }).png().toBuffer();
+  const avatar = "https://playnavi.app/a.png";
+  const images = await loadCardImages(
+    { layout: "profile", name: "a", avatar_url: avatar, background_url: "https://playnavi.app/missing.png", stats: null },
+    async (url) => String(url) === avatar
+      ? new Response(png, { status: 200, headers: { "content-type": "image/png" } })
+      : new Response("", { status: 404 }),
+  );
+  assert.match(images.background ?? "", /^data:image\//);
+});
