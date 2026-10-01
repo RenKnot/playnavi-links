@@ -73,6 +73,53 @@ test("validLarge rejects wrong types, long text, bad counts and disallowed image
   for (const large of rejects) assert.equal(validLarge(large), null, JSON.stringify(large));
 });
 
+const DIAGNOSIS = {
+  layout: "diagnosis", name: "Ao", avatar_url: AVATAR, type_name: "Sage", title: "Seeker", type_code: "ebid",
+  illustration_url: "https://playnavi.app/diagnosis/ebid.png", color: "#7C5CFF",
+  axes: [
+    { left: "PvP", right: "Deep", position: 0 }, { left: "Logic", right: "Feel", position: 70 },
+    { left: "Solo", right: "Team", position: 45 }, { left: "Focus", right: "Wide", position: 100 },
+  ],
+};
+
+test("validLarge accepts the diagnosis layout and drops unknown keys", () => {
+  assert.deepEqual(validLarge(DIAGNOSIS), DIAGNOSIS);
+  assert.deepEqual(validLarge({ ...DIAGNOSIS, extra: 1, axes: DIAGNOSIS.axes.map((a) => ({ ...a, x: 1 })) }), DIAGNOSIS);
+  const nulls = { ...DIAGNOSIS, avatar_url: null, title: null, illustration_url: null, color: null };
+  assert.deepEqual(validLarge(nulls), nulls);
+  for (const code of ["cfsw", "ebid", "cbiw"]) assert.equal(validLarge({ ...DIAGNOSIS, type_code: code })?.type_code, code);
+});
+
+test("validLarge rejects malformed diagnosis payloads", () => {
+  const axes = DIAGNOSIS.axes;
+  const rejects = [
+    { ...DIAGNOSIS, type_code: "abcd" }, { ...DIAGNOSIS, type_code: "EBID" }, { ...DIAGNOSIS, type_code: null },
+    { ...DIAGNOSIS, color: "#FFF" }, { ...DIAGNOSIS, color: "red" }, { ...DIAGNOSIS, color: "#GGGGGG" },
+    { ...DIAGNOSIS, axes: axes.slice(0, 3) }, { ...DIAGNOSIS, axes: [...axes, axes[0]] }, { ...DIAGNOSIS, axes: null },
+    { ...DIAGNOSIS, axes: [{ ...axes[0], position: 101 }, ...axes.slice(1)] },
+    { ...DIAGNOSIS, axes: [{ ...axes[0], position: -1 }, ...axes.slice(1)] },
+    { ...DIAGNOSIS, axes: [{ ...axes[0], position: 50.5 }, ...axes.slice(1)] },
+    { ...DIAGNOSIS, axes: [{ ...axes[0], position: "50" }, ...axes.slice(1)] },
+    { ...DIAGNOSIS, axes: [{ ...axes[0], left: "x".repeat(11) }, ...axes.slice(1)] },
+    { ...DIAGNOSIS, axes: [{ ...axes[0], right: "" }, ...axes.slice(1)] },
+    { ...DIAGNOSIS, axes: [null, ...axes.slice(1)] },
+    { ...DIAGNOSIS, name: "" }, { ...DIAGNOSIS, type_name: "" },
+    { ...DIAGNOSIS, illustration_url: "https://example.com/a.png" },
+    { ...DIAGNOSIS, avatar_url: "http://playnavi.app/a.png" },
+  ];
+  for (const large of rejects) assert.equal(validLarge(large), null, JSON.stringify(large));
+});
+
+test("diagnosis card text and every card subset include the ellipsis and drawn labels", () => {
+  const text = cardText(DIAGNOSIS);
+  for (const character of "…─ゲーマーDNA対戦没入論理感覚自立仲間集中広範SageSeekrPvPDpLgcFlTm") {
+    assert.ok(text.includes(character), character);
+  }
+  assert.ok(cardText(GAME).includes("…"));
+  assert.ok(cardText(PROFILE).includes("…"));
+  assert.ok(cardText(GRID).includes("…"));
+});
+
 test("og targets accept exactly one code or path plus an optional version", () => {
   assert.deepEqual(ogTarget(`/api/og?code=${CODE}&v=abc123`), { param: "code", value: CODE });
   assert.deepEqual(ogTarget(`/api/og?path=${encodeURIComponent("/game/42")}`), { param: "path", value: "/game/42" });
@@ -133,7 +180,7 @@ function pngSize(buffer) {
   return [buffer.readUInt32BE(16), buffer.readUInt32BE(20)];
 }
 
-for (const [name, large] of [["game", GAME], ["profile", PROFILE], ["grid", GRID]]) {
+for (const [name, large] of [["game", GAME], ["profile", PROFILE], ["grid", GRID], ["diagnosis", DIAGNOSIS]]) {
   test(`a valid ${name} card renders a cacheable 1200x630 PNG`, async () => {
     const { fetchImpl, seen } = upstream(large);
     await withServer(createOgHandler({ fetchImpl, fontLoader }), async (origin) => {

@@ -84,6 +84,8 @@ test("canonical routes retain their own URL and send exactly one path parameter 
     [{ kind: "user", id: USER }, `/users/${USER}`],
     [{ kind: "ranking", ownerId: USER, rankingId: RANKING }, `/users/${USER}/custom-rankings/${RANKING}`],
     [{ kind: "catalog", id: USER }, `/catalogs/${USER}`],
+    [{ kind: "best_games", id: USER }, `/users/${USER}/best-games`],
+    [{ kind: "diagnosis", id: USER }, `/users/${USER}/diagnosis`],
   ];
   for (const [query, path] of cases) {
     const target = previewTarget({ headers: { host: "links.playnavilab.com" }, query });
@@ -96,7 +98,7 @@ test("canonical routes retain their own URL and send exactly one path parameter 
   assert.equal(previewTarget({ headers: { host: "playnavi.app" }, query: { kind: "game", id: "42" } }), null);
 });
 
-test("Vercel's matched host query stays out of all five canonical cards", () => {
+test("Vercel's matched host query stays out of all seven canonical cards", () => {
   const host = "links.playnavilab.com";
   const cases = [
     [{ kind: "game", id: "42" }, "/game/42"],
@@ -104,6 +106,8 @@ test("Vercel's matched host query stays out of all five canonical cards", () => 
     [{ kind: "user", id: USER }, `/users/${USER}`],
     [{ kind: "ranking", ownerId: USER, rankingId: RANKING }, `/users/${USER}/custom-rankings/${RANKING}`],
     [{ kind: "catalog", id: USER }, `/catalogs/${USER}`],
+    [{ kind: "best_games", id: USER }, `/users/${USER}/best-games`],
+    [{ kind: "diagnosis", id: USER }, `/users/${USER}/diagnosis`],
   ];
   for (const [query, path] of cases) {
     assert.deepEqual(previewTarget({ headers: { host }, query: { ...query, host } }), {
@@ -128,6 +132,24 @@ test("a game log sends its query inside the single H-1 path parameter", async ()
   assert.deepEqual([...upstreamUrl.searchParams.keys()], ["path"]);
   assert.equal(upstreamUrl.searchParams.get("path"), `/game/42?logId=${USER}`);
   assert.equal(tag(response.body, "og:url"), `https://links.playnavilab.com/game/42?logId=${USER}`);
+});
+
+test("a diagnosis path the server refuses (404) keeps its URL and shows the generic card", async () => {
+  let upstreamUrl;
+  const response = await invoke({
+    headers: { host: "links.playnavilab.com" },
+    query: { kind: "diagnosis", id: USER, host: "links.playnavilab.com" },
+  }, {
+    fetchImpl: async (url) => {
+      upstreamUrl = url;
+      return { status: 404 };
+    },
+  });
+  assert.equal(upstreamUrl.searchParams.get("path"), `/users/${USER}/diagnosis`);
+  assert.equal(tag(response.body, "og:title"), GENERIC_CARD.title);
+  assert.equal(tag(response.body, "og:image"), GENERIC_CARD.image_url);
+  assert.equal(tag(response.body, "twitter:card"), "summary");
+  assert.equal(tag(response.body, "og:url"), `https://links.playnavilab.com/users/${USER}/diagnosis`);
 });
 
 test("short links retain safe tracking queries without sending them upstream", async () => {
@@ -155,6 +177,9 @@ test("invalid host, code, path, or extra query never calls the upstream", async 
     { headers: { host: "links.playnavilab.com" }, query: { kind: "game", id: "42", host: "evil.example" } },
     { headers: { host: "links.playnavilab.com" }, query: { kind: "game", id: "42", host: ["links.playnavilab.com", "evil.example"] } },
     { headers: { host: "links.playnavilab.com" }, query: { kind: "user", id: USER, host: "links.playnavilab.com", extra: "x" } },
+    { headers: { host: "links.playnavilab.com" }, query: { kind: "best_games", id: "bad" } },
+    { headers: { host: "links.playnavilab.com" }, query: { kind: "diagnosis", id: "bad" } },
+    { headers: { host: "playnavi.app" }, query: { kind: "diagnosis", id: USER } },
   ];
   for (const request of invalid) {
     const response = await invoke(request, { fetchImpl });
