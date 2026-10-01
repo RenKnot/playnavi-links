@@ -1,4 +1,5 @@
 import { canonicalTargetFromPath, isValidShortCode } from "../../assets/link-routing.mjs";
+import { largeImageUrl, validLarge } from "./og-large.mjs";
 
 export const PREVIEW_META_URL =
   "https://irbtguncoatqfikctreq.supabase.co/functions/v1/share-preview-meta";
@@ -129,22 +130,44 @@ export function validCard(payload) {
   } catch {
     return null;
   }
-  return { title, description, image_url: imageUrl };
+  const large = validLarge(payload.card.large);
+  return large
+    ? { title, description, image_url: imageUrl, large }
+    : { title, description, image_url: imageUrl };
 }
 
-export function renderPreviewHtml(template, card, url) {
+// The large card image URL for a validated card, or null for the small card.
+export function largeCardImageUrl(card, target) {
+  if (!card?.large || !target?.upstreamParam) return null;
+  return largeImageUrl(target.upstreamParam, target.upstreamValue, card.large);
+}
+
+export function renderPreviewHtml(template, card, url, largeImage = null) {
   const headClose = template.indexOf("</head>");
   if (headClose < 0) throw new Error("index.html has no closing head tag");
   const insertion = template.lastIndexOf("\n", headClose) + 1;
-  const tags = [
-    ["property", "og:site_name", "PlayNavi"],
-    ["property", "og:type", "website"],
-    ["property", "og:title", card.title],
-    ["property", "og:description", card.description],
-    ["property", "og:image", card.image_url],
-    ["property", "og:url", url],
-    ["name", "twitter:card", "summary"],
-  ].map(([attribute, name, value]) =>
+  const tags = (largeImage
+    ? [
+        ["property", "og:site_name", "PlayNavi"],
+        ["property", "og:type", "website"],
+        ["property", "og:title", card.title],
+        ["property", "og:description", card.description],
+        ["property", "og:image", largeImage],
+        ["property", "og:image:width", "1200"],
+        ["property", "og:image:height", "630"],
+        ["property", "og:url", url],
+        ["name", "twitter:card", "summary_large_image"],
+        ["name", "twitter:image", largeImage],
+      ]
+    : [
+        ["property", "og:site_name", "PlayNavi"],
+        ["property", "og:type", "website"],
+        ["property", "og:title", card.title],
+        ["property", "og:description", card.description],
+        ["property", "og:image", card.image_url],
+        ["property", "og:url", url],
+        ["name", "twitter:card", "summary"],
+      ]).map(([attribute, name, value]) =>
     `    <meta ${attribute}="${name}" content="${escapeHtmlAttribute(value)}">`
   ).join("\n");
   return `${template.slice(0, insertion)}${tags}\n${template.slice(insertion)}`;
