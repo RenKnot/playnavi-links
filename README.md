@@ -23,6 +23,12 @@ required Vercel/Supabase settings, security invariants, and rollout checks.
 
 ## Short-link web contract
 
+The optional new-Web landing is disabled in the deployed `index.html`.
+`docs/web-gateway-preparation.md` describes a separate, undeployed gateway
+candidate. Preparing it does not change this project's routing or authorize
+publication; the actual Vercel origin, cookie, protection, and cache checks
+must pass before a separately approved release.
+
 `/s/{16-character code}` resolves through the same-origin route
 `/api/share-links/{code}`. `vercel.json` proxies that request to the public
 Supabase Edge Function `short-links-resolve`.
