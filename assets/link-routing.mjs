@@ -67,6 +67,15 @@ export function canonicalTargetFromPath(path) {
   };
 }
 
+// Empty in the deployed HTML. A separately reviewed gateway candidate may
+// enable only these fixed Web destinations; API URLs are never destinations.
+export function webTargetFromPath(path, origin) {
+  if (!["https://playnavi.app", "https://playnavi-web-v2-stg.vercel.app"].includes(origin)) return null;
+  const target = canonicalTargetFromPath(path);
+  if (!target || target.type === "diagnosis") return null;
+  return `${origin}${target.canonicalPath}`;
+}
+
 export function aiReturnTargetFromPath(path) {
   // This route is a separate app-return contract, never a short-link resolver
   // target. Rebuild the URL from known values before presenting a browser link.

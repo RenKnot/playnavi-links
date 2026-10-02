@@ -4,6 +4,7 @@ import {
   canonicalTargetFromPath,
   resolveShortLink,
   shortCodeFromPath,
+  webTargetFromPath,
 } from "./link-routing.mjs";
 
 const APP_STORE_URL = "https://apps.apple.com/jp/app/playnavi/id6756201875";
@@ -22,7 +23,9 @@ const elements = {
   stores: document.getElementById("store-buttons"),
   iosStore: document.getElementById("ios-store-btn"),
   androidStore: document.getElementById("android-store-btn"),
+  web: document.getElementById("web-btn"),
 };
+const webOrigin = document.querySelector?.('meta[name="pn-web-origin"]')?.content || "";
 
 function detectPlatform(ua) {
   if (/iPhone|iPad|iPod/i.test(ua)) return "ios";
@@ -53,6 +56,16 @@ function hideActions() {
   setVisible(elements.primary, false);
   setVisible(elements.retry, false);
   setVisible(elements.stores, false);
+  setVisible(elements.web, false);
+}
+
+function showWeb(target) {
+  const href = webTargetFromPath(target.canonicalPath, webOrigin);
+  if (href && elements.web) {
+    elements.web.href = href;
+    setVisible(elements.web, true);
+  }
+  return href;
 }
 
 function showStores() {
@@ -121,12 +134,14 @@ function openCanonicalTarget(target) {
     loading: true,
   });
   configurePrimary("PlayNaviアプリで開く", manualHrefForCanonical(target));
+  const webHref = showWeb(target);
 
   if (platform === "other") {
     setContent({
       heading: "PlayNaviでリンクを開く",
       description:
-        "スマートフォンでこのリンクを開いてください。未ログインの場合は、ログイン後にこのリンクをもう一度開く必要があることがあります。",
+        webHref ? "共有された内容をWebでご覧いただけます。" :
+          "スマートフォンでこのリンクを開いてください。未ログインの場合は、ログイン後にこのリンクをもう一度開く必要があることがあります。",
     });
     setVisible(elements.primary, false);
     showStores();
@@ -180,6 +195,13 @@ async function openShortLink(code) {
   try {
     const target = await resolveShortLink(code, { signal: controller.signal });
     window.clearTimeout(timeout);
+
+    const webHref = showWeb(target);
+    if (platform === "other" && webHref) {
+      setContent({ heading: "共有された内容を開いています…", description: "そのままお待ちください。" });
+      window.location.replace(webHref);
+      return;
+    }
 
     // Make the exact resolved target available as an explicit custom-scheme
     // action before attempting the canonical Universal/App Link handoff.
