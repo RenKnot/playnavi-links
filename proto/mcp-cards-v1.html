@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PlayNavi × ChatGPT カード試作 v1</title>
+<style>
+/* ===== 試作ページの外枠 (ChatGPT の会話画面に似せた台。カードの設計対象ではない) ===== */
+:root{--page:#ffffff;--page-fg:#0d0d0d;--page-sub:#5d5d5d;--bubble:#f1f1f1;--rule:#e5e5e5}
+html[data-theme=dark]{--page:#212121;--page-fg:#ececec;--page-sub:#a3a3a3;--bubble:#303030;--rule:#3a3a3a}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--page);color:var(--page-fg);font:15px/1.6 system-ui,-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP","Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+.top{position:sticky;top:0;z-index:5;background:var(--page);border-bottom:1px solid var(--rule);padding:12px 16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.top b{font-size:14px;margin-right:auto}
+.seg{display:inline-flex;border:1px solid var(--rule);border-radius:999px;overflow:hidden}
+.seg button{border:0;background:transparent;color:var(--page-sub);font:600 12px/1 inherit;padding:8px 12px;cursor:pointer}
+.seg button.on{background:var(--page-fg);color:var(--page)}
+.doc{max-width:760px;margin:0 auto;padding:24px 16px 80px}
+.doc h1{font-size:20px;line-height:1.4;margin-bottom:8px}
+.doc>p,.doc li{color:var(--page-sub);font-size:14px}
+.doc ul{padding-left:20px;margin:8px 0 0}
+.case{margin-top:48px;border-top:1px solid var(--rule);padding-top:20px}
+.case h2{font-size:16px;line-height:1.5}
+.case .when{font-size:13px;color:var(--page-sub);margin-top:4px}
+.chat{margin:16px auto 0;display:flex;flex-direction:column;gap:12px}
+.chat[data-w="375"]{max-width:375px}.chat[data-w="680"]{max-width:680px}
+.u{align-self:flex-end;max-width:80%;background:var(--bubble);border-radius:18px;padding:8px 14px;font-size:15px}
+.tool{font-size:13px;color:var(--page-sub);display:flex;align-items:center;gap:6px}
+.tool i{width:16px;height:16px;border-radius:4px;background:linear-gradient(135deg,#3DB2C5,#2F80ED);display:inline-block}
+.a{font-size:15px;line-height:1.7}
+.nocard{border:1px dashed var(--rule);border-radius:16px;padding:14px 16px;font-size:13px;color:var(--page-sub)}
+.tag{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:#fdecc8;color:#7a4b00;margin-left:6px;vertical-align:2px}
+html[data-theme=dark] .tag{background:#4a3a14;color:#ffd98a}
+.spec{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin-top:12px}
+.spec div{border:1px solid var(--rule);border-radius:12px;padding:10px 12px;font-size:12px;color:var(--page-sub)}
+.spec b{display:block;color:var(--page-fg);font-size:13px}
+
+/* ===== ここから下がカード本体 (そのまま AI サーバの画面に移す) ===== */
+.pn{
+  --fg:#0E1726;--sub:#4B5565;--faint:#7D8798;--line:rgba(14,23,38,.08);--chip:rgba(14,23,38,.05);
+  --brand:#0F8499;--card:linear-gradient(155deg,#F3FBFC 0%,#F2F3FF 58%,#FCF3F8 100%);
+  --veil:linear-gradient(180deg,rgba(255,255,255,.52) 0%,rgba(255,255,255,.80) 100%);
+  --star:#E5A500;--sale:#D9467F;--ok:#22A36A;
+  font-family:system-ui,-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP","Segoe UI",sans-serif;
+  color:var(--fg);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;
+  position:relative;overflow:hidden;border-radius:20px;background:var(--card);
+  box-shadow:inset 0 0 0 1px var(--line);
+  padding:20px;display:flex;flex-direction:column;gap:16px;isolation:isolate}
+html[data-theme=dark] .pn{
+  --fg:#F2F5F9;--sub:#B4BDCB;--faint:#808A9B;--line:rgba(255,255,255,.09);--chip:rgba(255,255,255,.08);
+  --brand:#3DB2C5;--card:linear-gradient(155deg,#0F1F25 0%,#141A2D 60%,#1D1524 100%);
+  --veil:linear-gradient(180deg,rgba(12,15,24,.40) 0%,rgba(12,15,24,.78) 100%);--star:#F5B301;--sale:#FF6FA3;--ok:#4FD08F}
+/* 1 本のゲームのカードは、カバーをぼかした色を背景にする */
+.pn .bd{position:absolute;inset:-25%;z-index:-2}
+.pn .bd img{width:100%;height:100%;object-fit:cover;filter:blur(42px) saturate(1.5);transform:scale(1.1)}
+.pn .bd+.veil{position:absolute;inset:0;z-index:-1;background:var(--veil)}
+/* 頭: ロゴ + 何のカードか (問いかけは書かない) */
+.pn .hd{display:flex;align-items:center;gap:8px;min-height:16px}
+.pn .wm{height:11px;width:auto;color:var(--brand);flex:none;display:block}
+.pn .hd .ctx{font-size:12px;font-weight:600;color:var(--sub);line-height:16px}
+.pn .hd .ctx:before{content:"";display:inline-block;width:3px;height:3px;border-radius:50%;background:var(--faint);vertical-align:3px;margin-right:8px}
+.pn .hd .n{color:var(--faint);font-weight:500;margin-left:4px}
+/* ゲームの見出し */
+.pn .g{display:flex;gap:14px;align-items:flex-start;min-width:0}
+.pn .g .tx{min-width:0;flex:1;display:flex;flex-direction:column;gap:6px}
+.pn .t{font-weight:700;line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word}
+.pn .t.l{font-size:18px}.pn .t.m{font-size:15px}.pn .t.s{font-size:13px;line-height:1.45}
+.pn .rel{font-size:12px;color:var(--sub);line-height:1.5}
+.pn .rel span{white-space:nowrap}
+/* 機種: 系統ごとの色の札 */
+.pn .pfs{display:flex;flex-wrap:wrap;gap:4px}
+.pn .pf{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:6px;font-size:11px;font-weight:700;letter-spacing:.01em;white-space:nowrap;
+  color:var(--c);background:color-mix(in srgb,var(--c) 13%,transparent)}
+.pn .pf.nin{--c:#D7001A}.pn .pf.ps{--c:#0062C4}.pn .pf.xb{--c:#137A13}.pn .pf.pc{--c:#4B5565}.pn .pf.mob{--c:#6B4FD8}.pn .pf.etc{--c:#6B7280}
+html[data-theme=dark] .pn .pf.nin{--c:#FF6A75}html[data-theme=dark] .pn .pf.ps{--c:#69ADFF}html[data-theme=dark] .pn .pf.xb{--c:#6AD66A}
+html[data-theme=dark] .pn .pf.pc{--c:#B4BDCB}html[data-theme=dark] .pn .pf.mob{--c:#B29CFF}html[data-theme=dark] .pn .pf.etc{--c:#B4BDCB}
+/* 札 (状態・時間など) */
+.pn .chips{display:flex;flex-wrap:wrap;gap:6px}
+.pn .chip{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 10px;border-radius:999px;background:var(--chip);font-size:12px;font-weight:600;color:var(--sub);white-space:nowrap}
+.pn .chip svg{width:14px;height:14px;flex:none}
+.pn .st{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--c)}
+.pn .st:before{content:"";width:7px;height:7px;border-radius:50%;background:var(--c)}
+.pn .st.playing{--c:#2F80ED}.pn .st.completed,.pn .st.streaming_completed{--c:#22A36A}.pn .st.want_to_play{--c:#C88A12}.pn .st.dropped{--c:#E0673F}
+/* カバー と カバーが無い時の代わりの絵 */
+.pn .cv{flex:none;border-radius:10px;overflow:hidden;position:relative;box-shadow:0 0 0 1px var(--line),0 6px 16px -8px rgba(0,0,0,.35);background:var(--chip)}
+.pn .cv img{display:block;width:100%;height:100%;object-fit:cover}
+.pn .ph{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:space-between;padding:8px;color:#fff;background:linear-gradient(150deg,var(--a),var(--b))}
+.pn .ph svg{width:18px;height:18px;opacity:.75;align-self:flex-end}
+.pn .ph b{font-size:11px;line-height:1.3;font-weight:800;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;text-shadow:0 1px 2px rgba(0,0,0,.25)}
+.pn .ph.mini{align-items:center;justify-content:center;padding:0}.pn .ph.mini svg{align-self:center;width:20px;height:20px;opacity:.9}
+/* 候補の一覧 */
+.pn .rows{display:flex;flex-direction:column}
+.pn .row{display:flex;gap:12px;align-items:center;padding:12px 0;border-top:1px solid var(--line)}
+.pn .row:first-child{border-top:0;padding-top:0}.pn .row:last-child{padding-bottom:0}
+.pn .no{flex:none;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:800;color:var(--brand);background:color-mix(in srgb,var(--brand) 14%,transparent)}
+.pn .row .tx{min-width:0;flex:1;display:flex;flex-direction:column;gap:5px}
+/* 横の棚 */
+.pn .shelf{display:flex;gap:12px;overflow-x:auto;scrollbar-width:none;margin:0 -20px;padding:0 20px;scroll-snap-type:x mandatory;scroll-padding:0 20px}
+.pn .shelf::-webkit-scrollbar{display:none}
+.pn .tile{flex:0 0 112px;min-width:0;scroll-snap-align:start;display:flex;flex-direction:column;gap:8px}
+.pn .tile .cv{width:112px;height:150px}
+.pn .tile .meta{font-size:12px;color:var(--faint);line-height:1.4;display:flex;flex-direction:column;gap:2px}
+.pn .badge{position:absolute;left:6px;bottom:6px;height:20px;padding:0 7px;border-radius:6px;font-size:11px;font-weight:700;color:#fff;background:var(--c);display:flex;align-items:center}
+.pn .badge.sale{--c:var(--sale);left:auto;right:6px;top:6px;bottom:auto}
+.pn .price b.now{color:var(--sale)}
+.pn .badge.playing{--c:#2F80ED}.pn .badge.completed,.pn .badge.streaming_completed{--c:#22A36A}.pn .badge.want_to_play{--c:#C88A12}.pn .badge.dropped{--c:#E0673F}
+.pn .price{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap}
+.pn .price b{font-size:14px;color:var(--fg)}.pn .price s{font-size:11px;color:var(--faint)}
+.pn .off{font-size:11px;font-weight:800;color:#fff;background:var(--sale);border-radius:5px;padding:1px 5px}
+.pn .hit{font-size:11px;font-weight:700;color:var(--ok)}
+/* 数字の並び */
+.pn .nums{display:grid;grid-template-columns:repeat(var(--cols,3),1fr);border-radius:14px;background:var(--chip)}
+.pn .nums>div{padding:12px 14px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.pn .nums>div+div{box-shadow:inset 1px 0 0 var(--line)}
+.pn .nums b{font-size:20px;line-height:1.25;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pn .nums>div>span{font-size:11px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pn .nums small{font-size:12px;font-weight:700}
+/* 記録の中身 */
+.pn .memo{font-size:16px;line-height:1.7;white-space:pre-wrap;word-break:break-word}
+.pn .memo.q{padding-left:14px;box-shadow:inset 3px 0 0 color-mix(in srgb,var(--brand) 55%,transparent)}
+.pn .photo{width:100%;aspect-ratio:16/9;border-radius:14px;overflow:hidden;box-shadow:0 0 0 1px var(--line)}
+.pn .photo img{width:100%;height:100%;object-fit:cover;display:block}
+.pn .mine{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:12px 14px;border-radius:14px;background:var(--chip);font-size:13px;color:var(--sub)}
+.pn .mine .k{font-size:11px;color:var(--faint);font-weight:700}
+.pn .me{display:flex;gap:14px;align-items:center}
+.pn .av{width:52px;height:52px;border-radius:50%;flex:none;display:grid;place-items:center;font-size:20px;font-weight:800;color:#fff;background:linear-gradient(135deg,#3DB2C5,#7B5CF0)}
+.pn .gt{display:inline-flex;align-self:flex-start;height:22px;padding:0 9px;border-radius:999px;font-size:11px;font-weight:700;color:var(--brand);background:color-mix(in srgb,var(--brand) 13%,transparent);align-items:center}
+.pn .sec{font-size:12px;font-weight:700;color:var(--sub);margin-bottom:-4px}
+.pn .star{color:var(--star);font-weight:800}
+</style>
+</head>
+<body>
+<div class="top"><b>PlayNavi × ChatGPT カード試作 v1</b>
+  <span class="seg" id="theme"><button data-v="light" class="on">ライト</button><button data-v="dark">ダーク</button></span>
+  <span class="seg" id="width"><button data-v="375" class="on">スマホ幅</button><button data-v="680">PC幅</button></span>
+</div>
+<div class="doc">
+  <h1>ChatGPT に出す PlayNavi のカード — 全種類の試作</h1>
+  <p>AI サーバが返す答えのうち、カードを出すもの・出さないものを全部並べました。番号は Slack の一覧と同じです。データは本番のゲーム情報 (題名・カバー・機種・発売日・価格) をそのまま使っています。上のボタンで明るさと幅を切り替えられます。</p>
+  <div class="spec">
+    <div><b>余白</b>カードの内側は上下左右とも 20。かたまりの間は 16、行の間は 12、文字の間は 4〜6</div>
+    <div><b>枠</b>カードは自分で描く (角丸 20)。ChatGPT の白い枠は使わない</div>
+    <div><b>背景</b>1 本のゲームはカバーをぼかした色、一覧はブランド色のグラデーション</div>
+    <div><b>ゲームの見分け</b>題名 + 機種の札 + 発売日 · 発売元を必ず出す</div>
+    <div><b>カバーが無い時</b>色付きの代わりの絵に題名を入れる</div>
+    <div><b>書かないこと</b>ChatGPT の文章と同じ問いかけ・説明</div>
+  </div>
+  <div id="cases"></div>
+</div>
+<script>
+(function(){
+  var WM='<svg viewBox="0 0 186 31" shape-rendering="crispEdges"><path fill="currentColor" d="M0 0h14v1h-14zM23 0h5v1h-5zM51 0h12v1h-12zM71 0h5v1h-5zM85 0h5v1h-5zM0 1h14v1h-14zM23 1h5v1h-5zM51 1h12v1h-12zM71 1h5v1h-5zM85 1h5v1h-5zM0 2h14v1h-14zM23 2h5v1h-5zM51 2h12v1h-12zM71 2h5v1h-5zM85 2h5v1h-5zM0 3h14v1h-14zM23 3h5v1h-5zM51 3h12v1h-12zM71 3h5v1h-5zM85 3h5v1h-5zM0 4h14v1h-14zM23 4h5v1h-5zM51 4h12v1h-12zM71 4h5v1h-5zM85 4h5v1h-5zM0 5h14v1h-14zM23 5h5v1h-5zM51 5h12v1h-12zM71 5h5v1h-5zM85 5h5v1h-5zM0 6h5v1h-5zM14 6h5v1h-5zM23 6h5v1h-5zM47 6h5v1h-5zM62 6h5v1h-5zM71 6h5v1h-5zM85 6h5v1h-5zM0 7h5v1h-5zM14 7h5v1h-5zM23 7h5v1h-5zM47 7h5v1h-5zM62 7h5v1h-5zM71 7h5v1h-5zM85 7h5v1h-5zM0 8h5v1h-5zM14 8h5v1h-5zM23 8h5v1h-5zM47 8h5v1h-5zM62 8h5v1h-5zM71 8h5v1h-5zM85 8h5v1h-5zM0 9h5v1h-5zM14 9h5v1h-5zM23 9h5v1h-5zM47 9h5v1h-5zM62 9h5v1h-5zM71 9h5v1h-5zM85 9h5v1h-5zM0 10h5v1h-5zM14 10h5v1h-5zM23 10h5v1h-5zM47 10h5v1h-5zM62 10h5v1h-5zM71 10h5v1h-5zM85 10h5v1h-5zM0 11h5v1h-5zM14 11h5v1h-5zM23 11h5v1h-5zM47 11h5v1h-5zM62 11h5v1h-5zM71 11h5v1h-5zM85 11h5v1h-5zM0 12h5v1h-5zM14 12h5v1h-5zM23 12h5v1h-5zM47 12h5v1h-5zM62 12h5v1h-5zM71 12h5v1h-5zM85 12h5v1h-5zM0 13h5v1h-5zM14 13h5v1h-5zM23 13h5v1h-5zM47 13h5v1h-5zM62 13h5v1h-5zM76 13h9v1h-9zM0 14h5v1h-5zM14 14h5v1h-5zM23 14h5v1h-5zM47 14h5v1h-5zM62 14h5v1h-5zM76 14h9v1h-9zM0 15h14v1h-14zM23 15h5v1h-5zM47 15h20v1h-20zM76 15h9v1h-9zM0 16h14v1h-14zM23 16h5v1h-5zM47 16h20v1h-20zM76 16h9v1h-9zM0 17h14v1h-14zM23 17h5v1h-5zM47 17h20v1h-20zM76 17h9v1h-9zM0 18h14v1h-14zM23 18h5v1h-5zM47 18h20v1h-20zM76 18h9v1h-9zM0 19h14v1h-14zM23 19h5v1h-5zM47 19h20v1h-20zM78 19h5v1h-5zM0 20h14v1h-14zM23 20h5v1h-5zM47 20h20v1h-20zM78 20h5v1h-5zM0 21h5v1h-5zM23 21h5v1h-5zM47 21h5v1h-5zM62 21h5v1h-5zM78 21h5v1h-5zM0 22h5v1h-5zM23 22h5v1h-5zM47 22h5v1h-5zM62 22h5v1h-5zM78 22h5v1h-5zM0 23h5v1h-5zM23 23h5v1h-5zM47 23h5v1h-5zM62 23h5v1h-5zM78 23h5v1h-5zM0 24h5v1h-5zM23 24h5v1h-5zM47 24h5v1h-5zM62 24h5v1h-5zM78 24h5v1h-5zM0 25h5v1h-5zM23 25h5v1h-5zM42 25h1v1h-1zM47 25h5v1h-5zM62 25h5v1h-5zM78 25h5v1h-5zM0 26h5v1h-5zM23 26h20v1h-20zM47 26h5v1h-5zM62 26h5v1h-5zM78 26h5v1h-5zM0 27h5v1h-5zM23 27h20v1h-20zM47 27h5v1h-5zM62 27h5v1h-5zM78 27h5v1h-5zM0 28h5v1h-5zM23 28h20v1h-20zM47 28h5v1h-5zM62 28h5v1h-5zM78 28h5v1h-5zM0 29h5v1h-5zM23 29h20v1h-20zM47 29h5v1h-5zM62 29h5v1h-5zM78 29h5v1h-5zM0 30h5v1h-5zM23 30h20v1h-20zM47 30h5v1h-5zM62 30h5v1h-5zM78 30h5v1h-5zM96 0h5v1h-5zM113 0h8v1h-8zM129 0h16v1h-16zM153 0h6v1h-6zM169 0h7v1h-7zM181 0h5v1h-5zM96 1h5v1h-5zM113 1h8v1h-8zM129 1h16v1h-16zM153 1h6v1h-6zM169 1h7v1h-7zM181 1h5v1h-5zM96 2h5v1h-5zM113 2h8v1h-8zM129 2h16v1h-16zM153 2h6v1h-6zM169 2h7v1h-7zM181 2h5v1h-5zM96 3h5v1h-5zM113 3h8v1h-8zM129 3h16v1h-16zM153 3h6v1h-6zM169 3h7v1h-7zM181 3h5v1h-5zM96 4h5v1h-5zM113 4h8v1h-8zM129 4h16v1h-16zM153 4h6v1h-6zM169 4h7v1h-7zM181 4h5v1h-5zM96 5h5v1h-5zM113 5h8v1h-8zM126 5h2v1h-2zM129 5h16v1h-16zM147 5h1v1h-1zM153 5h6v1h-6zM169 5h7v1h-7zM181 5h5v1h-5zM96 6h11v1h-11zM113 6h8v1h-8zM126 6h5v1h-5zM143 6h5v1h-5zM153 6h6v1h-6zM169 6h7v1h-7zM181 6h5v1h-5zM96 7h11v1h-11zM113 7h8v1h-8zM126 7h5v1h-5zM143 7h5v1h-5zM153 7h6v1h-6zM169 7h7v1h-7zM181 7h5v1h-5zM96 8h11v1h-11zM113 8h8v1h-8zM126 8h5v1h-5zM143 8h5v1h-5zM153 8h6v1h-6zM169 8h7v1h-7zM181 8h5v1h-5zM96 9h11v1h-11zM113 9h8v1h-8zM126 9h5v1h-5zM143 9h5v1h-5zM153 9h6v1h-6zM169 9h7v1h-7zM181 9h5v1h-5zM96 10h11v1h-11zM113 10h8v1h-8zM126 10h5v1h-5zM143 10h5v1h-5zM153 10h6v1h-6zM169 10h7v1h-7zM181 10h5v1h-5zM96 11h11v1h-11zM113 11h8v1h-8zM126 11h5v1h-5zM143 11h5v1h-5zM153 11h6v1h-6zM169 11h7v1h-7zM181 11h5v1h-5zM96 12h5v1h-5zM107 12h14v1h-14zM126 12h5v1h-5zM143 12h5v1h-5zM153 12h6v1h-6zM169 12h7v1h-7zM181 12h5v1h-5zM96 13h5v1h-5zM107 13h14v1h-14zM126 13h5v1h-5zM143 13h5v1h-5zM153 13h6v1h-6zM169 13h7v1h-7zM181 13h5v1h-5zM96 14h5v1h-5zM107 14h14v1h-14zM126 14h22v1h-22zM153 14h6v1h-6zM169 14h7v1h-7zM181 14h5v1h-5zM96 15h5v1h-5zM107 15h14v1h-14zM126 15h22v1h-22zM153 15h6v1h-6zM169 15h7v1h-7zM181 15h5v1h-5zM96 16h5v1h-5zM107 16h14v1h-14zM126 16h22v1h-22zM153 16h6v1h-6zM169 16h7v1h-7zM181 16h5v1h-5zM96 17h5v1h-5zM107 17h14v1h-14zM126 17h22v1h-22zM153 17h6v1h-6zM169 17h7v1h-7zM181 17h5v1h-5zM96 18h5v1h-5zM107 18h14v1h-14zM126 18h22v1h-22zM153 18h6v1h-6zM169 18h7v1h-7zM181 18h5v1h-5zM96 19h5v1h-5zM107 19h14v1h-14zM126 19h22v1h-22zM153 19h6v1h-6zM169 19h7v1h-7zM181 19h5v1h-5zM96 20h5v1h-5zM113 20h8v1h-8zM126 20h5v1h-5zM143 20h5v1h-5zM153 20h6v1h-6zM169 20h7v1h-7zM181 20h5v1h-5zM96 21h5v1h-5zM113 21h8v1h-8zM126 21h5v1h-5zM143 21h5v1h-5zM153 21h6v1h-6zM169 21h7v1h-7zM181 21h5v1h-5zM96 22h5v1h-5zM113 22h8v1h-8zM126 22h5v1h-5zM143 22h5v1h-5zM157 22h14v1h-14zM181 22h5v1h-5zM96 23h5v1h-5zM113 23h8v1h-8zM126 23h5v1h-5zM143 23h5v1h-5zM157 23h14v1h-14zM181 23h5v1h-5zM96 24h5v1h-5zM113 24h8v1h-8zM126 24h5v1h-5zM143 24h5v1h-5zM157 24h14v1h-14zM181 24h5v1h-5zM96 25h5v1h-5zM113 25h8v1h-8zM126 25h5v1h-5zM143 25h5v1h-5zM157 25h14v1h-14zM181 25h5v1h-5zM96 26h5v1h-5zM113 26h8v1h-8zM126 26h5v1h-5zM143 26h5v1h-5zM157 26h14v1h-14zM181 26h5v1h-5zM96 27h5v1h-5zM113 27h8v1h-8zM126 27h5v1h-5zM143 27h5v1h-5zM157 27h14v1h-14zM181 27h5v1h-5zM96 28h5v1h-5zM113 28h8v1h-8zM126 28h5v1h-5zM143 28h5v1h-5zM161 28h6v1h-6zM181 28h5v1h-5zM96 29h5v1h-5zM113 29h8v1h-8zM126 29h5v1h-5zM143 29h5v1h-5zM161 29h6v1h-6zM181 29h5v1h-5zM96 30h5v1h-5zM113 30h8v1h-8zM126 30h5v1h-5zM143 30h5v1h-5zM161 30h6v1h-6zM181 30h5v1h-5z"/></svg>';
+  var IG="https://images.igdb.com/igdb/image/upload/t_cover_big/";
+  function cov(id){return IG+id+".jpg";}
+  // ---- 見本データ (本番のゲーム情報) ----
+  var G={
+    p2:{game_id:2240,title:"ピクミン 2",cover_url:cov("cobe6z"),platforms:["Nintendo GameCube"],release_date:"2004-04-29",publisher:"任天堂"},
+    p2sw:{game_id:254335,title:"ピクミン2",cover_url:cov("coba9j"),platforms:["Nintendo Switch"],release_date:"2023-06-21",publisher:"任天堂"},
+    p2dup:{game_id:353528,title:"ピクミン2",cover_url:null,platforms:["Nintendo GameCube"],release_date:null,publisher:"任天堂"},
+    p4:{game_id:59843,title:"ピクミン 4",cover_url:cov("co68y8"),platforms:["Nintendo Switch"],release_date:"2023-07-21",publisher:"任天堂"},
+    dq5sfc:{game_id:205595,title:"ドラゴンクエストV 天空の花嫁",cover_url:cov("co4vsl"),platforms:["スーパーファミコン"],release_date:"1992-09-27",publisher:"エニックス"},
+    dq5ps2:{game_id:144540,title:"ドラゴンクエスト V 天空の花嫁",cover_url:cov("co2x91"),platforms:["PlayStation 2"],release_date:"2004-03-25",publisher:"スクウェア・エニックス"},
+    dq5ds:{game_id:16585,title:"ドラゴンクエスト V 天空の花嫁",cover_url:cov("co7tre"),platforms:["Nintendo DS","iOS","Android"],release_date:"2008-07-17",publisher:"スクウェア・エニックス"},
+    totk:{game_id:119388,title:"ゼルダの伝説 ティアーズ オブ ザ キングダム",cover_url:cov("co6eqq"),platforms:["Nintendo Switch"],release_date:"2023-05-12",publisher:"任天堂"},
+    botw:{game_id:7346,title:"ゼルダの伝説 ブレス オブ ザ ワイルド",cover_url:cov("co5wrq"),platforms:["Nintendo Switch","Wii U"],release_date:"2017-03-03",publisher:"任天堂"},
+    ff7:{game_id:133236,title:"ファイナルファンタジーVII リバース",cover_url:cov("cob8ek"),platforms:["PlayStation 5","PC (Microsoft Windows)","Nintendo Switch 2","Xbox Series X|S"],release_date:"2024-02-29",publisher:"スクウェア・エニックス"},
+    elden:{game_id:180259,title:"ELDEN RING",cover_url:cov("co4c85"),platforms:["PlayStation 5","PlayStation 4","PC (Microsoft Windows)","Xbox One"],release_date:"2022-02-25",publisher:"バンダイナムコエンターテインメント"},
+    mkw:{game_id:338067,title:"マリオカート ワールド",cover_url:cov("cob9sa"),platforms:["Nintendo Switch 2"],release_date:"2025-06-05",publisher:"任天堂"},
+    dk:{game_id:338106,title:"ドンキーコング バナンザ",cover_url:cov("coax9u"),platforms:["Nintendo Switch 2"],release_date:"2025-07-17",publisher:"任天堂"},
+    spl3:{game_id:143613,title:"スプラトゥーン3",cover_url:cov("co59x4"),platforms:["Nintendo Switch"],release_date:"2022-09-09",publisher:"任天堂"},
+    p3dx:{game_id:136498,title:"ピクミン 3 デラックス",cover_url:cov("co8grk"),platforms:["Nintendo Switch"],release_date:"2020-10-29",publisher:"任天堂"}
+  };
+  function x(o,p){var r={};for(var k in o)r[k]=o[k];for(k in p)r[k]=p[k];return r;}
+
+  // ---- 部品 ----
+  var STATUS={playing:"プレイ中",completed:"クリア",streaming_completed:"視聴済み",dropped:"中断",want_to_play:"積み"};
+  var EMO={moved:"感動した",fun:"楽しい",bored:"退屈",frustrated:"くやしい",scared:"こわい",satisfied:"満足",other:"その他"};
+  var PAD='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9h12a4 4 0 0 1 3.9 4.9l-.7 3a2.6 2.6 0 0 1-4.5 1.1L15 16H9l-1.7 2a2.6 2.6 0 0 1-4.5-1.1l-.7-3A4 4 0 0 1 6 9z"/><path d="M7.5 12v2.5M6.25 13.25h2.5"/><circle cx="16" cy="12.5" r=".7" fill="currentColor"/><circle cx="17.7" cy="14.4" r=".7" fill="currentColor"/></svg>';
+  var IC={pin:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>',
+    clock:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+    heart:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 20s-7.5-4.6-7.5-10A4.3 4.3 0 0 1 12 7.4 4.3 4.3 0 0 1 19.5 10c0 5.4-7.5 10-7.5 10z"/></svg>',
+    cam:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="6" width="18" height="14" rx="3"/><circle cx="12" cy="13" r="3.5"/><path d="M8.5 6l1.5-2.5h4L15.5 6"/></svg>',
+    play:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l10.5-6.5z"/></svg>'};
+  function h(tag,cls,html){var e=document.createElement(tag);if(cls)e.className=cls;if(html!=null)e.innerHTML=html;return e;}
+  function t(tag,cls,text){var e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=String(text);return e;}
+  function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
+  var PFN=[[/^Nintendo Switch 2$/,"Switch 2","nin"],[/^Nintendo Switch$/,"Switch","nin"],[/^Nintendo GameCube$/,"ゲームキューブ","nin"],[/^Nintendo DS$/,"DS","nin"],[/^Nintendo 3DS$/,"3DS","nin"],[/^Wii U$/,"Wii U","nin"],[/^Wii$/,"Wii","nin"],[/^Nintendo 64$/,"64","nin"],
+    [/^スーパーファミコン$/,"スーパーファミコン","nin"],[/^ファミリーコンピュータ$/,"ファミコン","nin"],[/^Game Boy/,"ゲームボーイ","nin"],
+    [/^PlayStation (\d)$/,"PS$1","ps"],[/^PlayStation$/,"PS1","ps"],[/^PlayStation Portable$/,"PSP","ps"],[/^PlayStation Vita$/,"PS Vita","ps"],
+    [/^Xbox Series X\|S$/,"Xbox Series X|S","xb"],[/^Xbox One$/,"Xbox One","xb"],[/^Xbox 360$/,"Xbox 360","xb"],[/^Xbox$/,"Xbox","xb"],
+    [/^PC \(Microsoft Windows\)$/,"PC","pc"],[/^Mac$/,"Mac","pc"],[/^Linux$/,"Linux","pc"],[/^iOS$/,"iOS","mob"],[/^Android$/,"Android","mob"]];
+  function pfOf(name){for(var i=0;i<PFN.length;i++){var m=PFN[i][0].exec(name);if(m)return [name.replace(PFN[i][0],PFN[i][1]),PFN[i][2]];}return [name,"etc"];}
+  function pfs(list,max){var w=h("div","pfs");var a=(list||[]).map(pfOf);var shown=a.slice(0,max||4);shown.forEach(function(p){w.appendChild(t("span","pf "+p[1],p[0]));});
+    if(a.length>shown.length)w.appendChild(t("span","pf etc","+"+(a.length-shown.length)));return a.length?w:null;}
+  function dateJa(d){var m=/^(\d{4})-(\d{2})-(\d{2})/.exec(d||"");return m?(m[1]+"年"+Number(m[2])+"月"+Number(m[3])+"日"):"";}
+  function rel(g){var w=h("div","rel");var a=[g.release_date?dateJa(g.release_date)+" 発売":"発売日不明",g.publisher||g.developer];
+    a.filter(Boolean).forEach(function(s,i){if(i)w.appendChild(document.createTextNode(" · "));w.appendChild(t("span",null,s));});return w;}
+  var HUES=[["#3DB2C5","#2F6FED"],["#7B5CF0","#D9467F"],["#E0673F","#C88A12"],["#22A36A","#0F8B8D"],["#2F80ED","#7B5CF0"],["#D9467F","#E0673F"]];
+  function cover(g,w,hgt){var c=h("div","cv");c.style.width=w+"px";c.style.height=hgt+"px";
+    var hue=HUES[(g.game_id||0)%HUES.length];
+    var ph=h("div","ph"+(w<72?" mini":""));ph.style.setProperty("--a",hue[0]);ph.style.setProperty("--b",hue[1]);
+    ph.innerHTML=PAD+(w<72?"":"<b>"+esc(g.title||"")+"</b>");c.appendChild(ph);
+    if(g.cover_url){var i=document.createElement("img");i.alt="";i.decoding="async";i.src=g.cover_url;i.style.position="relative";i.onerror=function(){i.remove();};c.appendChild(i);}
+    return c;}
+  function head(ctx,n){var d=h("div","hd",WM.replace("<svg ",'<svg class="wm" '));if(ctx){var c=t("span","ctx",ctx);if(n!=null)c.appendChild(t("span","n",n));d.appendChild(c);}return d;}
+  function card(opts){var c=h("div","pn");if(opts&&opts.backdrop){var bd=h("div","bd");var i=document.createElement("img");i.alt="";i.src=opts.backdrop;bd.appendChild(i);c.appendChild(bd);c.appendChild(h("div","veil"));}return c;}
+  function gameHead(g,size){var row=h("div","g");var dims=size==="l"?[96,128]:size==="m"?[72,96]:[56,75];row.appendChild(cover(g,dims[0],dims[1]));
+    var tx=h("div","tx");tx.appendChild(t("div","t "+(size==="l"?"l":"m"),g.title));var p=pfs(g.platforms,size==="l"?4:3);if(p)tx.appendChild(p);tx.appendChild(rel(g));
+    if(g.log_status){tx.appendChild(t("span","st "+g.log_status,"記録あり · "+STATUS[g.log_status]));}
+    row.appendChild(tx);return row;}
+  function chip(icon,text){var c=h("span","chip",icon?IC[icon]:"");c.appendChild(document.createTextNode(text));return c;}
+  function chips(a){var w=h("div","chips");a.filter(Boolean).forEach(function(c){w.appendChild(c);});return w.childNodes.length?w:null;}
+  function add(p,c){if(c)p.appendChild(c);}
+  function yen(n){return "¥"+Number(n).toLocaleString("ja-JP");}
+
+  // ---- カード ----
+  var R={};
+  R.profile=function(d){var c=card();c.appendChild(head("プロフィール"));
+    var me=h("div","me");me.appendChild(t("div","av",d.display_name.slice(0,1)));var tx=h("div","tx");tx.style.cssText="display:flex;flex-direction:column;gap:6px;min-width:0";
+    tx.appendChild(t("div","t l",d.display_name));tx.appendChild(t("span","gt",d.gamer_type));me.appendChild(tx);c.appendChild(me);
+    var n=h("div","nums");n.style.setProperty("--cols",4);[["total","記録"],["playing","プレイ中"],["completed","クリア"],["want_to_play","積み"]].forEach(function(k){var x=h("div");x.appendChild(t("b",null,d.stats[k[0]]));x.appendChild(t("span",null,k[1]));n.appendChild(x);});c.appendChild(n);
+    c.appendChild(t("div","sec","高評価"));c.appendChild(shelf(d.top_rated,function(g){var m=h("div","meta");m.appendChild(h("span",null,'<span class="star">★</span> '+g.rating));return m;}));return c;};
+  function shelf(items,metaFn){var s=h("div","shelf");items.forEach(function(g){var tl=h("div","tile");var cv=cover(g,112,150);if(g.status){cv.appendChild(t("span","badge "+g.status,STATUS[g.status]));}
+      if(g.on_sale&&g.regular_price_jpy){cv.appendChild(t("span","badge sale","-"+Math.round(100-g.current_price_jpy/g.regular_price_jpy*100)+"%"));}tl.appendChild(cv);
+    tl.appendChild(t("div","t s",g.title));add(tl,metaFn&&metaFn(g));s.appendChild(tl);});return s;}
+  R.library=function(d){var c=card();c.appendChild(head("ライブラリ",d.count+" 本"));
+    c.appendChild(shelf(d.items,function(g){var m=h("div","meta");if(g.rating!=null)m.appendChild(h("span",null,'<span class="star">★</span> '+g.rating));return m.childNodes.length?m:null;}));return c;};
+  R.wishlist=function(d){var c=card();c.appendChild(head("Wishlist",d.count+" 本"));
+    c.appendChild(shelf(d.items,function(g){var m=h("div","meta");var p=h("div","price");
+      if(g.current_price_jpy!=null){p.appendChild(t("b",g.on_sale?"now":null,yen(g.current_price_jpy)));if(g.on_sale&&g.regular_price_jpy){p.appendChild(t("s",null,yen(g.regular_price_jpy)));}m.appendChild(p);}
+      else m.appendChild(t("span",null,g.release_date&&g.release_date>"2026-10-06"?dateJa(g.release_date)+" 発売予定":"価格情報なし"));
+      if(g.target_price_jpy){var hit=g.current_price_jpy!=null&&g.current_price_jpy<=g.target_price_jpy;m.appendChild(t("span",hit?"hit":null,hit?"✓ 希望 "+yen(g.target_price_jpy)+" 以下":"希望 "+yen(g.target_price_jpy)));}
+      if(g.subscriptions&&g.subscriptions.length)m.appendChild(t("span",null,g.subscriptions.join("、")+" に含まれる"));return m;}));return c;};
+  R.game=function(d){var c=card({backdrop:d.cover_url});c.appendChild(head("ゲーム"));c.appendChild(gameHead(d,"l"));
+    var gen=chips((d.genre||[]).map(function(s){return chip(null,s);}));add(c,gen);
+    var n=h("div","nums");n.appendChild(h("div",null,'<b><span class="star">★</span> '+d.pn_avg+'</b><span>PlayNavi '+d.pn_count+' 人</span>'));
+    n.appendChild(h("div",null,'<b>'+d.ttb+'<small> 時間</small></b><span>クリアまで (目安)</span>'));
+    n.appendChild(h("div",null,'<b>'+(d.min_price?yen(d.min_price):"—")+'</b><span>'+esc(d.price_where)+'</span>'));c.appendChild(n);
+    if(d.my_log){var m=h("div","mine");m.appendChild(t("span","k","あなたの記録"));m.appendChild(t("span","st "+d.my_log.status,STATUS[d.my_log.status]));if(d.my_log.rating!=null)m.appendChild(h("span",null,'<span class="star">★</span> '+d.my_log.rating));if(d.spoiler_boundary)m.appendChild(h("span",null,IC.pin.replace("<svg ",'<svg width="13" height="13" style="vertical-align:-2px;margin-right:3px" ')+esc(d.spoiler_boundary)));c.appendChild(m);}return c;};
+  R.match=function(d){var c=card({backdrop:d.cover_url});c.appendChild(head("見つかったゲーム"));c.appendChild(gameHead(d,"m"));return c;};
+  R.choice=function(d){var c=card();c.appendChild(head("候補",d.items.length+" 件"));var rows=h("div","rows");
+    d.items.forEach(function(g,i){var r=h("div","row");r.appendChild(t("span","no",i+1));r.appendChild(cover(g,52,70));var tx=h("div","tx");tx.appendChild(t("div","t m",g.title));add(tx,pfs(g.platforms,3));tx.appendChild(rel(g));
+      if(g.log_status)tx.appendChild(t("span","st "+g.log_status,"記録あり · "+STATUS[g.log_status]));r.appendChild(tx);rows.appendChild(r);});c.appendChild(rows);return c;};
+  R.record=function(d){var g=d.game;var c=card({backdrop:g.cover_url});c.appendChild(head(d.label));c.appendChild(gameHead(g,"s"));
+    if(d.photo){var p=h("div","photo");var i=document.createElement("img");i.alt="";i.src=d.photo;p.appendChild(i);c.appendChild(p);}
+    if(d.big){var n=h("div","nums");n.style.setProperty("--cols",d.big.length);d.big.forEach(function(b){n.appendChild(h("div",null,"<b>"+b[0]+"</b><span>"+esc(b[1])+"</span>"));});c.appendChild(n);}
+    if(d.memo)c.appendChild(t("div","memo q",d.memo));
+    add(c,chips([d.position?chip("pin",d.position):null,d.hours!=null?chip("clock","累計 "+d.hours+" 時間"):null,d.emotion?chip("heart",EMO[d.emotion]):null,d.photo_only?chip("cam","写真 1 枚"):null].concat((d.extra||[]).map(function(s){return chip(null,s);}))));return c;};
+
+  // ---- 試作の一覧 (Slack の番号と同じ) ----
+  var CASES=[
+    {id:"C1",name:"プロフィール",when:"「私の好みを踏まえて〜」など、ChatGPT が最初に利用者を知る時 (get_profile)",u:"私のゲームの好みを教えて",r:"profile",d:{display_name:"Emiya",gamer_type:"じっくり探索派",stats:{total:248,playing:6,completed:131,want_to_play:42},top_rated:[x(G.totk,{rating:10}),x(G.botw,{rating:10}),x(G.p4,{rating:9}),x(G.elden,{rating:9}),x(G.dq5ps2,{rating:9})]},a:"探索と収集が好きな「じっくり探索派」ですね。最近だとゼルダやピクミンの評価が高いです。"},
+    {id:"C2",name:"ライブラリ",when:"「今遊んでるゲームは？」「クリアしたゲーム」(list_library)",u:"今遊んでるゲーム見せて",r:"library",d:{count:6,items:[x(G.p2,{status:"playing",rating:8}),x(G.dk,{status:"playing"}),x(G.ff7,{status:"playing",rating:9}),x(G.p2dup,{title:"ピクミン2",status:"playing"}),x(G.spl3,{status:"playing",rating:7}),x(G.mkw,{status:"playing"})]},a:"今プレイ中は 6 本です。ピクミン 2 はいま地下洞窟 3 階まで進んでいますね。"},
+    {id:"C3",name:"Wishlist",when:"「欲しいゲームでセール中のは？」(get_wishlist)",u:"Wishlist でセールのある？",r:"wishlist",d:{count:4,items:[x(G.ff7,{current_price_jpy:1973,regular_price_jpy:6578,on_sale:true,target_price_jpy:3000}),x(G.elden,{current_price_jpy:9020,target_price_jpy:5000}),x(G.totk,{current_price_jpy:7900,subscriptions:[]}),x(G.p3dx,{current_price_jpy:6578,subscriptions:["Nintendo Switch Online + 追加パック"]})]},a:"FF7 リバースが 70% オフで ¥1,973、希望価格の ¥3,000 を下回っています。"},
+    {id:"C4",name:"ゲーム詳細",when:"「このゲームどんな感じ？」(get_game)",u:"ピクミン2ってどのくらいで終わる？",r:"game",d:x(G.p2,{genre:["ストラテジー","パズル","アドベンチャー"],pn_avg:"4.4",pn_count:"1,203",ttb:"28",min_price:3000,price_where:"Switch 版の最安",my_log:{status:"playing",rating:8},spoiler_boundary:"地下洞窟 3 階"}),a:"クリアまでの目安は約 28 時間です。いまの地下洞窟 3 階なら、半分くらいまで来ています。"},
+    {id:"C4b",name:"ゲーム詳細 (カバーが無いゲーム)",when:"DB にカバーが無い時の見え方",u:"ピクミン2 (GC) の情報",r:"game",d:x(G.p2dup,{genre:["ストラテジー"],pn_avg:"—",pn_count:"0",ttb:"—",min_price:null,price_where:"価格情報なし",my_log:null}),a:"このゲームは登録情報が少なく、発売日などが入っていません。"},
+    {id:"C5",name:"1 本に決まった時のゲーム",when:"題名がはっきり 1 本に決まる時 (search_games)",u:"ピクミン4 を探して",r:"match",d:x(G.p4,{log_status:"completed"}),a:"ピクミン 4 (Switch、2023年) ですね。クリア済みとして記録されています。"},
+    {id:"C6",name:"候補 (版が複数)",when:"同じ題名の別の版がある・題名があいまいな時。モーメント・Wishlist などの前にも出る",u:"ドラクエ5 をモーメントに",r:"choice",d:{items:[G.dq5sfc,x(G.dq5ps2,{log_status:"completed"}),G.dq5ds]},a:"ドラクエ5 は 3 つの版があります。どれで遊んでいますか？ (番号で答えてください)"},
+    {id:"C6b",name:"候補 (同じ題名が DB に重複している例)",when:"「ピクミン2」= GC 版・Switch 版・発売日の無い重複 1 件",u:"ピクミン2 のモーメント残して",r:"choice",d:{items:[x(G.p2,{log_status:"playing"}),G.p2sw,G.p2dup]},a:"ピクミン2 は複数あります。記録のあるゲームキューブ版 (1) で合っていますか？"},
+    {id:"C7",name:"モーメントの確認 (写真あり)",when:"写真を渡して「モーメントに残して」(save_moment の 1 回目。まだ保存しない)",u:"[写真] これモーメントに追加して",r:"record",d:{label:"モーメント",game:G.dq5ps2,photo:"https://images.igdb.com/igdb/image/upload/t_720p/sc9808.jpg",memo:"ドラゴンマッドと戦闘！ビアンカ、スラりん、ブラウンと一緒に冒険中。",position:"天空への塔",emotion:"fun"},a:"画像から PS2 版と判断しました。この内容で残していいですか？"},
+    {id:"C8",name:"メモの確認",when:"「メモしておいて」(add_note の 1 回目)",u:"ピクミン4 に、夜の探索はオッチンと一緒が楽ってメモ",r:"record",d:{label:"メモ",game:G.p4,memo:"夜の探索はオッチンと一緒だと楽。ヒカリピクミンは先に増やしておく"},a:"このメモで残していいですか？"},
+    {id:"C9",name:"進み具合の確認",when:"「今ここまで進んだ」(set_progress の 1 回目)",u:"ティアキン、いま 64 時間で地底の 3 つ目の神殿",r:"record",d:{label:"進み具合",game:G.totk,big:[["64<small> 時間</small>","累計プレイ時間"],["3/5","神殿"]],position:"地底 · 3 つ目の神殿",emotion:"satisfied"},a:"この進み具合で残していいですか？ 以降はここより先のネタバレを避けます。"},
+    {id:"C10",name:"Wishlist 追加の確認",when:"「欲しいゲームに入れて」(add_wishlist) — 今は確認なしで下書きにしている",tag:"提案",u:"ドンキーコング バナンザ を Wishlist に",r:"record",d:{label:"Wishlist に追加",game:G.dk,extra:["最安 ¥7,980","セールなし"]},a:"この版を Wishlist に入れていいですか？"},
+    {id:"C11",name:"プレイ記録の確認",when:"「クリアした、評価 9」(log_game) — 今は確認なしで下書きにしている",tag:"提案",u:"エルデンリング クリアした！評価は9",r:"record",d:{label:"プレイ記録",game:G.elden,big:[['<span class="star">★</span> 9',"評価"],["クリア","状態"],["120<small> 時間</small>","プレイ時間"]],memo:"最後のボスは 3 日かかった。霊馬の操作に慣れてからが楽しかった"},a:"この内容で記録していいですか？"},
+    {id:"C12",name:"今日遊ぶの開始の確認",when:"「今からピクミンやる」(checkin) — 今は確認なしで下書きにしている",tag:"提案",u:"今からピクミン2 やる",r:"record",d:{label:"今日遊ぶ",game:G.p2,position:"前回: 地下洞窟 3 階",extra:["前回から 2 日ぶり"]},a:"ピクミン 2 (ゲームキューブ版) で始めますか？"}
+  ];
+  var NOCARD=[["N1","保存したあと (confirm_save)","ChatGPT が「下書きに届けました」と一文で伝える。カードは出さない"],["N2","見つからない (game_not_found)","ChatGPT が別の呼び方を聞き返す"],["N3","ライブラリ・Wishlist が空","ChatGPT が文章で伝える (空の枠を出さない)"],["N4","進み具合を読む (get_progress)","ネタバレ防止のための情報で、利用者に見せるものではない"],["N5","今日遊ぶのまとめ・最近のモーメント・遊び終わり (get_session_brief / get_recent_moments / end_session)","会話の中で ChatGPT が文章にする"]];
+
+  var root=document.getElementById("cases");
+  CASES.forEach(function(cs){var sec=h("div","case");var title=t("h2",null,cs.id+"  "+cs.name);if(cs.tag)title.appendChild(t("span","tag",cs.tag));sec.appendChild(title);sec.appendChild(t("div","when",cs.when));
+    var chat=h("div","chat");chat.dataset.w="375";chat.appendChild(t("div","u",cs.u));chat.appendChild(h("div","tool","<i></i>PlayNavi を使いました"));chat.appendChild(R[cs.r](cs.d));chat.appendChild(t("div","a",cs.a));sec.appendChild(chat);root.appendChild(sec);});
+  var nc=h("div","case");nc.appendChild(t("h2",null,"カードを出さないもの"));NOCARD.forEach(function(n){var b=h("div","nocard");b.style.marginTop="12px";b.innerHTML="<b>"+n[0]+"  "+esc(n[1])+"</b><br>"+esc(n[2]);nc.appendChild(b);});root.appendChild(nc);
+
+  function seg(id,fn){var s=document.getElementById(id);s.addEventListener("click",function(e){var b=e.target.closest("button");if(!b)return;[].forEach.call(s.children,function(c){c.classList.toggle("on",c===b);});fn(b.dataset.v);});}
+  seg("theme",function(v){document.documentElement.dataset.theme=v;});
+  seg("width",function(v){[].forEach.call(document.querySelectorAll(".chat"),function(c){c.dataset.w=v;});});
+  var q=new URLSearchParams(location.search);if(q.get("theme")==="dark")document.getElementById("theme").children[1].click();if(q.get("w")==="680")document.getElementById("width").children[1].click();
+})();
+</script>
+</body>
+</html>
