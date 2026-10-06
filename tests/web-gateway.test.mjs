@@ -73,3 +73,27 @@ test("generation writes fresh non-secret release files and refuses overwrite", a
     await assert.rejects(access(insideCheckout), { code: "ENOENT" });
   } finally { await rm(temp, { recursive: true, force: true }); }
 });
+
+test("AI connection (MCP) on playnavi.app goes to the mcp function before the Web relay and the fallback (V5 group 6)", async () => {
+  const original = await source();
+  const candidate = prepareWebGateway(original);
+  for (const config of [original.config, candidate.config]) {
+    const rewrites = config.rewrites;
+    const index = (pred) => rewrites.findIndex(pred);
+    const mcp = index(({ source: s, has }) => s === "/mcp" && has?.[0]?.value === "playnavi.app");
+    const mcpSub = index(({ source: s, has }) => s === "/mcp/:path*" && has?.[0]?.value === "playnavi.app");
+    assert.ok(mcp >= 0 && mcpSub >= 0, "playnavi.app /mcp rules exist");
+    assert.match(rewrites[mcp].destination, /^https:\/\/[a-z]+\.supabase\.co\/functions\/v1\/mcp$/);
+    assert.match(rewrites[mcpSub].destination, /^https:\/\/[a-z]+\.supabase\.co\/functions\/v1\/mcp\/:path\*$/);
+    // 他のホストでは止める (Web やリンクの画面に落とさない)
+    for (const s of ["/mcp", "/mcp/:path*"]) {
+      const other = index(({ source: x, has }) => x === s && !has);
+      assert.equal(rewrites[other].destination, "/api/legacy-route-disabled", s);
+      assert.ok(other > Math.max(mcp, mcpSub), "host rule wins first");
+    }
+    const relay = index(({ source: s }) => s === GATEWAY_SOURCE);
+    const fallback = index(({ source: s }) => s === "/(.*)");
+    for (const later of [relay, fallback].filter((i) => i >= 0)) assert.ok(later > mcpSub, "MCP routes come before the Web relay and the fallback");
+  }
+  assert.ok(original.config.headers.some(({ source: s, headers }) => s === "/mcp(.*)" && headers.some(({ key, value }) => key === "Cache-Control" && value === "no-store")));
+});

@@ -63,6 +63,10 @@ test("production-only legacy routes and share preview stay ahead of safe fallbac
     "/api/share-links/:code",
     "/api/share-links/:code",
     "/api/share-links/:code",
+    "/mcp",
+    "/mcp/:path*",
+    "/mcp",
+    "/mcp/:path*",
     "/api/surveys/:surveySlug/responses",
     "/api/surveys/:surveySlug",
     "/a",
@@ -89,6 +93,9 @@ test("production-only legacy routes and share preview stay ahead of safe fallbac
       "links.playnavilab.com",
       "playnavi-links.vercel.app",
     ],
+    // AI 連携 (MCP、V5 群6)。OpenAI のドメイン確認のため本番の住所は playnavi.app/mcp
+    "/mcp": ["playnavi.app"],
+    "/mcp/:path*": ["playnavi.app"],
   };
   for (const [source, productionHosts] of Object.entries(productionHostsBySource)) {
     const routes = config.rewrites.filter((route) => route.source === source);
