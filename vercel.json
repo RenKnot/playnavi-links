@@ -64,6 +64,13 @@
       ]
     },
     {
+      "source": "/mcp(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store" },
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" }
+      ]
+    },
+    {
       "source": "/api/(.*)",
       "headers": [
         { "key": "Cache-Control", "value": "private, no-store, max-age=0" },
@@ -117,6 +124,28 @@
     },
     {
       "source": "/api/share-links/:code",
+      "destination": "/api/legacy-route-disabled"
+    },
+    {
+      "source": "/mcp",
+      "has": [
+        { "type": "host", "value": "playnavi.app" }
+      ],
+      "destination": "https://irbtguncoatqfikctreq.supabase.co/functions/v1/mcp"
+    },
+    {
+      "source": "/mcp/:path*",
+      "has": [
+        { "type": "host", "value": "playnavi.app" }
+      ],
+      "destination": "https://irbtguncoatqfikctreq.supabase.co/functions/v1/mcp/:path*"
+    },
+    {
+      "source": "/mcp",
+      "destination": "/api/legacy-route-disabled"
+    },
+    {
+      "source": "/mcp/:path*",
       "destination": "/api/legacy-route-disabled"
     },
     {
