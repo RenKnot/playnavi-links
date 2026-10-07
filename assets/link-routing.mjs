@@ -71,21 +71,14 @@ export function canonicalTargetFromPath(path) {
 // enable only these fixed Web destinations; API URLs are never destinations.
 const WEB_ORIGINS = ["https://playnavi.app", "https://playnavi-web-v2-stg.vercel.app"];
 
+// 2026-10-07 (TASK-20260923-002 Q1=b): a diagnosis is public like a ranking, so
+// its canonical /users/{id}/diagnosis path is a Web destination too. Short links
+// of every kind resolve to their canonical path and open it on the Web.
 export function webTargetFromPath(path, origin) {
   if (!WEB_ORIGINS.includes(origin)) return null;
   const target = canonicalTargetFromPath(path);
-  if (!target || target.type === "diagnosis") return null;
+  if (!target) return null;
   return `${origin}${target.canonicalPath}`;
-}
-
-// A diagnosis card is readable only through a short link its owner created
-// (share-preview-meta answers the canonical path like hidden content). So the
-// Web page for a diagnosis is addressed by that short code, never by the
-// canonical /users/{id}/diagnosis path. Other kinds keep the canonical Web path.
-export function webTargetForShortLink(code, target, origin) {
-  if (!WEB_ORIGINS.includes(origin) || !isValidShortCode(code) || !target) return null;
-  if (target.type === "diagnosis") return `${origin}/diagnosis/${code}`;
-  return webTargetFromPath(target.canonicalPath, origin);
 }
 
 export function aiReturnTargetFromPath(path) {

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { canonicalTargetFromPath, webTargetForShortLink, webTargetFromPath } from "../assets/link-routing.mjs";
+import { webTargetFromPath } from "../assets/link-routing.mjs";
 import { GATEWAY_SOURCE, prepareWebGateway, writeCandidate } from "../scripts/prepare-web-gateway.mjs";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
@@ -12,25 +12,12 @@ const UUID = "00000000-0000-0000-0000-000000000001";
 const source = async () => ({ config: JSON.parse(await read("vercel.json")), html: await read("index.html"), previewSource: await read("api/share-preview.mjs"), upstreamOrigin: "https://playnavi-web-v2-stg.vercel.app", gatewayOrigin: "https://playnavi.app" });
 
 test("Web landing reuses strict canonical paths and only fixed Web origins", () => {
-  for (const path of ["/game/42", `/game/42?logId=${UUID}`, `/users/${UUID}`, `/users/${UUID}/best-games`, `/users/${UUID}/custom-rankings/${UUID}`, `/catalogs/${UUID}`]) {
+  // 2026-10-07: the diagnosis is public like a ranking, so its canonical path is a Web destination too.
+  for (const path of ["/game/42", `/game/42?logId=${UUID}`, `/users/${UUID}`, `/users/${UUID}/best-games`, `/users/${UUID}/custom-rankings/${UUID}`, `/users/${UUID}/diagnosis`, `/catalogs/${UUID}`]) {
     assert.equal(webTargetFromPath(path, "https://playnavi.app"), `https://playnavi.app${path}`);
   }
-  for (const path of [`/users/${UUID}/diagnosis`, "/a", "/s/AbCdEf012345_-xy", "//evil.example/game/42", "https://evil.example/game/42", "/game/42?next=https://evil.example", "/game/42#x", "/game/9223372036854775808"]) assert.equal(webTargetFromPath(path, "https://playnavi.app"), null);
+  for (const path of ["/a", "/s/AbCdEf012345_-xy", "//evil.example/game/42", "https://evil.example/game/42", "/game/42?next=https://evil.example", "/game/42#x", "/game/9223372036854775808"]) assert.equal(webTargetFromPath(path, "https://playnavi.app"), null);
   for (const origin of ["", "http://playnavi.app", "https://playnavi.app/", "https://links.playnavilab.com", "https://playnavi-links.vercel.app", "https://evil.example", "https://playnavi.app@evil.example"]) assert.equal(webTargetFromPath("/game/42", origin), null);
-});
-
-test("diagnosis short links open the Web page by their short code only", () => {
-  const code = "AbCdEf012345_-xy";
-  const diagnosis = canonicalTargetFromPath(`/users/${UUID}/diagnosis`);
-  assert.equal(webTargetForShortLink(code, diagnosis, "https://playnavi.app"), `https://playnavi.app/diagnosis/${code}`);
-  assert.equal(webTargetForShortLink(code, diagnosis, "https://playnavi-web-v2-stg.vercel.app"), `https://playnavi-web-v2-stg.vercel.app/diagnosis/${code}`);
-  // The canonical diagnosis path itself never becomes a Web destination.
-  assert.equal(webTargetFromPath(`/users/${UUID}/diagnosis`, "https://playnavi.app"), null);
-  // Other kinds keep their canonical Web path; bad codes and origins are refused.
-  assert.equal(webTargetForShortLink(code, canonicalTargetFromPath("/game/42"), "https://playnavi.app"), "https://playnavi.app/game/42");
-  for (const bad of ["", "short", "AbCdEf012345_-x/", "../../../etc/pass", `${code}x`]) assert.equal(webTargetForShortLink(bad, diagnosis, "https://playnavi.app"), null);
-  for (const origin of ["", "https://evil.example", "https://playnavi.app/", "https://links.playnavilab.com"]) assert.equal(webTargetForShortLink(code, diagnosis, origin), null);
-  assert.equal(webTargetForShortLink(code, null, "https://playnavi.app"), null);
 });
 
 test("candidate changes entrypoint atomically and preserves reserved contracts", async () => {
