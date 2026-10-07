@@ -88,11 +88,12 @@ test("browser proves inactive default, PC short landing, mobile fallback and res
     }
     payload = { status: "ok", code: CODE, target_type: "diagnosis", canonical_path: `/users/${UUID}/diagnosis` };
     await page.goto(`${base}/s/${CODE}`);
-    await page.waitForURL(`https://links.playnavilab.com/users/${UUID}/diagnosis`);
-    check("diagnosis retains existing landing", page.url() === `https://links.playnavilab.com/users/${UUID}/diagnosis`);
+    // 2026-10-07 (Q1=b): the diagnosis is public like a ranking; its short link opens the canonical Web page.
+    await page.waitForURL(`https://playnavi.app/users/${UUID}/diagnosis`);
+    check("diagnosis short link opens the canonical Web page", page.url() === `https://playnavi.app/users/${UUID}/diagnosis`);
     await page.goto(`${base}/users/${UUID}/diagnosis`);
     await page.getByText("PlayNaviでリンクを開く", { exact: true }).waitFor();
-    check("diagnosis has no Web action", !await page.locator("#web-btn").isVisible());
+    check("diagnosis canonical landing offers the Web page", await page.locator("#web-btn").getAttribute("href") === `https://playnavi.app/users/${UUID}/diagnosis`);
     await page.goto(`${base}/a?act=log&g=42&src=claude&i=stuck&at=1790645000000`);
     await page.getByText("PlayNaviに戻る", { exact: true }).waitFor();
     check("AI return has no Web action", !await page.locator("#web-btn").isVisible());
