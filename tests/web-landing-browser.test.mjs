@@ -88,8 +88,9 @@ test("browser proves inactive default, PC short landing, mobile fallback and res
     }
     payload = { status: "ok", code: CODE, target_type: "diagnosis", canonical_path: `/users/${UUID}/diagnosis` };
     await page.goto(`${base}/s/${CODE}`);
-    await page.waitForURL(`https://links.playnavilab.com/users/${UUID}/diagnosis`);
-    check("diagnosis retains existing landing", page.url() === `https://links.playnavilab.com/users/${UUID}/diagnosis`);
+    // 2026-10-07: an owner-created diagnosis short link opens the Web diagnosis page by its code.
+    await page.waitForURL(`https://playnavi.app/diagnosis/${CODE}`);
+    check("diagnosis short link opens the Web page by code", page.url() === `https://playnavi.app/diagnosis/${CODE}`);
     await page.goto(`${base}/users/${UUID}/diagnosis`);
     await page.getByText("PlayNaviでリンクを開く", { exact: true }).waitFor();
     check("diagnosis has no Web action", !await page.locator("#web-btn").isVisible());

@@ -4,6 +4,7 @@ import {
   canonicalTargetFromPath,
   resolveShortLink,
   shortCodeFromPath,
+  webTargetForShortLink,
   webTargetFromPath,
 } from "./link-routing.mjs";
 
@@ -59,8 +60,8 @@ function hideActions() {
   setVisible(elements.web, false);
 }
 
-function showWeb(target) {
-  const href = webTargetFromPath(target.canonicalPath, webOrigin);
+function showWeb(target, code = null) {
+  const href = code ? webTargetForShortLink(code, target, webOrigin) : webTargetFromPath(target.canonicalPath, webOrigin);
   if (href && elements.web) {
     elements.web.href = href;
     setVisible(elements.web, true);
@@ -196,7 +197,7 @@ async function openShortLink(code) {
     const target = await resolveShortLink(code, { signal: controller.signal });
     window.clearTimeout(timeout);
 
-    const webHref = showWeb(target);
+    const webHref = showWeb(target, code);
     if (platform === "other" && webHref) {
       setContent({ heading: "共有された内容を開いています…", description: "そのままお待ちください。" });
       window.location.replace(webHref);
