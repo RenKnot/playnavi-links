@@ -78,6 +78,13 @@
       ]
     },
     {
+      "source": "/.well-known/openai-apps-challenge",
+      "headers": [
+        { "key": "Content-Type", "value": "text/plain; charset=utf-8" },
+        { "key": "Cache-Control", "value": "no-store" }
+      ]
+    },
+    {
       "source": "/.well-known/(oauth-authorization-server|oauth-protected-resource/mcp)",
       "headers": [
         { "key": "Content-Type", "value": "application/json" },
@@ -246,6 +253,10 @@
     {
       "source": "/surveys/:surveySlug",
       "destination": "/index.html"
+    },
+    {
+      "source": "/privacy",
+      "destination": "/privacy.html"
     },
     {
       "source": "/(.*)",
