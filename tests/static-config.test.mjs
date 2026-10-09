@@ -82,6 +82,7 @@ test("production-only legacy routes and share preview stay ahead of safe fallbac
     "/users/:id",
     "/catalogs/:id",
     "/surveys/:surveySlug",
+    "/privacy",
     "/(.*)",
   ]);
 
@@ -322,4 +323,14 @@ test("OAuth discovery documents are static files (Vercel cannot rewrite /.well-k
   assert.ok(rule, "json content type for the discovery files");
   assert.ok(rule.headers.some(({ key, value }) => key === "Content-Type" && value === "application/json"));
   assert.equal(config.rewrites.some(({ source }) => source.startsWith("/.well-known/oauth")), false, "no rewrite under /.well-known");
+});
+
+test("playnavi.app/privacy serves the full privacy policy, including the AI connection section (10/9 ChatGPT plugin review)", async () => {
+  const config = await readJson("../vercel.json");
+  const i = config.rewrites.findIndex((r) => r.source === "/privacy");
+  assert.equal(config.rewrites[i]?.destination, "/privacy.html");
+  assert.ok(i < config.rewrites.findIndex((r) => r.source === "/(.*)"), "must come before the catch-all");
+  const page = await readFile(new URL("../privacy.html", import.meta.url), "utf8");
+  for (const s of ["<title>プライバシーポリシー | PlayNavi</title>", "PlayNavi Lab", "6-2. AI サービスとの連携", "(4) 保持期間", "Connecting AI services", "contact@playnavilab.com"]) assert.ok(page.includes(s), s);
+  assert.doesNotMatch(page, /<script/i);
 });
