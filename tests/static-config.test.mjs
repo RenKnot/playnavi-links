@@ -334,3 +334,12 @@ test("playnavi.app/privacy serves the full privacy policy, including the AI conn
   for (const s of ["<title>プライバシーポリシー | PlayNavi</title>", "PlayNavi Lab", "6-2. AI サービスとの連携", "(4) 保持期間", "Connecting AI services", "contact@playnavilab.com"]) assert.ok(page.includes(s), s);
   assert.doesNotMatch(page, /<script/i);
 });
+
+test("OpenAI domain verification token is served byte-exact as plain text (ChatGPT plugin review, 10/9)", async () => {
+  const token = await readFile(new URL("../.well-known/openai-apps-challenge", import.meta.url), "utf8");
+  assert.match(token, /^[A-Za-z0-9_-]{20,512}$/, "printable token, no trailing newline");
+  const config = await readJson("../vercel.json");
+  const rule = config.headers.find(({ source }) => source === "/.well-known/openai-apps-challenge");
+  assert.equal(rule?.headers.find(({ key }) => key === "Content-Type")?.value, "text/plain; charset=utf-8");
+  assert.equal(config.rewrites.some(({ source }) => source.startsWith("/.well-known/")), false, "no rewrite under /.well-known");
+});
