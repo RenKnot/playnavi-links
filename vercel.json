@@ -71,6 +71,21 @@
       ]
     },
     {
+      "source": "/ai-auth(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store" },
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" }
+      ]
+    },
+    {
+      "source": "/.well-known/(oauth-authorization-server|oauth-protected-resource/mcp)",
+      "headers": [
+        { "key": "Content-Type", "value": "application/json" },
+        { "key": "Cache-Control", "value": "public, max-age=60" },
+        { "key": "Access-Control-Allow-Origin", "value": "*" }
+      ]
+    },
+    {
       "source": "/api/(.*)",
       "headers": [
         { "key": "Cache-Control", "value": "private, no-store, max-age=0" },
@@ -131,14 +146,28 @@
       "has": [
         { "type": "host", "value": "playnavi.app" }
       ],
-      "destination": "https://irbtguncoatqfikctreq.supabase.co/functions/v1/mcp"
+      "destination": "https://wffhdhdxdrmobgojxddo.supabase.co/functions/v1/mcp"
     },
     {
       "source": "/mcp/:path*",
       "has": [
         { "type": "host", "value": "playnavi.app" }
       ],
-      "destination": "https://irbtguncoatqfikctreq.supabase.co/functions/v1/mcp/:path*"
+      "destination": "https://wffhdhdxdrmobgojxddo.supabase.co/functions/v1/mcp/:path*"
+    },
+    {
+      "source": "/ai-auth",
+      "has": [
+        { "type": "host", "value": "playnavi.app" }
+      ],
+      "destination": "https://wffhdhdxdrmobgojxddo.supabase.co/functions/v1/ai-oauth"
+    },
+    {
+      "source": "/ai-auth/:path*",
+      "has": [
+        { "type": "host", "value": "playnavi.app" }
+      ],
+      "destination": "https://wffhdhdxdrmobgojxddo.supabase.co/functions/v1/ai-oauth/:path*"
     },
     {
       "source": "/mcp",
@@ -146,6 +175,14 @@
     },
     {
       "source": "/mcp/:path*",
+      "destination": "/api/legacy-route-disabled"
+    },
+    {
+      "source": "/ai-auth",
+      "destination": "/api/legacy-route-disabled"
+    },
+    {
+      "source": "/ai-auth/:path*",
       "destination": "/api/legacy-route-disabled"
     },
     {
