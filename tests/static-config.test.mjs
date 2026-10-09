@@ -65,8 +65,18 @@ test("production-only legacy routes and share preview stay ahead of safe fallbac
     "/api/share-links/:code",
     "/mcp",
     "/mcp/:path*",
+    "/ai-auth",
+    "/ai-auth/:path*",
+    "/.well-known/oauth-authorization-server",
+    "/.well-known/oauth-authorization-server/:path*",
+    "/.well-known/oauth-protected-resource/mcp",
     "/mcp",
     "/mcp/:path*",
+    "/ai-auth",
+    "/ai-auth/:path*",
+    "/.well-known/oauth-authorization-server",
+    "/.well-known/oauth-authorization-server/:path*",
+    "/.well-known/oauth-protected-resource/mcp",
     "/api/surveys/:surveySlug/responses",
     "/api/surveys/:surveySlug",
     "/a",
@@ -93,10 +103,20 @@ test("production-only legacy routes and share preview stay ahead of safe fallbac
       "links.playnavilab.com",
       "playnavi-links.vercel.app",
     ],
-    // AI 連携 (MCP、V5 群6)。OpenAI のドメイン確認のため本番の住所は playnavi.app/mcp
-    "/mcp": ["playnavi.app"],
-    "/mcp/:path*": ["playnavi.app"],
   };
+  // AI 連携 (MCP と専用鍵の窓口、V5 群6)。住所は playnavi.app (OpenAI の住所確認)。
+  // 転送先は 1 つの Supabase プロジェクトにそろえる (審査中は STG、本番へ切り替える時に全部を本番へ)。他のホストでは止める
+  const aiSources = ["/mcp", "/mcp/:path*", "/ai-auth", "/ai-auth/:path*", "/.well-known/oauth-authorization-server", "/.well-known/oauth-authorization-server/:path*", "/.well-known/oauth-protected-resource/mcp"];
+  const aiRoutes = aiSources.map((source) => config.rewrites.filter((route) => route.source === source));
+  const aiProject = /^https:\/\/([a-z]+)\.supabase\.co\/functions\/v1\//.exec(aiRoutes[0][0].destination)?.[1];
+  assert.ok(aiProject, "AI routes go to a Supabase function");
+  for (const routes of aiRoutes) {
+    assert.equal(routes.length, 2);
+    assert.deepEqual(routes[0].has, [{ type: "host", value: "playnavi.app" }]);
+    assert.ok(routes[0].destination.startsWith(`https://${aiProject}.supabase.co/functions/v1/`), routes[0].source);
+    assert.equal(routes[1].has, undefined);
+    assert.equal(routes[1].destination, "/api/legacy-route-disabled");
+  }
   for (const [source, productionHosts] of Object.entries(productionHostsBySource)) {
     const routes = config.rewrites.filter((route) => route.source === source);
     assert.equal(routes.length, productionHosts.length + 1);
