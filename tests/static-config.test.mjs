@@ -316,6 +316,10 @@ test("OAuth discovery documents are static files (Vercel cannot rewrite /.well-k
   assert.equal(as.revocation_endpoint, "https://playnavi.app/ai-auth/revoke");
   assert.deepEqual(as.code_challenge_methods_supported, ["S256"]);
   assert.equal("registration_endpoint" in as, false);
+  // 10/9 夜: ChatGPT の名乗りの文書 (CIMD) と署名 (private_key_jwt)。OpenAI の管理画面が事前登録の接続 ID を受け付けないため
+  assert.equal(as.client_id_metadata_document_supported, true);
+  assert.ok(as.token_endpoint_auth_methods_supported.includes("private_key_jwt"));
+  assert.deepEqual(as.token_endpoint_auth_signing_alg_values_supported, ["RS256"]);
   assert.equal(rs.resource, "https://playnavi.app/mcp");
   assert.deepEqual(rs.authorization_servers, ["https://playnavi.app"]);
   const config = await readJson("../vercel.json");
