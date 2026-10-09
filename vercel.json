@@ -78,9 +78,11 @@
       ]
     },
     {
-      "source": "/.well-known/oauth-(.*)",
+      "source": "/.well-known/(oauth-authorization-server|openid-configuration|oauth-protected-resource/mcp)",
       "headers": [
-        { "key": "Cache-Control", "value": "no-store" }
+        { "key": "Content-Type", "value": "application/json" },
+        { "key": "Cache-Control", "value": "public, max-age=60" },
+        { "key": "Access-Control-Allow-Origin", "value": "*" }
       ]
     },
     {
@@ -168,27 +170,6 @@
       "destination": "https://wffhdhdxdrmobgojxddo.supabase.co/functions/v1/ai-oauth/:path*"
     },
     {
-      "source": "/.well-known/oauth-authorization-server",
-      "has": [
-        { "type": "host", "value": "playnavi.app" }
-      ],
-      "destination": "https://wffhdhdxdrmobgojxddo.supabase.co/functions/v1/ai-oauth/.well-known/oauth-authorization-server"
-    },
-    {
-      "source": "/.well-known/oauth-authorization-server/:path*",
-      "has": [
-        { "type": "host", "value": "playnavi.app" }
-      ],
-      "destination": "https://wffhdhdxdrmobgojxddo.supabase.co/functions/v1/ai-oauth/.well-known/oauth-authorization-server"
-    },
-    {
-      "source": "/.well-known/oauth-protected-resource/mcp",
-      "has": [
-        { "type": "host", "value": "playnavi.app" }
-      ],
-      "destination": "https://wffhdhdxdrmobgojxddo.supabase.co/functions/v1/mcp/.well-known/oauth-protected-resource"
-    },
-    {
       "source": "/mcp",
       "destination": "/api/legacy-route-disabled"
     },
@@ -202,18 +183,6 @@
     },
     {
       "source": "/ai-auth/:path*",
-      "destination": "/api/legacy-route-disabled"
-    },
-    {
-      "source": "/.well-known/oauth-authorization-server",
-      "destination": "/api/legacy-route-disabled"
-    },
-    {
-      "source": "/.well-known/oauth-authorization-server/:path*",
-      "destination": "/api/legacy-route-disabled"
-    },
-    {
-      "source": "/.well-known/oauth-protected-resource/mcp",
       "destination": "/api/legacy-route-disabled"
     },
     {

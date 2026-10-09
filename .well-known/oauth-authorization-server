@@ -1,0 +1,29 @@
+{
+  "issuer": "https://playnavi.app",
+  "authorization_endpoint": "https://playnavi.app/ai-auth/authorize",
+  "token_endpoint": "https://playnavi.app/ai-auth/token",
+  "revocation_endpoint": "https://playnavi.app/ai-auth/revoke",
+  "response_types_supported": [
+    "code"
+  ],
+  "grant_types_supported": [
+    "authorization_code",
+    "refresh_token"
+  ],
+  "code_challenge_methods_supported": [
+    "S256"
+  ],
+  "token_endpoint_auth_methods_supported": [
+    "client_secret_post",
+    "client_secret_basic",
+    "none"
+  ],
+  "revocation_endpoint_auth_methods_supported": [
+    "client_secret_post",
+    "client_secret_basic",
+    "none"
+  ],
+  "scopes_supported": [
+    "playnavi"
+  ]
+}

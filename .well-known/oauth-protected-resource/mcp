@@ -1,0 +1,10 @@
+{
+  "resource": "https://playnavi.app/mcp",
+  "authorization_servers": [
+    "https://playnavi.app"
+  ],
+  "bearer_methods_supported": [
+    "header"
+  ],
+  "resource_name": "PlayNavi"
+}

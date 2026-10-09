@@ -67,16 +67,10 @@ test("production-only legacy routes and share preview stay ahead of safe fallbac
     "/mcp/:path*",
     "/ai-auth",
     "/ai-auth/:path*",
-    "/.well-known/oauth-authorization-server",
-    "/.well-known/oauth-authorization-server/:path*",
-    "/.well-known/oauth-protected-resource/mcp",
     "/mcp",
     "/mcp/:path*",
     "/ai-auth",
     "/ai-auth/:path*",
-    "/.well-known/oauth-authorization-server",
-    "/.well-known/oauth-authorization-server/:path*",
-    "/.well-known/oauth-protected-resource/mcp",
     "/api/surveys/:surveySlug/responses",
     "/api/surveys/:surveySlug",
     "/a",
@@ -106,7 +100,7 @@ test("production-only legacy routes and share preview stay ahead of safe fallbac
   };
   // AI 連携 (MCP と専用鍵の窓口、V5 群6)。住所は playnavi.app (OpenAI の住所確認)。
   // 転送先は 1 つの Supabase プロジェクトにそろえる (審査中は STG、本番へ切り替える時に全部を本番へ)。他のホストでは止める
-  const aiSources = ["/mcp", "/mcp/:path*", "/ai-auth", "/ai-auth/:path*", "/.well-known/oauth-authorization-server", "/.well-known/oauth-authorization-server/:path*", "/.well-known/oauth-protected-resource/mcp"];
+  const aiSources = ["/mcp", "/mcp/:path*", "/ai-auth", "/ai-auth/:path*"];
   const aiRoutes = aiSources.map((source) => config.rewrites.filter((route) => route.source === source));
   const aiProject = /^https:\/\/([a-z]+)\.supabase\.co\/functions\/v1\//.exec(aiRoutes[0][0].destination)?.[1];
   assert.ok(aiProject, "AI routes go to a Supabase function");
@@ -310,4 +304,24 @@ test("lost OAuth state never falls through to the app-install home", async () =>
   assert.match(callback, /error\.code === "EXISTING_IDENTITY_NOT_FOUND"/);
   assert.match(app, /path === "\/survey-login-error"/);
   assert.match(app, /新規登録は行われていません。元のアンケートのリンクをもう一度開き/);
+});
+
+test("OAuth discovery documents are static files (Vercel cannot rewrite /.well-known) and match the AI gateway addresses", async () => {
+  const as = await readJson("../.well-known/oauth-authorization-server");
+  const oidc = await readJson("../.well-known/openid-configuration");
+  const rs = await readJson("../.well-known/oauth-protected-resource/mcp");
+  assert.deepEqual(oidc, as);
+  assert.equal(as.issuer, "https://playnavi.app");
+  assert.equal(as.authorization_endpoint, "https://playnavi.app/ai-auth/authorize");
+  assert.equal(as.token_endpoint, "https://playnavi.app/ai-auth/token");
+  assert.equal(as.revocation_endpoint, "https://playnavi.app/ai-auth/revoke");
+  assert.deepEqual(as.code_challenge_methods_supported, ["S256"]);
+  assert.equal("registration_endpoint" in as, false);
+  assert.equal(rs.resource, "https://playnavi.app/mcp");
+  assert.deepEqual(rs.authorization_servers, ["https://playnavi.app"]);
+  const config = await readJson("../vercel.json");
+  const rule = config.headers.find(({ source }) => source === "/.well-known/(oauth-authorization-server|openid-configuration|oauth-protected-resource/mcp)");
+  assert.ok(rule, "json content type for the discovery files");
+  assert.ok(rule.headers.some(({ key, value }) => key === "Content-Type" && value === "application/json"));
+  assert.equal(config.rewrites.some(({ source }) => source.startsWith("/.well-known/oauth")), false, "no rewrite under /.well-known");
 });
