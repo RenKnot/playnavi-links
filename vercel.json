@@ -78,7 +78,7 @@
       ]
     },
     {
-      "source": "/.well-known/(oauth-authorization-server|openid-configuration|oauth-protected-resource/mcp)",
+      "source": "/.well-known/(oauth-authorization-server|oauth-protected-resource/mcp)",
       "headers": [
         { "key": "Content-Type", "value": "application/json" },
         { "key": "Cache-Control", "value": "public, max-age=60" },

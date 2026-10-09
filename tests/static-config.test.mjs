@@ -308,9 +308,7 @@ test("lost OAuth state never falls through to the app-install home", async () =>
 
 test("OAuth discovery documents are static files (Vercel cannot rewrite /.well-known) and match the AI gateway addresses", async () => {
   const as = await readJson("../.well-known/oauth-authorization-server");
-  const oidc = await readJson("../.well-known/openid-configuration");
   const rs = await readJson("../.well-known/oauth-protected-resource/mcp");
-  assert.deepEqual(oidc, as);
   assert.equal(as.issuer, "https://playnavi.app");
   assert.equal(as.authorization_endpoint, "https://playnavi.app/ai-auth/authorize");
   assert.equal(as.token_endpoint, "https://playnavi.app/ai-auth/token");
@@ -320,7 +318,7 @@ test("OAuth discovery documents are static files (Vercel cannot rewrite /.well-k
   assert.equal(rs.resource, "https://playnavi.app/mcp");
   assert.deepEqual(rs.authorization_servers, ["https://playnavi.app"]);
   const config = await readJson("../vercel.json");
-  const rule = config.headers.find(({ source }) => source === "/.well-known/(oauth-authorization-server|openid-configuration|oauth-protected-resource/mcp)");
+  const rule = config.headers.find(({ source }) => source === "/.well-known/(oauth-authorization-server|oauth-protected-resource/mcp)");
   assert.ok(rule, "json content type for the discovery files");
   assert.ok(rule.headers.some(({ key, value }) => key === "Content-Type" && value === "application/json"));
   assert.equal(config.rewrites.some(({ source }) => source.startsWith("/.well-known/oauth")), false, "no rewrite under /.well-known");
