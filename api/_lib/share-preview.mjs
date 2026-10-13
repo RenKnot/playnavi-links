@@ -68,6 +68,7 @@ export function previewTarget(request) {
   const id = single(query.id);
   const ownerId = single(query.ownerId);
   const rankingId = single(query.rankingId);
+  const listId = single(query.listId);
   const logId = single(query.logId);
   let path;
   switch (kind) {
@@ -86,6 +87,9 @@ export function previewTarget(request) {
     case "ranking":
       path = `/users/${ownerId}/custom-rankings/${rankingId}`;
       break;
+    case "tier_list":
+      path = `/users/${ownerId}/tier-lists/${listId}`;
+      break;
     case "catalog":
       path = `/catalogs/${id}`;
       break;
@@ -99,6 +103,7 @@ export function previewTarget(request) {
     best_games: ["id", "kind"],
     diagnosis: ["id", "kind"],
     ranking: ["kind", "ownerId", "rankingId"],
+    tier_list: ["kind", "listId", "ownerId"],
     catalog: ["id", "kind"],
   }[kind];
   // Vercel adds the matched `has: { type: "host" }` value to the rewritten

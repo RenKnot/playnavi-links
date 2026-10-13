@@ -77,6 +77,7 @@ test("production-only legacy routes and share preview stay ahead of safe fallbac
     "/s/:code",
     "/game/:id",
     "/users/:ownerId/custom-rankings/:rankingId",
+    "/users/:ownerId/tier-lists/:listId",
     "/users/:id/best-games",
     "/users/:id/diagnosis",
     "/users/:id",
@@ -142,6 +143,7 @@ test("share preview uses the original HTML and only the approved share routes", 
   const canonical = [
     ["/game/:id", "/api/share-preview?kind=game&id=:id"],
     ["/users/:ownerId/custom-rankings/:rankingId", "/api/share-preview?kind=ranking&ownerId=:ownerId&rankingId=:rankingId"],
+    ["/users/:ownerId/tier-lists/:listId", "/api/share-preview?kind=tier_list&ownerId=:ownerId&listId=:listId"],
     ["/users/:id/best-games", "/api/share-preview?kind=best_games&id=:id"],
     ["/users/:id/diagnosis", "/api/share-preview?kind=diagnosis&id=:id"],
     ["/users/:id", "/api/share-preview?kind=user&id=:id"],
@@ -154,6 +156,7 @@ test("share preview uses the original HTML and only the approved share routes", 
   }
   const sources = config.rewrites.map(({ source }) => source);
   assert.ok(sources.indexOf("/users/:ownerId/custom-rankings/:rankingId") < sources.indexOf("/users/:id"));
+  assert.ok(sources.indexOf("/users/:ownerId/tier-lists/:listId") < sources.indexOf("/users/:id"));
   assert.ok(sources.indexOf("/users/:id/best-games") < sources.indexOf("/users/:id"));
   assert.ok(sources.indexOf("/users/:id/diagnosis") < sources.indexOf("/users/:id"));
   assert.ok(sources.indexOf("/s/:code") < sources.indexOf("/(.*)"));

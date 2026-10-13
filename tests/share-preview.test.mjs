@@ -83,6 +83,7 @@ test("canonical routes retain their own URL and send exactly one path parameter 
     [{ kind: "game", id: "42", logId: USER }, `/game/42?logId=${USER}`],
     [{ kind: "user", id: USER }, `/users/${USER}`],
     [{ kind: "ranking", ownerId: USER, rankingId: RANKING }, `/users/${USER}/custom-rankings/${RANKING}`],
+    [{ kind: "tier_list", ownerId: USER, listId: RANKING }, `/users/${USER}/tier-lists/${RANKING}`],
     [{ kind: "catalog", id: USER }, `/catalogs/${USER}`],
     [{ kind: "best_games", id: USER }, `/users/${USER}/best-games`],
     [{ kind: "diagnosis", id: USER }, `/users/${USER}/diagnosis`],
@@ -98,13 +99,14 @@ test("canonical routes retain their own URL and send exactly one path parameter 
   assert.equal(previewTarget({ headers: { host: "playnavi.app" }, query: { kind: "game", id: "42" } }), null);
 });
 
-test("Vercel's matched host query stays out of all seven canonical cards", () => {
+test("Vercel's matched host query stays out of all eight canonical cards", () => {
   const host = "links.playnavilab.com";
   const cases = [
     [{ kind: "game", id: "42" }, "/game/42"],
     [{ kind: "game", id: "42", logId: USER }, `/game/42?logId=${USER}`],
     [{ kind: "user", id: USER }, `/users/${USER}`],
     [{ kind: "ranking", ownerId: USER, rankingId: RANKING }, `/users/${USER}/custom-rankings/${RANKING}`],
+    [{ kind: "tier_list", ownerId: USER, listId: RANKING }, `/users/${USER}/tier-lists/${RANKING}`],
     [{ kind: "catalog", id: USER }, `/catalogs/${USER}`],
     [{ kind: "best_games", id: USER }, `/users/${USER}/best-games`],
     [{ kind: "diagnosis", id: USER }, `/users/${USER}/diagnosis`],
