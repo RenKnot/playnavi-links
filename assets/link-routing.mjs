@@ -23,8 +23,9 @@ const CANONICAL_PATTERNS = [
   { type: "log", pattern: new RegExp(`^/game/${GAME_ID_PATTERN}\\?logId=${UUID_PATTERN}$`) },
   { type: "game", pattern: new RegExp(`^/game/${GAME_ID_PATTERN}$`) },
   { type: "ranking", pattern: new RegExp(`^/users/${UUID_PATTERN}/custom-rankings/${UUID_PATTERN}$`) },
-  // TASK-20261011-003 Tier表: /users/{owner}/tier-lists/{list}
-  { type: "tier_list", pattern: new RegExp(`^/users/${UUID_PATTERN}/tier-lists/${UUID_PATTERN}$`) },
+  // TASK-20261011-003 Tier表: /users/{owner}/tier-lists/{list}。Web の「このお題でアプリで作る」は ?remix=1 を付ける
+  // (アプリはそのまま開いて「このお題で自分も作る」へ進む)。それ以外の問い合わせ文字列は受けない
+  { type: "tier_list", pattern: new RegExp(`^/users/${UUID_PATTERN}/tier-lists/${UUID_PATTERN}(?:\\?remix=1)?$`) },
   { type: "best_games", pattern: new RegExp(`^/users/${UUID_PATTERN}/best-games$`) },
   { type: "diagnosis", pattern: new RegExp(`^/users/${UUID_PATTERN}/diagnosis$`) },
   { type: "user", pattern: new RegExp(`^/users/${UUID_PATTERN}$`) },

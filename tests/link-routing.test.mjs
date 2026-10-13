@@ -81,6 +81,7 @@ test("allowlists the eight canonical target shapes", () => {
     [`/users/${UUID_A}`, "user"],
     [`/users/${UUID_A}/custom-rankings/${UUID_B}`, "ranking"],
     [`/users/${UUID_A}/tier-lists/${UUID_B}`, "tier_list"],
+    [`/users/${UUID_A}/tier-lists/${UUID_B}?remix=1`, "tier_list"],
     [`/catalogs/${UUID_B}`, "catalog"],
   ];
 
@@ -118,6 +119,10 @@ test("rejects arbitrary URLs, schemes, queries, fragments, and short paths", () 
     `/users/${UUID_A}/Diagnosis`,
     `/users/not-a-uuid/best-games`,
     `/users/${UUID_A}/bestgames`,
+    `/users/${UUID_A}/tier-lists/${UUID_B}?remix=2`,
+    `/users/${UUID_A}/tier-lists/${UUID_B}?remix=1&next=https://evil.example`,
+    `/users/${UUID_A}/tier-lists/${UUID_B}?share=1`,
+    `/users/${UUID_A}/tier-lists/${UUID_B}#remix`,
     `/s/${CODE}`,
   ]) {
     assert.equal(canonicalTargetFromPath(value), null, value);
