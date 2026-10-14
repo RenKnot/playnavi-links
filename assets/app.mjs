@@ -4,6 +4,7 @@ import {
   canonicalTargetFromPath,
   resolveShortLink,
   shortCodeFromPath,
+  webInboxUrl,
   webTargetFromPath,
 } from "./link-routing.mjs";
 
@@ -172,6 +173,26 @@ function openCanonicalTarget(target) {
 
 function showAiReturnTarget(target) {
   hideActions();
+  if (target.inbox) {
+    // AI 連携の「確認箱を開く」(TASK-20260930-006)。PC は Web の下書き画面、スマホはアプリの確認箱
+    const webHref = webInboxUrl(webOrigin);
+    if (platform === "other" && webHref) {
+      setContent({ heading: "確認箱を開いています…", description: "そのままお待ちください。" });
+      window.location.replace(webHref);
+      return;
+    }
+    setContent({
+      heading: "確認箱を開く",
+      description: "AI から届いた下書きを確認して確定します。下のボタンからアプリを開いてください。",
+    });
+    if (platform !== "other") configurePrimary("PlayNaviアプリで開く", manualHrefForCanonical(target));
+    if (webHref && elements.web) {
+      elements.web.href = webHref;
+      setVisible(elements.web, true);
+    }
+    showStores();
+    return;
+  }
   setContent({
     heading: "PlayNaviに戻る",
     description: "下のボタンからアプリを開いてください。リンクの内容はアプリで確認されます。",

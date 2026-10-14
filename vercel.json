@@ -266,6 +266,10 @@
       "destination": "/privacy.html"
     },
     {
+      "source": "/help/claude",
+      "destination": "/help-claude.html"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
