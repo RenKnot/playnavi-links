@@ -223,6 +223,13 @@
       "destination": "/api/share-preview?kind=ranking&ownerId=:ownerId&rankingId=:rankingId"
     },
     {
+      "source": "/users/:ownerId/tier-lists/:listId",
+      "has": [
+        { "type": "host", "value": "links.playnavilab.com" }
+      ],
+      "destination": "/api/share-preview?kind=tier_list&ownerId=:ownerId&listId=:listId"
+    },
+    {
       "source": "/users/:id/best-games",
       "has": [
         { "type": "host", "value": "links.playnavilab.com" }

@@ -13,7 +13,7 @@ const source = async () => ({ config: JSON.parse(await read("vercel.json")), htm
 
 test("Web landing reuses strict canonical paths and only fixed Web origins", () => {
   // 2026-10-07: the diagnosis is public like a ranking, so its canonical path is a Web destination too.
-  for (const path of ["/game/42", `/game/42?logId=${UUID}`, `/users/${UUID}`, `/users/${UUID}/best-games`, `/users/${UUID}/custom-rankings/${UUID}`, `/users/${UUID}/diagnosis`, `/catalogs/${UUID}`]) {
+  for (const path of ["/game/42", `/game/42?logId=${UUID}`, `/users/${UUID}`, `/users/${UUID}/best-games`, `/users/${UUID}/custom-rankings/${UUID}`, `/users/${UUID}/tier-lists/${UUID}`, `/users/${UUID}/diagnosis`, `/catalogs/${UUID}`]) {
     assert.equal(webTargetFromPath(path, "https://playnavi.app"), `https://playnavi.app${path}`);
   }
   for (const path of ["/a", "/s/AbCdEf012345_-xy", "//evil.example/game/42", "https://evil.example/game/42", "/game/42?next=https://evil.example", "/game/42#x", "/game/9223372036854775808"]) assert.equal(webTargetFromPath(path, "https://playnavi.app"), null);
