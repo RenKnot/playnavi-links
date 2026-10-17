@@ -81,6 +81,7 @@ test("canonical routes retain their own URL and send exactly one path parameter 
   const cases = [
     [{ kind: "game", id: "42" }, "/game/42"],
     [{ kind: "game", id: "42", logId: USER }, `/game/42?logId=${USER}`],
+    [{ kind: "game", id: "42", logId: USER, moment: RANKING }, `/game/42?logId=${USER}&moment=${RANKING}`],
     [{ kind: "user", id: USER }, `/users/${USER}`],
     [{ kind: "ranking", ownerId: USER, rankingId: RANKING }, `/users/${USER}/custom-rankings/${RANKING}`],
     [{ kind: "tier_list", ownerId: USER, listId: RANKING }, `/users/${USER}/tier-lists/${RANKING}`],
@@ -99,11 +100,12 @@ test("canonical routes retain their own URL and send exactly one path parameter 
   assert.equal(previewTarget({ headers: { host: "playnavi.app" }, query: { kind: "game", id: "42" } }), null);
 });
 
-test("Vercel's matched host query stays out of all eight canonical cards", () => {
+test("Vercel's matched host query stays out of all nine canonical cards", () => {
   const host = "links.playnavilab.com";
   const cases = [
     [{ kind: "game", id: "42" }, "/game/42"],
     [{ kind: "game", id: "42", logId: USER }, `/game/42?logId=${USER}`],
+    [{ kind: "game", id: "42", logId: USER, moment: RANKING }, `/game/42?logId=${USER}&moment=${RANKING}`],
     [{ kind: "user", id: USER }, `/users/${USER}`],
     [{ kind: "ranking", ownerId: USER, rankingId: RANKING }, `/users/${USER}/custom-rankings/${RANKING}`],
     [{ kind: "tier_list", ownerId: USER, listId: RANKING }, `/users/${USER}/tier-lists/${RANKING}`],
@@ -268,4 +270,17 @@ test("the actual handler reads the root index.html file", async () => {
 
 test("renderer fails clearly if index.html has no closing head", () => {
   assert.throws(() => renderPreviewHtml("<html><body></body></html>", GENERIC_CARD, "https://playnavi.app/"));
+});
+
+test("a moment without its log id keeps the URL but shows the generic card (TASK-20261017-002)", () => {
+  const target = previewTarget({ headers: { host: "links.playnavilab.com" }, query: { kind: "game", id: "42", moment: RANKING } });
+  assert.deepEqual(target, {
+    url: `https://links.playnavilab.com/game/42?moment=${RANKING}`,
+    upstreamParam: null,
+    upstreamValue: null,
+  });
+  assert.equal(
+    previewTarget({ headers: { host: "links.playnavilab.com" }, query: { kind: "game", id: "42", logId: USER, moment: "bad" } }),
+    null,
+  );
 });

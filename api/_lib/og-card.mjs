@@ -15,7 +15,10 @@ export const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const FONT_TIMEOUT_MS = 2200;
 const MAX_INPUT_PIXELS = 40_000_000;
 
-const COVER = { game: [330, 440], grid: [240, 320], gridCompact: [204, 272] };
+const COVER = { game: [330, 440], grid: [240, 320], gridCompact: [204, 272], moment: [300, 400] };
+// Moment photo (TASK-20261017-002): fitted inside this box, aspect kept.
+const PHOTO_BOX = [640, 520];
+const MOMENT_SPOILER = "ネタバレを含むモーメント";
 const OWNER_AVATAR = 44;
 const AVATAR = 200;
 const ILLUSTRATION = 300;
@@ -79,7 +82,12 @@ const FIXED_TEXT = "0123456789+,.…─販売・開発さんのプロフィー�
   "ゲーマーDNA対戦没入論理感覚自立仲間集中広範";
 export function cardText(large) {
   const parts = [FIXED_TEXT];
-  if (large.layout === "game") parts.push(large.heading ?? "", large.title, large.publisher ?? "", large.developer ?? "");
+  if (large.layout === "game") {
+    parts.push(large.heading ?? "", large.title, large.publisher ?? "", large.developer ?? "");
+    if (large.score !== undefined) parts.push("満足度/10");
+    if (large.excerpt !== undefined) parts.push(large.excerpt);
+  }
+  if (large.layout === "moment") parts.push(large.heading, large.title, "『』", large.excerpt ?? "", MOMENT_SPOILER);
   if (large.layout === "profile") parts.push(large.name);
   if (large.layout === "grid") parts.push(large.title, large.subtitle, large.description ?? "");
   if (large.layout === "diagnosis") {
@@ -161,6 +169,19 @@ export async function pngUri(buffer, width, height) {
   }
 }
 
+// Fits inside the box keeping the aspect; returns the drawn size with the URI.
+export async function fittedUri(buffer, maxWidth, maxHeight) {
+  if (!buffer) return null;
+  try {
+    const { data, info } = await pipeline(buffer).rotate()
+      .resize(maxWidth, maxHeight, { fit: "inside" })
+      .flatten({ background: "#1E293B" }).jpeg({ quality: 88 }).toBuffer({ resolveWithObject: true });
+    return { uri: toDataUri(data, "jpeg"), width: info.width, height: info.height };
+  } catch {
+    return null;
+  }
+}
+
 export async function blurUri(buffer) {
   if (!buffer) return null;
   try {
@@ -213,6 +234,10 @@ async function loadImage(url, fetchImpl) {
 export async function loadCardImages(large, fetchImpl) {
   const urls = new Set();
   if (large.layout === "game" && large.cover_url) urls.add(large.cover_url);
+  if (large.layout === "moment") {
+    if (large.photo_url) urls.add(large.photo_url);
+    if (large.cover_url) urls.add(large.cover_url);
+  }
   if (large.layout === "profile") {
     if (large.avatar_url) urls.add(large.avatar_url);
     if (large.background_url) urls.add(large.background_url);
@@ -234,6 +259,17 @@ export async function loadCardImages(large, fetchImpl) {
     const buffer = get(large.cover_url);
     const [cover, background] = await Promise.all([coverUri(buffer, ...COVER.game), blurUri(buffer)]);
     return { cover, background };
+  }
+  if (large.layout === "moment") {
+    const photoBuffer = get(large.photo_url);
+    const coverBuffer = get(large.cover_url);
+    const [photo, cover, background] = await Promise.all([
+      fittedUri(photoBuffer, ...PHOTO_BOX),
+      coverUri(coverBuffer, ...COVER.moment),
+      blurUri(photoBuffer ?? coverBuffer),
+    ]);
+    // A photo that cannot be loaded falls back to the cover.
+    return { photo, cover, background };
   }
   if (large.layout === "profile") {
     const [avatar, background] = await Promise.all([
@@ -306,8 +342,20 @@ function companies(publisher, developer) {
   );
 }
 
+function scoreBadge(score) {
+  const value = Number.isInteger(score) ? String(score) : score.toFixed(1);
+  return div(
+    { alignItems: "flex-end", marginTop: 26 },
+    div({ fontSize: 28, color: "#FDE68A", fontWeight: 900, marginBottom: 6 }, "満足度"),
+    div({ fontSize: 64, color: "#FFFFFF", fontWeight: 900, lineHeight: 1, marginLeft: 12 }, value),
+    div({ fontSize: 30, color: "#E2E8F0", fontWeight: 700, marginLeft: 6, marginBottom: 4 }, "/10"),
+  );
+}
+
 function gameCard(large, images, assets) {
   const [cw, ch] = COVER.game;
+  // A log card with a satisfaction or review text draws those instead of the credits.
+  const record = large.score !== undefined || large.excerpt !== undefined;
   return frame(
     assets,
     images.background,
@@ -321,9 +369,17 @@ function gameCard(large, images, assets) {
         large.heading
           ? div({ fontSize: 30, color: "#E2E8F0", fontWeight: 700, marginBottom: 14, maxWidth: 640, ...ELLIPSIS }, large.heading)
           : null,
-        div({ fontSize: large.title.length > 16 ? 56 : 68, lineHeight: 1.25, color: "#FFFFFF", fontWeight: 900,
-          lineClamp: 3, overflow: "hidden" }, large.title),
-        companies(large.publisher, large.developer),
+        record
+          ? div({ fontSize: large.title.length > 16 ? 44 : 54, lineHeight: 1.25, color: "#FFFFFF", fontWeight: 900,
+            lineClamp: 2, overflow: "hidden" }, large.title)
+          : div({ fontSize: large.title.length > 16 ? 56 : 68, lineHeight: 1.25, color: "#FFFFFF", fontWeight: 900,
+            lineClamp: 3, overflow: "hidden" }, large.title),
+        record && large.score !== undefined ? scoreBadge(large.score) : null,
+        record && large.excerpt !== undefined
+          ? div({ display: "block", fontSize: 28, lineHeight: 1.5, color: "#F1F5F9", fontWeight: 700, marginTop: 22,
+            maxWidth: 640, overflow: "hidden", lineClamp: 3 }, large.excerpt)
+          : null,
+        record ? null : companies(large.publisher, large.developer),
       ),
     ),
   );
@@ -514,7 +570,54 @@ function diagnosisCard(large, images, assets) {
   );
 }
 
+function excerptSize(text) {
+  const length = [...text].length;
+  if (length <= 36) return 38;
+  if (length <= 72) return 32;
+  return 28;
+}
+
+// TASK-20261017-002: the photo large on the left, then who / what they wrote /
+// which game. No photo (none, video only, spoiler, load failure) = the cover.
+function momentCard(large, images, assets) {
+  const photo = images.photo;
+  const [cw, ch] = COVER.moment;
+  const media = photo
+    ? img(photo.uri, { width: photo.width, height: photo.height, borderRadius: 18,
+      boxShadow: "0 16px 48px rgba(0,0,0,0.55)" })
+    : images.cover
+    ? img(images.cover, { width: cw, height: ch, borderRadius: 16, boxShadow: "0 16px 48px rgba(0,0,0,0.55)" })
+    : placeholder(cw, ch, 16);
+  const mediaWidth = photo ? photo.width : cw;
+  const columnWidth = W - 56 - mediaWidth - 48 - 56;
+  const body = large.spoiler
+    ? div({ marginTop: 20 },
+      div({ fontSize: 30, color: "#FFFFFF", fontWeight: 900, padding: "8px 22px", borderRadius: 999,
+        backgroundColor: "rgba(8,14,26,0.6)", border: "2px solid #FBBF24" }, MOMENT_SPOILER))
+    : large.excerpt
+    ? div({ display: "block", fontSize: excerptSize(large.excerpt), lineHeight: 1.45, color: "#FFFFFF", fontWeight: 900,
+      marginTop: 16, overflow: "hidden", lineClamp: 6 }, large.excerpt)
+    : null;
+  return frame(
+    assets,
+    images.background,
+    div(
+      { ...FULL, alignItems: "center", padding: "0 56px 0 56px" },
+      media,
+      div(
+        { flexDirection: "column", marginLeft: 48, width: columnWidth, minWidth: 0, paddingBottom: 40 },
+        div({ fontSize: 26, color: "#E2E8F0", fontWeight: 700, maxWidth: columnWidth, ...ELLIPSIS }, large.heading),
+        body,
+        div({ display: "block", fontSize: body ? 26 : 44, color: body ? "#BFD0E0" : "#FFFFFF", fontWeight: body ? 700 : 900,
+          lineHeight: 1.35, marginTop: 22, maxWidth: columnWidth, overflow: "hidden", lineClamp: 2 },
+        `『${large.title}』`),
+      ),
+    ),
+  );
+}
+
 export function cardElement(large, images, assets) {
+  if (large.layout === "moment") return momentCard(large, images, assets);
   if (large.layout === "diagnosis") return diagnosisCard(large, images, assets);
   if (large.layout === "game") return gameCard(large, images, assets);
   if (large.layout === "profile") return profileCard(large, images, assets);

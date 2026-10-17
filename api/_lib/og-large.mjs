@@ -59,6 +59,27 @@ function imageUrl(value) {
   if (!allowedImageUrl(value)) fail();
   return value;
 }
+// Optional field added after the layout shipped: absent or null = not drawn,
+// and left out of the normalized copy so older cards keep their version hash.
+function optional(large, key, read) {
+  const value = large[key];
+  return value === undefined || value === null ? {} : { [key]: read(value) };
+}
+// Satisfaction 0..10 in steps of 0.1 (the app's scale).
+function score(value) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 10 ||
+    Math.round(value * 10) !== value * 10) fail();
+  return value;
+}
+// A moment photo is a signed URL of the private bucket on an allow-listed host.
+const SIGNED_PHOTO_PATH = /^\/storage\/v1\/object\/sign\/game-log-media-private\/[^?#]+$/;
+function photoUrl(value) {
+  if (value === null) return null;
+  if (!allowedImageUrl(value)) fail();
+  const url = new URL(value);
+  if (!SIGNED_PHOTO_PATH.test(url.pathname) || !url.searchParams.get("token")) fail();
+  return value;
+}
 
 // Returns a normalized copy (fixed key order) or null.
 export function validLarge(large) {
@@ -73,6 +94,22 @@ export function validLarge(large) {
           title: text(large.title),
           publisher: text(large.publisher, { nullable: true }),
           developer: text(large.developer, { nullable: true }),
+          cover_url: imageUrl(large.cover_url),
+          // log cards (TASK-20261017-002): satisfaction and the head of the review.
+          ...optional(large, "score", score),
+          ...optional(large, "excerpt", (value) => text(value)),
+        };
+      case "moment":
+        onlyKeys(large);
+        if (typeof large.spoiler !== "boolean") fail();
+        return {
+          layout: "moment",
+          heading: text(large.heading),
+          title: text(large.title),
+          // A spoiler moment never carries its text or its photo.
+          excerpt: large.spoiler ? null : text(large.excerpt, { nullable: true }),
+          spoiler: large.spoiler,
+          photo_url: large.spoiler ? null : photoUrl(large.photo_url),
           cover_url: imageUrl(large.cover_url),
         };
       case "profile": {
@@ -137,8 +174,17 @@ export function validLarge(large) {
   }
 }
 
+// The moment photo URL carries a fresh signature on every read; the version
+// hashes the stored object (origin + path) instead, so the image URL stays the
+// same between reads and the CDN copy is reused.
+function versionSource(large) {
+  if (large.layout !== "moment" || !large.photo_url) return large;
+  const url = new URL(large.photo_url);
+  return { ...large, photo_url: `${url.origin}${url.pathname}` };
+}
+
 export function largeVersion(large) {
-  return createHash("sha256").update(JSON.stringify(large)).digest("hex").slice(0, 12);
+  return createHash("sha256").update(JSON.stringify(versionSource(large))).digest("hex").slice(0, 12);
 }
 
 // `large` must already be the normalized output of validLarge.

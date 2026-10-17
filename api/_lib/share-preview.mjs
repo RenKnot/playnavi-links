@@ -70,10 +70,13 @@ export function previewTarget(request) {
   const rankingId = single(query.rankingId);
   const listId = single(query.listId);
   const logId = single(query.logId);
+  // TASK-20261017-002: /game/{id}?logId={log}&moment={memory} (Vercel passes the
+  // original query through the /game/:id rewrite). moment needs logId.
+  const moment = logId === null ? null : single(query.moment);
   let path;
   switch (kind) {
     case "game":
-      path = `/game/${id}${logId === null ? "" : `?logId=${logId}`}`;
+      path = `/game/${id}${logId === null ? "" : `?logId=${logId}`}${moment === null ? "" : `&moment=${moment}`}`;
       break;
     case "user":
       path = `/users/${id}`;
@@ -98,7 +101,11 @@ export function previewTarget(request) {
   }
   if (!canonicalTargetFromPath(path)) return null;
   const requiredKeys = {
-    game: logId === null ? ["id", "kind"] : ["id", "kind", "logId"],
+    game: logId === null
+      ? ["id", "kind"]
+      : moment === null
+      ? ["id", "kind", "logId"]
+      : ["id", "kind", "logId", "moment"],
     user: ["id", "kind"],
     best_games: ["id", "kind"],
     diagnosis: ["id", "kind"],

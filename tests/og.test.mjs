@@ -12,8 +12,10 @@ import {
   FALLBACK_CACHE_CONTROL,
   FALLBACK_URL,
   OG_CACHE_CONTROL,
+  OG_MOMENT_CACHE_CONTROL,
   ogTarget,
 } from "../api/og.mjs";
+import { largeVersion } from "../api/_lib/og-large.mjs";
 import { renderPreviewHtml } from "../api/_lib/share-preview.mjs";
 import { createSharePreviewHandler } from "../api/share-preview.mjs";
 
@@ -322,4 +324,122 @@ test("an unloadable profile background falls back to the blurred avatar", async 
       : new Response("", { status: 404 }),
   );
   assert.match(images.background ?? "", /^data:image\//);
+});
+
+// ---------------------------------------------------------------- TASK-20261017-002 moment / log record
+
+const PHOTO_PATH = `/storage/v1/object/sign/game-log-media-private/${"1".repeat(8)}-u/memories/m/p.jpg`;
+const photo = (token) => `https://${STORAGE}${PHOTO_PATH}?token=${token}`;
+const MOMENT = {
+  layout: "moment", heading: "Ao moment", title: "Elden Ring", excerpt: "Beat the boss",
+  spoiler: false, photo_url: photo("aaa"), cover_url: COVER,
+};
+
+test("validLarge accepts the moment layout; a spoiler drops text and photo", () => {
+  assert.deepEqual(validLarge(MOMENT), MOMENT);
+  assert.deepEqual(validLarge({ ...MOMENT, future_field: 1 }), MOMENT);
+  assert.deepEqual(validLarge({ ...MOMENT, photo_url: null, excerpt: null, cover_url: null }),
+    { ...MOMENT, photo_url: null, excerpt: null, cover_url: null });
+  assert.deepEqual(validLarge({ ...MOMENT, spoiler: true }), { ...MOMENT, spoiler: true, excerpt: null, photo_url: null });
+  const rejects = [
+    { ...MOMENT, spoiler: "no" }, { ...MOMENT, heading: "" }, { ...MOMENT, title: null },
+    { ...MOMENT, excerpt: "x".repeat(201) },
+    // Only a signed URL of the private photo bucket on an allow-listed host.
+    { ...MOMENT, photo_url: COVER },
+    { ...MOMENT, photo_url: `https://${STORAGE}${PHOTO_PATH}` },
+    { ...MOMENT, photo_url: `https://${STORAGE}/storage/v1/object/public/avatars/a.png?token=x` },
+    { ...MOMENT, photo_url: `https://example.com${PHOTO_PATH}?token=x` },
+    { ...MOMENT, cover_url: "https://example.com/a.jpg" },
+  ];
+  for (const large of rejects) assert.equal(validLarge(large), null, JSON.stringify(large));
+});
+
+test("log cards may add a satisfaction and review head; old payloads keep their shape and version", () => {
+  const record = { ...GAME, score: 8.5, excerpt: "Great" };
+  assert.deepEqual(validLarge(record), record);
+  // null / absent fields are left out, so a game card hashes exactly as before.
+  assert.deepEqual(validLarge({ ...GAME, score: null, excerpt: null }), GAME);
+  assert.equal(largeVersion(validLarge({ ...GAME, score: null, excerpt: null })), largeVersion(GAME));
+  for (const score of [-1, 10.5, 7.25, "9", Number.NaN]) {
+    assert.equal(validLarge({ ...GAME, score }), null, String(score));
+  }
+  assert.equal(validLarge({ ...GAME, excerpt: "" }), null);
+  assert.ok(cardText(record).includes("満"));
+  assert.ok(cardText(record).includes("G"));
+});
+
+test("the moment image version ignores the photo signature but follows the photo itself", () => {
+  const a = validLarge(MOMENT);
+  const b = validLarge({ ...MOMENT, photo_url: photo("bbb") });
+  assert.equal(largeVersion(a), largeVersion(b));
+  assert.notEqual(largeVersion(a), largeVersion(validLarge({ ...MOMENT, photo_url: photo("aaa").replace("p.jpg", "q.jpg") })));
+  assert.notEqual(largeVersion(a), largeVersion(validLarge({ ...MOMENT, excerpt: "Other" })));
+});
+
+for (const [name, large] of [
+  ["moment with a photo", MOMENT],
+  ["moment without a photo", { ...MOMENT, photo_url: null }],
+  ["spoiler moment", { ...MOMENT, spoiler: true }],
+  ["log with a satisfaction and review head", { ...GAME, score: 9, excerpt: "Great game" }],
+]) {
+  test(`a valid ${name} card renders a 1200x630 PNG`, async () => {
+    const { fetchImpl, seen } = upstream(large);
+    await withServer(createOgHandler({ fetchImpl, fontLoader }), async (origin) => {
+      const response = await fetch(`${origin}/api/og?code=${CODE}&v=abc`, { redirect: "manual" });
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("cache-control"),
+        large.layout === "moment" ? OG_MOMENT_CACHE_CONTROL : OG_CACHE_CONTROL);
+      assert.deepEqual(pngSize(Buffer.from(await response.arrayBuffer())), [1200, 630]);
+    });
+    if (large.layout === "moment" && large.photo_url && !large.spoiler) {
+      assert.ok(seen.includes(large.photo_url), "the signed photo is fetched while drawing");
+    } else {
+      assert.ok(!seen.some((url) => url.includes("/object/sign/")), "no photo fetched");
+    }
+  });
+}
+
+test("a moment photo that cannot be loaded falls back to the cover and still renders", async () => {
+  const fetchImpl = async (url) => {
+    const href = String(url);
+    if (href.includes("/functions/v1/share-preview-meta")) {
+      return Response.json({ status: "ok", card: { title: "t", description: "d", image_url: COVER, large: MOMENT } });
+    }
+    if (href.includes("/object/sign/")) return new Response("expired", { status: 400 });
+    return new Response(IMAGE);
+  };
+  const { loadCardImages } = await import("../api/_lib/og-card.mjs");
+  const images = await loadCardImages(validLarge(MOMENT), fetchImpl);
+  assert.equal(images.photo, null);
+  assert.match(images.cover ?? "", /^data:image\//);
+  await withServer(createOgHandler({ fetchImpl, fontLoader }), async (origin) => {
+    const response = await fetch(`${origin}/api/og?code=${CODE}`, { redirect: "manual" });
+    assert.equal(response.status, 200);
+  });
+});
+
+test("moment share pages advertise a large image whose URL is stable across signatures", async () => {
+  const first = await sharePage({ headers: { host: "playnavi.app" }, query: { code: CODE } }, MOMENT);
+  const second = await sharePage({ headers: { host: "playnavi.app" }, query: { code: CODE } },
+    { ...MOMENT, photo_url: photo("zzz") });
+  assert.equal(tag(first.body, "twitter:card"), "summary_large_image");
+  assert.equal(tag(first.body, "og:image"), tag(second.body, "og:image"));
+  // The signed photo URL never appears in the page itself.
+  assert.equal(first.body.includes("token=aaa"), false);
+  assert.equal(first.body.includes("/object/sign/"), false);
+  const canonical = await sharePage({
+    headers: { host: "links.playnavilab.com" },
+    query: { kind: "game", id: "42", logId: "12345678-1234-1234-1234-123456789abc", moment: "abcdefab-cdef-cdef-cdef-abcdefabcdef" },
+  }, MOMENT);
+  assert.equal(
+    tag(canonical.body, "og:image"),
+    `https://playnavi.app/api/og?path=${encodeURIComponent("/game/42?logId=12345678-1234-1234-1234-123456789abc&moment=abcdefab-cdef-cdef-cdef-abcdefabcdef")}&amp;v=${largeVersion(validLarge(MOMENT))}`,
+  );
+});
+
+test("an old links site shape (no moment layout) still gets a small card from a moment response", async () => {
+  // validCard keeps title / description / image_url even when large is unknown to it.
+  const response = await sharePage({ headers: { host: "playnavi.app" }, query: { code: CODE } }, { ...MOMENT, layout: "future" });
+  assert.equal(tag(response.body, "twitter:card"), "summary");
+  assert.equal(tag(response.body, "og:image"), COVER);
 });

@@ -20,6 +20,8 @@ const AI_RETURN_INTENTS = new Set([
 ]);
 
 const CANONICAL_PATTERNS = [
+  // TASK-20261017-002 モーメント 1 件: /game/{id}?logId={log}&moment={memory}。この順だけ・他の問い合わせ文字列は受けない
+  { type: "moment", pattern: new RegExp(`^/game/${GAME_ID_PATTERN}\\?logId=${UUID_PATTERN}&moment=${UUID_PATTERN}$`) },
   { type: "log", pattern: new RegExp(`^/game/${GAME_ID_PATTERN}\\?logId=${UUID_PATTERN}$`) },
   { type: "game", pattern: new RegExp(`^/game/${GAME_ID_PATTERN}$`) },
   { type: "ranking", pattern: new RegExp(`^/users/${UUID_PATTERN}/custom-rankings/${UUID_PATTERN}$`) },
