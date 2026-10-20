@@ -214,11 +214,27 @@ function shareViewTags(shareView) {
     }">`,
     // 描く部品を app.mjs と同時に読み始める (app.mjs は中身がある時だけ share-view.mjs を読み込む)
     `    <link rel="modulepreload" href="/assets/share-view.mjs">`,
+    // r6 (Q2): 記録のページだけ書体を Noto Sans JP に (Web 版と同じ)。読めない時は端末の書体のまま (display=swap)
+    `    <link rel="preconnect" href="https://fonts.googleapis.com">`,
+    `    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>`,
+    `    <link rel="stylesheet" href="${escapeHtmlAttribute(RECORD_FONT_CSS)}">`,
     `    <script id="pn-share-view" type="application/json">${jsonForScript(shareView)}</script>`,
   ];
 }
 
+// r6: 記録のページの <html> に印を付け、色・書体・並びを部品が描く前から当てる (読み込み中に別の画面がちらつかない)。
+// 部品が描けなかった時は assets/app.mjs が印を外す (= 今までの画面)
+export const RECORD_PAGE_CLASS = "pn-rec-page";
+export const RECORD_FONT_CSS = "https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&display=swap";
+
+function markRecordPage(template) {
+  return template.replace(/<html\b([^>]*)>/, (whole, attributes) =>
+    /\bclass=/.test(attributes) ? whole : `<html${attributes} class="${RECORD_PAGE_CLASS}">`
+  );
+}
+
 export function renderPreviewHtml(template, card, url, largeImage = null, shareView = null) {
+  if (shareView) template = markRecordPage(template);
   const headClose = template.indexOf("</head>");
   if (headClose < 0) throw new Error("index.html has no closing head tag");
   const insertion = template.lastIndexOf("\n", headClose) + 1;

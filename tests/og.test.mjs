@@ -644,3 +644,16 @@ test("r3: the share page advertises the large image with a version that survives
   assert.equal(tag(first.body, "og:image"), tag(second.body, "og:image"));
   assert.equal(first.body.includes("/object/sign/"), false);
 });
+
+test("card titles break at spaces when every chunk fits a line (TASK-20261017-002: no 「そ / して」 mid-word breaks)", async () => {
+  const { titleWordBreak } = await import("../api/_lib/og-card.mjs");
+  assert.deepEqual(titleWordBreak("『ドラゴンクエストIII そして伝説へ… (HD-2D版)』", 38, 460), { wordBreak: "keep-all" });
+  assert.deepEqual(titleWordBreak("ファイアーエムブレム聖戦の系譜", 38, 460), {});
+  assert.deepEqual(titleWordBreak("とてもとてもとてもとても長い題名の塊 です", 46, 300), {});
+});
+
+test("hyphens between letters/digits in card titles do not break (HD-2D)", async () => {
+  const { titleText } = await import("../api/_lib/og-card.mjs");
+  assert.equal(titleText("(HD-2D版)"), "(HD‑2D版)");
+  assert.equal(titleText("ー - ー"), "ー - ー");
+});

@@ -10,6 +10,8 @@ import {
   PREVIEW_META_URL,
   previewTarget,
   renderPreviewHtml,
+  RECORD_FONT_CSS,
+  RECORD_PAGE_CLASS,
   SHARE_VIEW_URL,
 } from "../api/_lib/share-preview.mjs";
 import { createSharePreviewHandler, UPSTREAM_TIMEOUT_MS } from "../api/share-preview.mjs";
@@ -407,6 +409,25 @@ test("r5: other link kinds never ask share-view and get no embed or banner", asy
     assert.equal(embedded(response.body), null);
     assert.equal(tag(response.body, "apple-itunes-app"), undefined);
   }
+});
+
+test("r6: a record page marks <html> and loads Noto Sans JP; other pages do not", async () => {
+  const up = upstreamFixture({ view: momentView() });
+  const response = await invoke(momentRequest, { fetchImpl: up.fetchImpl, metaUrl: META, viewUrl: VIEW });
+  assert.equal(RECORD_PAGE_CLASS, "pn-rec-page");
+  assert.ok(response.body.includes(`<html lang="ja" class="${RECORD_PAGE_CLASS}">`));
+  assert.equal(RECORD_FONT_CSS, "https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&display=swap");
+  assert.ok(response.body.includes(`<link rel="stylesheet" href="${escapeHtmlAttribute(RECORD_FONT_CSS)}">`));
+  assert.ok(response.body.includes('<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'));
+  // The font and the mark are inside <head>; the body is still the template body.
+  assert.ok(response.body.indexOf("fonts.googleapis.com") < response.body.indexOf("</head>"));
+  assert.equal(response.body.slice(response.body.indexOf("<body>")), template.slice(template.indexOf("<body>")));
+  const without = await invoke(momentRequest, { fetchImpl: upstreamFixture({ viewStatus: 404 }).fetchImpl, metaUrl: META, viewUrl: VIEW });
+  assert.ok(without.body.includes('<html lang="ja">'));
+  assert.equal(without.body.includes(RECORD_PAGE_CLASS), false);
+  assert.equal(without.body.includes("fonts.googleapis.com"), false);
+  const game = await invoke({ headers: { host: "links.playnavilab.com" }, query: { kind: "game", id: "42" } }, { fetchImpl: up.fetchImpl, metaUrl: META, viewUrl: VIEW });
+  assert.equal(game.body.includes(RECORD_PAGE_CLASS), false);
 });
 
 test("r5: share-view 404 / 5xx / time-out / wrong shape leave today's HTML byte for byte", async () => {

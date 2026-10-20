@@ -73,7 +73,7 @@ test("record page: the server embeds the content, Chrome shows it at once, masks
         return;
       }
       if (/^\/(?:assets\/[a-z0-9_.\/-]+|logo\.png)$/.test(url.pathname) && !url.pathname.includes("..")) {
-        response.setHeader("Content-Type", extname(url.pathname) === ".mjs" ? "text/javascript" : extname(url.pathname) === ".css" ? "text/css" : "image/png");
+        response.setHeader("Content-Type", { ".mjs": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".webp": "image/webp" }[extname(url.pathname)] ?? "image/png");
         response.end(await readFile(join(ROOT, url.pathname.slice(1))));
         return;
       }
@@ -105,6 +105,8 @@ test("record page: the server embeds the content, Chrome shows it at once, masks
   const context = async (options = {}) => {
     const ctx = await browser.newContext(options);
     await ctx.route(`${F}/**`, (route) => route.fulfill({ contentType: "image/png", body: png }));
+    // 書体 (Google Fonts) はここでは読まない (無くても端末の書体で描ける = display=swap)
+    await ctx.route(/^https:\/\/fonts\.(?:googleapis|gstatic)\.com\//, (route) => route.abort());
     // 本物のホスト名を手元の HTTP へ (Host は見本のヘッダで渡す)
     await ctx.route(/^https:\/\/(?:playnavi\.app|links\.playnavilab\.com)\//, async (route) => {
       const url = new URL(route.request().url());
@@ -128,16 +130,33 @@ test("record page: the server embeds the content, Chrome shows it at once, masks
     const view = page.locator("#share-view");
     const viewText = await view.innerText();
     check("game, author and date", viewText.includes("Elden Ring") && viewText.includes("あかり<b>") && viewText.includes("2026年10月20日"));
-    check("markup in the body stays text", (await page.locator(".share-text").innerText()) === "</script><script>alert(1)</script>" && await page.locator("#share-view script, #share-view b").count() === 0);
+    check("markup in the body stays text", (await page.locator(".pn-body").innerText()) === "</script><script>alert(1)</script>" && await page.locator("#share-view script, #share-view b").count() === 0);
     check("the embedded JSON did not break out of its script", await page.locator("script").count() === 2);
-    check("video plays in place", await page.locator("video[controls][playsinline][preload=metadata][poster]").count() === 1);
-    check("three photos", await page.locator("button.share-media-item img").count() === 3);
-    check("today's spinner text is hidden", !await page.locator("#heading").isVisible() && !await page.locator("#spinner").isVisible());
-    check("soft line under the store buttons", await page.locator("#share-soft").isVisible());
-    check("column is at most 640px wide", (await page.locator("#link-view").boundingBox()).width <= 640);
+    check("record page mark and Noto Sans JP stylesheet", await page.evaluate(() => document.documentElement.classList.contains("pn-rec-page")) && await page.locator('link[rel=stylesheet][href^="https://fonts.googleapis.com/css2?family=Noto+Sans+JP"]').count() === 1);
+    check("today's spinner text and card are hidden", !await page.locator("#heading").isVisible() && !await page.locator("#spinner").isVisible() && !await page.locator("#link-view > .logo").isVisible());
+    check("one slide per photo / video (4), a 1/4 counter and 4 dots", await page.locator(".pn-track > .pn-slide").count() === 4 && (await page.locator(".pn-counter").innerText()) === "1/4" && await page.locator(".pn-dot").count() === 4);
+    const frame = await page.locator(".pn-frame").boundingBox();
+    const details = await page.locator(".pn-details").boundingBox();
+    check("PC: media on the left (~60%), details on the right", frame.x < details.x && details.x > 1440 * 0.5 && frame.width > details.width);
+    check("PC: content is centred and at most the shell width", Math.abs((frame.x) - (1440 - details.x - details.width)) < 4);
+    check("frame ratio is reserved from the first sized photo (40x30 = 4:3)", Math.abs(frame.width / frame.height - 4 / 3) < 0.02);
     check("the browser never asks for the content (it is in the HTML)", !browserRequests.some((path) => path.includes("share-view") && !path.endsWith(".mjs")));
     check("smart banner for the canonical URL", await page.locator('meta[name="apple-itunes-app"]').getAttribute("content") === `app-id=6756201875, app-argument=${L}${PATHS.moment}`);
-    await page.locator("button.share-media-item").nth(1).click();
+    check("PC bottom bar shows the store badges, not the app button", await page.locator(".pn-bar .pn-bar-badges").isVisible() && await page.locator(".pn-bar-badges a").count() === 2 && !await page.locator("#primary-btn").isVisible() && !await page.locator(".pn-top-open").isVisible());
+    check("the bar is fixed to the bottom", Math.round((await page.locator(".pn-bar").boundingBox()).y + (await page.locator(".pn-bar").boundingBox()).height) === 900);
+    // 動画: 見本の住所は PNG を返す = 再生できない動画 (Q7)
+    await page.locator(".pn-track").focus();
+    await page.keyboard.press("ArrowRight");
+    await page.waitForFunction(() => document.querySelector(".pn-counter")?.textContent === "2/4");
+    check("arrow keys move the carousel", true);
+    await page.keyboard.press("ArrowLeft");
+    await page.waitForFunction(() => document.querySelector(".pn-counter")?.textContent === "1/4");
+    await page.locator(".pn-slide-video.is-unplayable").waitFor({ timeout: 5000 });
+    check("Q7: a broken video shows the poster, the message and an app link", (await page.locator(".pn-video-fail").innerText()).includes("このブラウザでは再生できません") && (await page.locator(".pn-video-fail-link").innerText()) === "アプリで見る" && await page.locator(".pn-video[poster]").count() === 1);
+    check("video plays in place: playsinline, no autoplay, no controls before start", await page.locator("video.pn-video[playsinline][preload=metadata]:not([autoplay]):not([muted])").count() === 1);
+    await page.locator(".pn-nav-next").click();
+    await page.waitForFunction(() => document.querySelector(".pn-counter")?.textContent === "2/4");
+    await page.locator(".pn-slide-photo").nth(1).click();
     await page.locator(".share-viewer").waitFor();
     check("viewer opens on the tapped photo", (await page.locator(".share-viewer-counter").innerText()) === "2 / 3");
     await page.keyboard.press("ArrowRight");
@@ -148,21 +167,22 @@ test("record page: the server embeds the content, Chrome shows it at once, masks
 
     page = await open(pc, `${L}${PATHS.spoiler}`);
     await page.locator("#share-view:not(.hidden)").waitFor();
-    check("spoiler hides text and photos", !(await page.locator("#share-view").innerText()).includes("ネタバレ本文") && await page.locator(".share-media").count() === 0);
+    check("spoiler hides text and blurs the media", !(await page.locator("#share-view").innerText()).includes("ネタバレ本文") && await page.locator(".pn-rec.is-spoiler .pn-track[inert]").count() === 1 && (await page.locator(".pn-track").evaluate((node) => getComputedStyle(node).filter)).includes("blur"));
     await page.getByRole("button", { name: "ネタバレを表示" }).click();
-    check("reveal shows them", (await page.locator("#share-view").innerText()).includes("ネタバレ本文") && await page.locator(".share-media img").count() === 1);
+    check("reveal shows them", (await page.locator("#share-view").innerText()).includes("ネタバレ本文") && await page.locator(".pn-track[inert]").count() === 0 && (await page.locator(".pn-track").evaluate((node) => getComputedStyle(node).filter)) === "none");
     await page.close();
 
     page = await open(pc, `${L}${PATHS.review}`);
     await page.locator("#share-view:not(.hidden)").waitFor();
     const reviewText = await page.locator("#share-view").innerText();
-    check("review status, satisfaction, comment, moments line", ["クリア", "8.5", "最高", "このプレイのモーメント 2 件はアプリで"].every((s) => reviewText.includes(s)));
+    check("review status, satisfaction, comment, moments line", ["さんのレビュー", "クリア", "8.5", "/ 10", "最高", "このプレイのモーメント 2 件はアプリで"].every((s) => reviewText.includes(s)));
+    check("satisfaction bar is 85%", Math.round((await page.locator(".pn-score-fill").boundingBox()).width / (await page.locator(".pn-score-bar").boundingBox()).width * 100) === 85);
     await page.close();
 
     page = await open(pc, `${L}/game/42?logId=${LOG.replace("abc", "000")}`);
     await page.getByText("PlayNaviでリンクを開く", { exact: true }).waitFor();
     await page.waitForTimeout(300);
-    check("share-view 404 keeps today's page", await page.locator("#share-view").isHidden() && await page.locator("#store-buttons").isVisible() && await page.locator("#share-soft").isHidden() && await page.locator("#pn-share-view").count() === 0);
+    check("share-view 404 keeps today's page", await page.locator("#share-view").isHidden() && await page.locator("#store-buttons").isVisible() && await page.locator("#share-soft").isHidden() && await page.locator("#pn-share-view").count() === 0 && !await page.evaluate(() => document.documentElement.classList.contains("pn-rec-page")));
     await page.close();
 
     const before = upstream.length;
@@ -174,6 +194,12 @@ test("record page: the server embeds the content, Chrome shows it at once, masks
     check("a game link does not load the share-view module", !browserRequests.slice(beforeBrowser).includes("/assets/share-view.mjs"));
     await page.close();
     await pc.close();
+
+    const dark = await context({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+    page = await open(dark, `${L}${PATHS.review}`);
+    await page.locator("#share-view:not(.hidden)").waitFor();
+    check("dark mode uses the Web v2 dark colours", await page.evaluate(() => getComputedStyle(document.body).backgroundColor) === "rgb(11, 12, 14)" && await page.locator(".pn-logo-dark").isVisible() && !await page.locator(".pn-logo-light").isVisible());
+    await dark.close();
 
     // /s/<code>: 中身はすぐ出て、今までどおり 50 ms 後に正規の住所へ移る (正規の住所でも中身が出る)
     const short = await context({ viewport: { width: 1440, height: 900 } });
@@ -195,10 +221,16 @@ test("record page: the server embeds the content, Chrome shows it at once, masks
       const mobile = await context({ userAgent, viewport: { width: 390, height: 844 }, isMobile: true });
       page = await open(mobile, `${L}${PATHS.moment}`, "commit");
       await page.locator("#share-view:not(.hidden)").waitFor();
-      check(`${userAgent} keeps the app button`, await page.locator("#primary-btn").getAttribute("href") === (userAgent === "iPhone" ? `https://playnavi-links.vercel.app${PATHS.moment}` : `playnavi:/${PATHS.moment}`));
-      check(`${userAgent} app button is below the content`, (await page.locator("#primary-btn").boundingBox()).y > (await page.locator(".share-media").boundingBox()).y);
-      await page.locator("#store-buttons:not(.hidden)").waitFor({ timeout: 4000 });
-      check(`${userAgent} store buttons appear under the content after 2 s`, (await page.locator("#store-buttons").boundingBox()).y > (await page.locator(".share-media").boundingBox()).y);
+      const appHref = userAgent === "iPhone" ? `https://playnavi-links.vercel.app${PATHS.moment}` : `playnavi:/${PATHS.moment}`;
+      check(`${userAgent} keeps the app button`, await page.locator("#primary-btn").getAttribute("href") === appHref);
+      check(`${userAgent} app button is in the fixed bottom bar`, await page.locator(".pn-bar #primary-btn").isVisible() && Math.round((await page.locator(".pn-bar").boundingBox()).y + (await page.locator(".pn-bar").boundingBox()).height) === 844);
+      check(`${userAgent} top pill opens the same place`, await page.locator(".pn-top-open").isVisible() && await page.locator(".pn-top-open").getAttribute("href") === appHref);
+      const hero = await page.locator(".pn-frame").boundingBox();
+      check(`${userAgent} media is full width right under the thin header`, hero.x === 0 && hero.width === 390 && Math.abs(hero.y - (await page.locator(".pn-top").boundingBox()).height) < 2);
+      check(`${userAgent} media first, then author, game and text`, hero.y < (await page.locator(".pn-author").boundingBox()).y && (await page.locator(".pn-author").boundingBox()).y < (await page.locator(".pn-game").boundingBox()).y && (await page.locator(".pn-game").boundingBox()).y < (await page.locator(".pn-text").boundingBox()).y);
+      check(`${userAgent} no PC arrow buttons on the phone`, !await page.locator(".pn-nav-next").isVisible());
+      await page.waitForTimeout(2300);
+      check(`${userAgent} today's store buttons stay hidden; the page's own badge is under the content`, !await page.locator("#store-buttons").isVisible() && await page.locator(".pn-foot-badges a").count() === 1 && await page.locator(".pn-foot-badges a").getAttribute("href") === (userAgent === "iPhone" ? "https://apps.apple.com/jp/app/playnavi/id6756201875" : "https://play.google.com/store/apps/details?id=com.playnavilab.playnavi.app"));
       check(`${userAgent} content is still on screen after the launch attempt`, await page.locator("#share-view").isVisible() && !await page.locator("#heading").isVisible());
       check(`${userAgent} has no horizontal overflow`, await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
       await mobile.close();

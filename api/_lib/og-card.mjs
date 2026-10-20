@@ -192,7 +192,8 @@ export function cardText(large) {
     if (large.excerpt !== undefined) parts.push(large.excerpt);
   }
   if (large.layout === "moment") parts.push(large.heading, large.title, "『』", large.excerpt ?? "", MOMENT_SPOILER);
-  if (isR3(large)) parts.push(chipText(large), "›:");
+  // \u2011 = 題名の折れないハイフン (titleText)
+  if (isR3(large)) parts.push(chipText(large), "›:", "\u2011");
   if (large.layout === "profile") parts.push(large.name);
   if (large.layout === "grid") parts.push(large.title, large.subtitle, large.description ?? "");
   if (large.layout === "diagnosis") {
@@ -812,6 +813,20 @@ function rightColumn(left, width, ...children) {
   );
 }
 
+// 題名の折り返し (TASK-20261017-002 10/20): 日本語は既定だとどの字の間でも折れ、「そ / して伝説へ」のように語の途中で切れる。
+// 空白で区切った塊がどれも 1 行に収まる時だけ、空白の所で折る (keep-all)。収まらない塊がある時は今まで通り
+export function titleWordBreak(text, fontSize, width) {
+  const parts = String(text).split(/\s+/).filter(Boolean);
+  if (parts.length < 2) return {};
+  const longest = Math.max(...parts.map((part) => [...part].reduce((w, ch) => w + (ch.charCodeAt(0) < 0x2e80 ? 0.6 : 1), 0)));
+  return longest * fontSize <= width ? { wordBreak: "keep-all" } : {};
+}
+
+// 英数字の間のハイフン (HD-2D など) で折れないよう、折れないハイフン (U+2011) に置き換えて描く
+export function titleText(text) {
+  return String(text).replace(/([0-9A-Za-z])-(?=[0-9A-Za-z])/g, "$1\u2011");
+}
+
 function momentCardR3(large, images, assets) {
   const media = large.media ?? [];
   let left;
@@ -845,7 +860,8 @@ function momentCardR3(large, images, assets) {
       colWidth,
       div({ fontSize: 28, color: "#E2E8F0", fontWeight: 700, maxWidth: colWidth, ...ELLIPSIS }, large.heading),
       div({ display: "block", fontSize: large.title.length > 14 ? 38 : 46, lineHeight: 1.3, color: "#FFFFFF",
-        fontWeight: 900, marginTop: 14, maxWidth: colWidth, overflow: "hidden", lineClamp: 3 }, `『${large.title}』`),
+        fontWeight: 900, marginTop: 14, maxWidth: colWidth, overflow: "hidden", lineClamp: 3,
+        ...titleWordBreak(`『${large.title}』`, large.title.length > 14 ? 38 : 46, colWidth) }, titleText(`『${large.title}』`)),
       chip(large, colWidth),
     ),
   );
@@ -880,7 +896,8 @@ function gameCardR3(large, images, assets) {
         ? div({ fontSize: 28, color: "#E2E8F0", fontWeight: 700, maxWidth: colWidth, ...ELLIPSIS }, large.heading)
         : null,
       div({ display: "block", fontSize: large.title.length > 14 ? 38 : 48, lineHeight: 1.25, color: "#FFFFFF",
-        fontWeight: 900, marginTop: 12, maxWidth: colWidth, overflow: "hidden", lineClamp: 2 }, large.title),
+        fontWeight: 900, marginTop: 12, maxWidth: colWidth, overflow: "hidden", lineClamp: 2,
+        ...titleWordBreak(large.title, large.title.length > 14 ? 38 : 48, colWidth) }, titleText(large.title)),
       large.score !== undefined ? scoreBadge(large.score) : null,
       chip(large, colWidth),
     ),

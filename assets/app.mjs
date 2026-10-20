@@ -130,12 +130,15 @@ function manualHrefForCanonical(target) {
 // 埋め込みが無い時は部品を読み込まない。部品が読めない・中身が壊れている時は今の画面のまま
 async function showShareView(target) {
   if (!document.getElementById("pn-share-view")) return;
+  let drawn = false;
   try {
     const { startShareView } = await import("./share-view.mjs");
-    startShareView(target);
+    drawn = startShareView(target);
   } catch {
     // 記録の中身は付け足し。失敗してもリンクを開く画面は変えない
   }
+  // r6: サーバが付けた記録のページの印 (色・並び) は、描けなかった時に外して今の画面に戻す
+  if (!drawn) document.documentElement.classList.remove("pn-rec-page");
 }
 
 function openCanonicalTarget(target) {

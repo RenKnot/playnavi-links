@@ -3,11 +3,17 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
+  APP_STORE_URL,
   buildShareView,
+  detectPlatform,
   EMBED_ID,
   formatJstDate,
   hasMaskedContent,
+  heroRatio,
   isShareViewTarget,
+  OPEN_IN_APP,
+  PAGE_CLASS,
+  PLAY_STORE_URL,
   safeUrl,
   scoreText,
   readEmbeddedShareView,
@@ -15,6 +21,9 @@ import {
   SOFT_LINE,
   SPOILER_BUTTON,
   startShareView,
+  syncAppLinks,
+  UNPLAYABLE_TEXT,
+  videoMime,
 } from "../assets/share-view.mjs";
 import { canonicalTargetFromPath } from "../assets/link-routing.mjs";
 
@@ -27,7 +36,9 @@ class FakeNode {
     this.attributes = {};
     this.listeners = {};
     this.dataset = {};
-    this.style = {};
+    const style = {};
+    style.setProperty = (name, value) => { style[name] = value; };
+    this.style = style;
     this.className = "";
     this.textContent = "";
     this.parent = null;
@@ -41,7 +52,11 @@ class FakeNode {
   append(...nodes) { for (const node of nodes) { node.parent = this; this.children.push(node); } }
   replaceChildren(...nodes) { this.children = []; this.append(...nodes); }
   remove() { if (this.parent) this.parent.children = this.parent.children.filter((c) => c !== this); this.parent = null; }
+  prepend(...nodes) { for (const node of nodes) { node.remove(); node.parent = this; } this.children.unshift(...nodes); }
   setAttribute(name, value) { this.attributes[name] = String(value); }
+  removeAttribute(name) { delete this.attributes[name]; }
+  hasAttribute(name) { return name in this.attributes; }
+  querySelector(selector) { return this.byClass(selector.replace(/^\./, ""))[0] ?? null; }
   getAttribute(name) { return this.attributes[name] ?? null; }
   addEventListener(type, fn) { (this.listeners[type] ??= []).push(fn); }
   removeEventListener() {}
@@ -55,7 +70,7 @@ class FakeNode {
   text() { return [...this.walk()].map((node) => node.textContent).filter(Boolean).join("\n"); }
 }
 
-function fakeDocument(ids = []) {
+function fakeDocument(ids = [], { canPlay = () => "maybe" } = {}) {
   const byId = new Map(ids.map(([id, className]) => {
     const node = new FakeNode("div");
     node.className = className;
@@ -63,7 +78,12 @@ function fakeDocument(ids = []) {
   }));
   return {
     body: new FakeNode("body"),
-    createElement: (tag) => new FakeNode(tag),
+    documentElement: new FakeNode("html"),
+    createElement: (tag) => {
+      const node = new FakeNode(tag);
+      if (tag === "video") node.canPlayType = canPlay;
+      return node;
+    },
     getElementById: (id) => byId.get(id) ?? null,
     addEventListener() {},
     removeEventListener() {},
@@ -129,22 +149,28 @@ test("the view model keeps only https media and known fields", () => {
   const moment = shareModel(ok(MOMENT_VIEW));
   assert.equal(moment.kind, "moment");
   assert.equal(moment.kindLabel, "あかりさんのモーメント");
+  assert.equal(moment.kindSuffix, "さんのモーメント");
+  assert.equal(moment.appUrl, MOMENT_VIEW.app_url);
   assert.equal(moment.dateText, "2026年10月21日");
   assert.equal(moment.title, "ついに倒した");
   assert.deepEqual(moment.media.map((item) => item.kind), ["video", "image", "image"]);
   assert.equal(moment.media[0].durationText, "1:23");
+  assert.equal(moment.media[0].mime, "video/mp4");
   assert.match(moment.media[0].posterUrl, /^https:/);
 
   const review = shareModel(ok(REVIEW_VIEW));
-  assert.equal(review.kindLabel, "あかりさんのプレイ記録");
+  assert.equal(review.kindLabel, "あかりさんのレビュー");
   assert.equal(review.statusLabel, "クリア");
   assert.equal(review.scoreText, "9.5");
+  assert.equal(review.score, 9.5);
   assert.equal(review.momentsLine, "このプレイのモーメント 3 件はアプリで");
   assert.equal(shareModel(ok({ ...REVIEW_VIEW, moments_count: 0 })).momentsLine, null);
   assert.equal(shareModel(ok({ ...REVIEW_VIEW, status: "want_to_play" })).statusLabel, null);
+  assert.equal(shareModel(ok({ ...REVIEW_VIEW, score: 12 })).score, null);
 
   const unsafe = shareModel(ok({
     ...MOMENT_VIEW,
+    app_url: "javascript:alert(1)",
     game: { ...MOMENT_VIEW.game, cover_url: "javascript:alert(1)" },
     author: { display_name: "  ", avatar_url: "http://example.com/a.png" },
     media: [
@@ -153,6 +179,7 @@ test("the view model keeps only https media and known fields", () => {
       { kind: "image", url: `${STORAGE}/game-log-media-private/ok.jpg?token=x` },
     ],
   }));
+  assert.equal(unsafe.appUrl, null);
   assert.equal(unsafe.game.coverUrl, null);
   assert.equal(unsafe.author.avatarUrl, null);
   assert.equal(unsafe.author.name, "ユーザー");
@@ -165,47 +192,116 @@ test("the view model keeps only https media and known fields", () => {
   ]) assert.equal(shareModel(bad), null, JSON.stringify(bad));
 });
 
-test("the page is built with text nodes only and puts the content in order", async () => {
+test("r6: the media frame ratio is fixed before loading and kept between 4:5 and 16:9", () => {
+  assert.equal(heroRatio([{ kind: "image", width: 1200, height: 900 }]), 4 / 3);
+  assert.equal(heroRatio([{ kind: "image", width: 1080, height: 1920 }]), 4 / 5, "tall photos are clamped to 4:5");
+  assert.equal(heroRatio([{ kind: "image", width: 3000, height: 1000 }]), 16 / 9, "panoramas are clamped to 16:9");
+  assert.equal(heroRatio([{ kind: "video", width: null, height: null }, { kind: "image", width: 1000, height: 1000 }]), 1, "first item with a size wins");
+  assert.equal(heroRatio([{ kind: "video", width: null, height: null }]), 16 / 9, "a video without a size is a 16:9 game capture");
+  assert.equal(heroRatio([{ kind: "image", width: null, height: null }]), 1);
+  assert.equal(videoMime(`${STORAGE}/game-log-video-private/v.mp4?token=a`), "video/mp4");
+  assert.equal(videoMime(`${STORAGE}/game-log-video-private/IMG_0001.MOV?token=a`), "video/quicktime");
+  assert.equal(detectPlatform("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)"), "ios");
+  assert.equal(detectPlatform("Mozilla/5.0 (Linux; Android 14)"), "android");
+  assert.equal(detectPlatform("Mozilla/5.0 (Windows NT 10.0)"), "other");
+});
+
+test("the page is built with text nodes only and puts media first, then author, game and text", async () => {
   const doc = fakeDocument();
   const root = buildShareView(doc, shareModel(ok(MOMENT_VIEW)));
   const text = root.text();
-  for (const piece of ["あかりさんのモーメント", "ゼルダの伝説", "あかり", "2026年10月21日", "ついに倒した", "<img src=x onerror=alert(1)>\n2 行目", "1:23"]) {
+  for (const piece of ["あかり", "さんのモーメント", "ゼルダの伝説", "2026年10月21日", "ついに倒した", "<img src=x onerror=alert(1)>\n2 行目", "1:23", "アプリで開く"]) {
     assert.ok(text.includes(piece), piece);
   }
+  // Order: thin header -> media -> author -> game -> text.
+  const order = ["pn-top", "pn-hero", "pn-author", "pn-game", "pn-text", "pn-bar"].map((name) => [...root.walk()].indexOf(root.byClass(name)[0]));
+  assert.deepEqual([...order].sort((a, b) => a - b), order, JSON.stringify(order));
+  assert.ok(order.every((index) => index > 0));
   // The body's markup-looking text stays text (no element was made from it).
-  assert.equal(root.all((node) => node.tagName === "IMG").length, 2 + 1, "cover + 2 photos");
+  assert.equal(root.byClass("pn-photo").length, 2);
+  assert.equal(root.byClass("pn-slide").length, 3, "one slide per photo / video, no tiles");
+  assert.equal(root.byClass("pn-hero")[0].style["--pn-ratio"], String(Number((4 / 3).toFixed(4))), "the first photo with a size (1200x900)");
+  assert.equal(root.byClass("pn-counter")[0].textContent, "1/3");
+  assert.equal(root.byClass("pn-dot").length, 3);
   const video = root.all((node) => node.tagName === "VIDEO")[0];
-  assert.equal(video.controls, true);
+  assert.equal(video.controls, undefined, "no controls until the reader starts it");
+  assert.equal(video.autoplay, undefined, "no muted autoplay");
   assert.equal(video.preload, "metadata");
   assert.equal(video.getAttribute("playsinline"), "");
   assert.match(video.poster, /p\.jpg/);
   assert.match(video.src, /game-log-video-private\/v\.mp4/);
+  // Big play button: a real <button> with the length in its name.
+  const play = root.byClass("pn-play")[0];
+  assert.equal(play.tagName, "BUTTON");
+  assert.equal(play.getAttribute("aria-label"), "動画を再生 (1:23)");
+  let played = 0;
+  video.play = () => { played += 1; return Promise.resolve(); };
+  play.click();
+  assert.equal(played, 1);
+  assert.equal(video.controls, true, "controls after start");
+  assert.equal(play.hidden, true);
   const source = await readFile(new URL("../assets/share-view.mjs", import.meta.url), "utf8");
   assert.doesNotMatch(source, /innerHTML|insertAdjacentHTML|outerHTML|document\.write/);
+  assert.doesNotMatch(source, /\.muted\s*=|autoplay/);
 });
 
-test("a review shows status, satisfaction, the comment, photos and the moments line", () => {
+test("r6 Q7: a video the browser cannot play shows the poster, the message and an app link", () => {
+  // canPlayType says no (e.g. the iPhone .mov original before re-encoding)
+  const mov = { ...MOMENT_VIEW, media: [{ ...MOMENT_VIEW.media[0], url: `${STORAGE}/game-log-video-private/IMG_1.MOV?token=a` }] };
+  const asked = [];
+  const doc = fakeDocument([], { canPlay: (mime) => { asked.push(mime); return mime === "video/quicktime" ? "" : "maybe"; } });
+  const root = buildShareView(doc, shareModel(ok(mov)));
+  assert.deepEqual(asked, ["video/quicktime"]);
+  const slide = root.byClass("pn-slide-video")[0];
+  assert.ok(slide.classList.contains("is-unplayable"));
+  assert.equal(root.all((node) => node.tagName === "VIDEO")[0].src, undefined, "nothing is downloaded");
+  assert.match(root.all((node) => node.tagName === "VIDEO")[0].poster, /p\.jpg/);
+  assert.ok(root.text().includes(UNPLAYABLE_TEXT));
+  const link = root.byClass("pn-video-fail-link")[0];
+  assert.equal(link.textContent, OPEN_IN_APP);
+  assert.equal(link.href, MOMENT_VIEW.app_url);
+
+  // A load error (bad file) does the same, once.
+  const broken = buildShareView(fakeDocument(), shareModel(ok(MOMENT_VIEW)));
+  const video = broken.all((node) => node.tagName === "VIDEO")[0];
+  for (const fn of video.listeners.error) fn({});
+  for (const fn of video.listeners.error) fn({});
+  assert.equal(broken.byClass("pn-video-fail").length, 1);
+  assert.equal(broken.byClass("pn-play")[0].hidden, true);
+});
+
+test("a review shows status, the big satisfaction with a bar, the comment, photos and the moments line", () => {
   const root = buildShareView(fakeDocument(), shareModel(ok(REVIEW_VIEW)));
   const text = root.text();
-  for (const piece of ["あかりさんのプレイ記録", "クリア", "満足度", "9.5", "/10", "最高でした", "このプレイのモーメント 3 件はアプリで"]) {
+  for (const piece of ["さんのレビュー", "クリア", "満足度", "9.5", " / 10", "最高でした", "このプレイのモーメント 3 件はアプリで"]) {
     assert.ok(text.includes(piece), piece);
   }
-  assert.equal(root.byClass("share-media-item").length, 1);
-  assert.ok(root.byClass("share-avatar")[0].src.startsWith("https://"));
+  assert.ok(root.byClass("pn-status")[0].classList.contains("pn-status-completed"));
+  assert.equal(root.byClass("pn-score")[0].getAttribute("aria-label"), "満足度 9.5 / 10");
+  assert.equal(root.byClass("pn-score-fill")[0].style["--pn-score"], "95%");
+  assert.equal(root.byClass("pn-slide").length, 1);
+  assert.equal(root.byClass("pn-counter").length, 0, "no counter / dots for one photo");
+  assert.ok(root.byClass("pn-avatar")[0].src.startsWith("https://"));
 });
 
-test("a spoiler hides the text and every photo / video until the reader asks", () => {
+test("r6 Q5: a spoiler blurs the media, leaves the text out, and one button reveals both", () => {
   const root = buildShareView(fakeDocument(), shareModel(ok({ ...MOMENT_VIEW, spoiler: true })));
+  assert.ok(root.classList.contains("is-spoiler"));
   assert.equal(root.text().includes("ついに倒した"), false);
   assert.equal(root.text().includes("2 行目"), false);
-  assert.equal(root.all((node) => node.tagName === "VIDEO").length, 0);
-  assert.equal(root.byClass("share-media").length, 0);
-  const button = root.all((node) => node.textContent === SPOILER_BUTTON)[0];
-  assert.ok(button, "the reveal button");
-  button.click();
+  assert.ok(root.byClass("pn-track")[0].hasAttribute("inert"), "blurred media cannot be played or opened");
+  const buttons = root.all((node) => node.textContent === SPOILER_BUTTON);
+  assert.equal(buttons.length, 1, "one button");
+  assert.equal(buttons[0].tagName, "BUTTON");
+  buttons[0].click();
   assert.ok(root.text().includes("ついに倒した"));
-  assert.equal(root.all((node) => node.tagName === "VIDEO").length, 1);
-  assert.equal(root.byClass("share-spoiler").length, 0);
+  assert.equal(root.classList.contains("is-spoiler"), false);
+  assert.equal(root.byClass("pn-track")[0].hasAttribute("inert"), false);
+  assert.equal(root.byClass("pn-spoiler-cover").length + root.byClass("pn-spoiler-text").length, 0);
+
+  // Text only: the button sits where the text would be.
+  const textOnly = buildShareView(fakeDocument(), shareModel(ok({ ...MOMENT_VIEW, spoiler: true, media: [] })));
+  assert.equal(textOnly.byClass("pn-spoiler-text")[0].all((node) => node.textContent === SPOILER_BUTTON).length, 1);
 
   const review = buildShareView(fakeDocument(), shareModel(ok({ ...REVIEW_VIEW, spoiler: true })));
   assert.ok(review.text().includes("9.5"), "the satisfaction is not a spoiler");
@@ -213,15 +309,39 @@ test("a spoiler hides the text and every photo / video until the reader asks", (
   // Nothing to hide = no button.
   const empty = shareModel(ok({ ...REVIEW_VIEW, spoiler: true, comment: null, media: [] }));
   assert.equal(hasMaskedContent(empty), false);
-  assert.equal(buildShareView(fakeDocument(), empty).byClass("share-spoiler").length, 0);
+  const emptyRoot = buildShareView(fakeDocument(), empty);
+  assert.equal(emptyRoot.all((node) => node.textContent === SPOILER_BUTTON).length, 0);
+  assert.equal(emptyRoot.classList.contains("is-spoiler"), false);
 });
 
 test("tapping a photo opens the viewer on that photo (videos are not in the viewer)", () => {
   const opened = [];
   const root = buildShareView(fakeDocument(), shareModel(ok(MOMENT_VIEW)), { onOpen: (images, index) => opened.push([images.length, index]) });
-  const buttons = root.byClass("share-media-item").filter((node) => node.tagName === "BUTTON");
-  buttons[1].click();
+  const photos = root.byClass("pn-slide-photo");
+  assert.ok(photos.every((node) => node.tagName === "BUTTON"));
+  assert.equal(photos[1].getAttribute("aria-label"), "写真 2 / 2 を大きく表示");
+  photos[1].click();
   assert.deepEqual(opened, [[2, 1]]);
+});
+
+test("r6 Q3: store badges follow the platform; app links follow app.mjs's open button", () => {
+  const badges = (platform) => buildShareView(fakeDocument(), shareModel(ok(MOMENT_VIEW)), { platform })
+    .byClass("pn-foot-badges")[0].all((node) => node.tagName === "A").map((node) => node.href);
+  assert.deepEqual(badges("ios"), [APP_STORE_URL]);
+  assert.deepEqual(badges("android"), [PLAY_STORE_URL]);
+  assert.deepEqual(badges("other"), [APP_STORE_URL, PLAY_STORE_URL]);
+
+  const root = buildShareView(fakeDocument(), shareModel(ok(MOMENT_VIEW)), { platform: "ios" });
+  const primary = new FakeNode("a");
+  primary.className = "button primary";
+  primary.setAttribute("href", "https://playnavi-links.vercel.app/game/42");
+  syncAppLinks(root, primary, MOMENT_VIEW.app_url);
+  assert.equal(root.dataset.app, "on");
+  assert.equal(root.byClass("pn-top-open")[0].href, "https://playnavi-links.vercel.app/game/42");
+  primary.classList.add("hidden");
+  syncAppLinks(root, primary, MOMENT_VIEW.app_url);
+  assert.equal(root.dataset.app, "off", "PC / while resolving: the bar shows the stores instead");
+  assert.equal(root.byClass("pn-top-open")[0].href, MOMENT_VIEW.app_url);
 });
 
 function embed(doc, text) {
@@ -253,10 +373,26 @@ test("startShareView fills the page from the embedded JSON and leaves today's pa
   const target = canonicalTargetFromPath(MOMENT_VIEW.canonical_path);
 
   const doc = embed(fakeDocument(ids), JSON.stringify(ok(MOMENT_VIEW)));
-  assert.equal(startShareView(target, { doc }), true);
+  // app.mjs's buttons live in #link-view; the page moves them into the bottom bar (same elements).
+  const actions = new FakeNode("div");
+  actions.className = "actions";
+  const primary = new FakeNode("a");
+  primary.className = "button primary";
+  primary.setAttribute("href", "playnavi://game/42");
+  actions.append(primary);
+  doc.byId.get("link-view").append(actions);
+  doc.byId.set("primary-btn", primary);
+  assert.equal(startShareView(target, { doc, userAgent: "Android" }), true);
   assert.equal(doc.byId.get("share-view").classList.contains("hidden"), false);
   assert.equal(doc.byId.get("link-view").classList.contains("has-share"), true);
   assert.equal(doc.byId.get("share-soft").classList.contains("hidden"), false);
+  assert.ok(doc.documentElement.classList.contains(PAGE_CLASS));
+  const root = doc.byId.get("share-view").children[0];
+  assert.equal(root.dataset.platform, "android");
+  assert.equal(actions.parent, root.byClass("pn-bar-slot")[0], "the open button sits in the bottom bar");
+  assert.equal(doc.byId.get("share-soft").parent, root.byClass("pn-foot")[0]);
+  assert.equal(root.dataset.app, "on");
+  assert.equal(root.byClass("pn-top-open")[0].href, "playnavi://game/42");
 
   // /s/<code>: the type is decided by the server, so the page passes null.
   const short = embed(fakeDocument(ids), JSON.stringify(ok(REVIEW_VIEW)));
@@ -294,4 +430,7 @@ test("index.html carries the share containers and the soft line; the app module 
   assert.match(app, /window\.location\.href = target\.schemeUrl;/);
   assert.match(app, /const LAUNCH_TIMEOUT_MS = 2000;/);
   assert.match(app, /window\.setTimeout\(\(\) => window\.location\.replace\(target\.canonicalUrl\), 50\);/);
+  // r6: when the page cannot be drawn, the server's record-page mark is removed (= today's page)
+  assert.match(app, /drawn = startShareView\(target\);/);
+  assert.match(app, /if \(!drawn\) document\.documentElement\.classList\.remove\("pn-rec-page"\);/);
 });
