@@ -461,7 +461,7 @@ test("an old links site shape (no moment layout) still gets a small card from a 
 
 // ---------------------------------------------------------------- TASK-20261017-002 r3 (V1/V2)
 
-const { chipText, collageSlots, drawsUserPhotos, formatDuration, isR3, reviewSlots, toJpeg, JPEG_MAX_BYTES, SAFE_BOTTOM, H: CARD_H } =
+const { authorName, chipText, collageSlots, drawsUserPhotos, formatDuration, hintText, isR3, kindSuffix, toJpeg, JPEG_MAX_BYTES, W: CARD_W, H: CARD_H } =
   await import("../api/_lib/og-card.mjs");
 const signed = (name, token = "t") => `https://${STORAGE}/storage/v1/object/sign/game-log-media-private/u/memories/m/${name}?token=${token}`;
 const image = (name, token) => ({ kind: "image", url: signed(name, token) });
@@ -534,8 +534,8 @@ test("r3: the image version ignores media signatures but follows the stored obje
   assert.doesNotMatch(JSON.stringify(a), /token/);
 });
 
-test("r3: collage and review slots tile their box without overlap", () => {
-  const box = { w: 640, h: 500 };
+test("r7: the collage fills the whole card (the poster's photos edge to edge) without overlap", () => {
+  const box = { w: CARD_W, h: CARD_H };
   for (const count of [1, 2, 3, 4]) {
     const slots = collageSlots(count);
     assert.equal(slots.length, count);
@@ -550,13 +550,31 @@ test("r3: collage and review slots tile their box without overlap", () => {
       }
     }
   }
-  assert.deepEqual(collageSlots(1), [{ x: 0, y: 0, w: 640, h: 500 }]);
-  assert.equal(collageSlots(3)[0].h, 500, "3 = one large + two stacked");
+  assert.deepEqual(collageSlots(1), [{ x: 0, y: 0, w: 1200, h: 630 }]);
+  assert.equal(collageSlots(3)[0].h, 630, "3 = one large + two stacked");
   assert.equal(collageSlots(3)[1].x, collageSlots(3)[2].x);
   assert.equal(new Set(collageSlots(4).map((slot) => slot.w)).size, 1, "4 = 2x2");
-  assert.deepEqual(reviewSlots(3).length, 3);
-  // The collage (top 40 + 500) ends above X's bottom-left title band.
-  assert.ok(40 + 500 <= CARD_H - SAFE_BOTTOM);
+});
+
+test("r7 P3/P4: the poster is the hero — author name / icon are validated, the old heading still gives the name", () => {
+  const avatar = `https://${STORAGE}/storage/v1/object/public/avatars/hinata.png`;
+  const moment = validLarge({ ...R3_MOMENT, author_name: " Hinata ", author_avatar_url: avatar });
+  assert.equal(moment.author_name, "Hinata");
+  assert.equal(moment.author_avatar_url, avatar);
+  assert.equal(authorName(moment), "Hinata");
+  assert.equal(kindSuffix(moment), "のモーメント");
+  const review = validLarge({ ...R3_REVIEW, author_name: "Ao", author_avatar_url: "https://evil.example/a.png" });
+  assert.equal(review.author_avatar_url, null, "a disallowed icon host is dropped, not fatal");
+  assert.equal(kindSuffix(review), "のレビュー");
+  // Without author_name (older edge function) the keys stay out (same version hash) and the name comes from the heading.
+  assert.equal("author_name" in validLarge(R3_MOMENT), false);
+  assert.equal(largeVersion(validLarge({ ...R3_MOMENT, author_name: 7 })), largeVersion(validLarge(R3_MOMENT)));
+  assert.equal(authorName(validLarge({ ...R3_MOMENT, heading: "ひなたさんのモーメント" })), "ひなた");
+  assert.equal(authorName(validLarge({ ...R3_REVIEW, heading: "あおさんのプレイ記録" })), "あお");
+  assert.equal(authorName(validLarge({ ...R3_REVIEW, heading: null })), "ユーザー");
+  // The hint is quiet text, not a chip.
+  assert.equal(hintText(validLarge(R3_MOMENT)), "タップして見る · 動画 1・写真 3・全文 ›");
+  for (const ch of "Hinataのモーメント満足度/10·›") assert.ok(cardText(moment).includes(ch), ch);
 });
 
 test("r3: the chip says what is behind the tap", () => {
@@ -606,6 +624,8 @@ for (const [name, large, type] of [
   ["spoiler moment", { ...R3_MOMENT, spoiler: true }, "image/png"],
   ["review without photos", { ...R3_REVIEW, media: [], counts: { photos: 0, videos: 0, text: true } }, "image/png"],
   ["text-only moment", { ...R3_MOMENT, photo_url: null, media: [], counts: { photos: 0, videos: 0, text: true } }, "image/png"],
+  ["r7 moment with the poster's icon", { ...R3_MOMENT, author_name: "Ao", author_avatar_url: AVATAR }, "image/jpeg"],
+  ["r7 text-only review with the poster's icon", { ...R3_REVIEW, media: [], counts: { photos: 0, videos: 0, text: true }, author_name: "Ao", author_avatar_url: AVATAR }, "image/png"],
 ]) {
   test(`r3: a ${name} card renders a 1200x630 ${type} within the size bound`, async () => {
     const { fetchImpl, seen } = r3Upstream(large);

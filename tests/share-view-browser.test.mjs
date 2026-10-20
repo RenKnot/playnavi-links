@@ -38,6 +38,16 @@ const VIEWS = {
       { kind: "image", url: `${F}/2.png`, width: 40, height: 30 },
       { kind: "image", url: `${F}/3.png`, width: 30, height: 40 },
     ],
+    // r7 P2: このプレイの記録
+    story: {
+      review: { status: "completed", score: 8.5, comment: "親のレビューの感想", spoiler: false, date: "2026-10-19T06:00:00Z" },
+      moments: [
+        { memory_id: "abcdefab-cdef-cdef-cdef-abcdefab0003", title: "ほかの日", body: "ほかのモーメントの全文", date: "2026-10-18T06:00:00Z", spoiler: false,
+          thumb: { kind: "image", url: `${F}/t.png`, poster_url: null }, media_count: 2,
+          media: [{ kind: "image", url: `${F}/a.png`, width: 40, height: 30 }, { kind: "image", url: `${F}/b.png`, width: 40, height: 30 }] },
+      ],
+      moments_total: 1,
+    },
   },
   [PATHS.spoiler]: { ...base(PATHS.spoiler), kind: "moment", spoiler: true, title: "正体", body: "ネタバレ本文", media: [{ kind: "image", url: `${F}/1.png` }] },
   [PATHS.review]: {
@@ -141,9 +151,19 @@ test("record page: the server embeds the content, Chrome shows it at once, masks
     check("PC: content is centred and at most the shell width", Math.abs((frame.x) - (1440 - details.x - details.width)) < 4);
     check("frame ratio is reserved from the first sized photo (40x30 = 4:3)", Math.abs(frame.width / frame.height - 4 / 3) < 0.02);
     check("the browser never asks for the content (it is in the HTML)", !browserRequests.some((path) => path.includes("share-view") && !path.endsWith(".mjs")));
-    check("smart banner for the canonical URL", await page.locator('meta[name="apple-itunes-app"]').getAttribute("content") === `app-id=6756201875, app-argument=${L}${PATHS.moment}`);
-    check("PC bottom bar shows the store badges, not the app button", await page.locator(".pn-bar .pn-bar-badges").isVisible() && await page.locator(".pn-bar-badges a").count() === 2 && !await page.locator("#primary-btn").isVisible() && !await page.locator(".pn-top-open").isVisible());
-    check("the bar is fixed to the bottom", Math.round((await page.locator(".pn-bar").boundingBox()).y + (await page.locator(".pn-bar").boundingBox()).height) === 900);
+    check("r7: no Safari app banner", await page.locator('meta[name="apple-itunes-app"]').count() === 0);
+    check("r7: PlayNavi is only the small mark and the quiet end line (no pill, no fixed bar, no badges)", await page.locator(".pn-top-open, .pn-bar, .pn-foot, .pn-badges").count() === 0 && (await page.locator(".pn-logo").boundingBox()).width <= 90 && await page.locator("#share-view img[src*=badge]").count() === 0);
+    check("r7: PC end line has the small store text links, not the app button", await page.locator(".pn-end-stores a").count() === 2 && await page.locator(".pn-end-stores").isVisible() && !await page.locator("#primary-btn").isVisible() && await page.evaluate(() => getComputedStyle(document.querySelector(".pn-end")).position) === "static");
+    // r7 P2: このプレイの記録 — 親のレビュー + ほかのモーメント。押すとその場で開く
+    check("r7: the story shows the parent review and the other moment below the record", (await page.locator(".pn-story").innerText()).includes("このプレイの記録") && (await page.locator(".pn-story-review").innerText()).includes("8.5") && (await page.locator(".pn-story-review").innerText()).includes("親のレビューの感想") && await page.locator(".pn-story-item").count() === 1 && (await page.locator(".pn-story").boundingBox()).y > (await page.locator(".pn-frame").boundingBox()).y + (await page.locator(".pn-frame").boundingBox()).height);
+    await page.locator(".pn-story-toggle").click();
+    await page.locator(".pn-story-item.is-open .pn-story-photo").first().waitFor();
+    check("r7: tapping the moment opens it in place with its photos", await page.locator(".pn-story-item.is-open .pn-story-photo").count() === 2 && await page.locator(".pn-story-toggle").getAttribute("aria-expanded") === "true");
+    await page.locator(".pn-story-photo").nth(1).click();
+    await page.locator(".share-viewer").waitFor();
+    check("r7: a story photo opens the viewer", (await page.locator(".share-viewer-counter").innerText()) === "2 / 2");
+    await page.keyboard.press("Escape");
+    await page.evaluate(() => window.scrollTo(0, 0));
     // 動画: 見本の住所は PNG を返す = 再生できない動画 (Q7)
     await page.locator(".pn-track").focus();
     await page.keyboard.press("ArrowRight");
@@ -182,7 +202,7 @@ test("record page: the server embeds the content, Chrome shows it at once, masks
     page = await open(pc, `${L}/game/42?logId=${LOG.replace("abc", "000")}`);
     await page.getByText("PlayNaviでリンクを開く", { exact: true }).waitFor();
     await page.waitForTimeout(300);
-    check("share-view 404 keeps today's page", await page.locator("#share-view").isHidden() && await page.locator("#store-buttons").isVisible() && await page.locator("#share-soft").isHidden() && await page.locator("#pn-share-view").count() === 0 && !await page.evaluate(() => document.documentElement.classList.contains("pn-rec-page")));
+    check("share-view 404 keeps today's page", await page.locator("#share-view").isHidden() && await page.locator("#store-buttons").isVisible() && await page.locator("#pn-share-view").count() === 0 && !await page.evaluate(() => document.documentElement.classList.contains("pn-rec-page")));
     await page.close();
 
     const before = upstream.length;
@@ -223,14 +243,14 @@ test("record page: the server embeds the content, Chrome shows it at once, masks
       await page.locator("#share-view:not(.hidden)").waitFor();
       const appHref = userAgent === "iPhone" ? `https://playnavi-links.vercel.app${PATHS.moment}` : `playnavi:/${PATHS.moment}`;
       check(`${userAgent} keeps the app button`, await page.locator("#primary-btn").getAttribute("href") === appHref);
-      check(`${userAgent} app button is in the fixed bottom bar`, await page.locator(".pn-bar #primary-btn").isVisible() && Math.round((await page.locator(".pn-bar").boundingBox()).y + (await page.locator(".pn-bar").boundingBox()).height) === 844);
-      check(`${userAgent} top pill opens the same place`, await page.locator(".pn-top-open").isVisible() && await page.locator(".pn-top-open").getAttribute("href") === appHref);
+      check(`${userAgent} r7: the app button is one quiet text link at the very end`, await page.locator(".pn-end-slot #primary-btn").isVisible() && await page.locator(".pn-end-slot #primary-btn").evaluate((node) => getComputedStyle(node).backgroundColor) === "rgba(0, 0, 0, 0)" && (await page.locator(".pn-end").boundingBox()).y > (await page.locator(".pn-story").boundingBox()).y && await page.locator(".pn-top-open, .pn-bar").count() === 0);
       const hero = await page.locator(".pn-frame").boundingBox();
-      check(`${userAgent} media is full width right under the thin header`, hero.x === 0 && hero.width === 390 && Math.abs(hero.y - (await page.locator(".pn-top").boundingBox()).height) < 2);
-      check(`${userAgent} media first, then author, game and text`, hero.y < (await page.locator(".pn-author").boundingBox()).y && (await page.locator(".pn-author").boundingBox()).y < (await page.locator(".pn-game").boundingBox()).y && (await page.locator(".pn-game").boundingBox()).y < (await page.locator(".pn-text").boundingBox()).y);
+      const author = await page.locator(".pn-author").boundingBox();
+      check(`${userAgent} r7: the author comes first, then the full-width media`, hero.x === 0 && hero.width === 390 && author.y < hero.y && hero.y < 140);
+      check(`${userAgent} then text and game`, hero.y < (await page.locator(".pn-text").boundingBox()).y && (await page.locator(".pn-text").boundingBox()).y < (await page.locator(".pn-game").boundingBox()).y);
       check(`${userAgent} no PC arrow buttons on the phone`, !await page.locator(".pn-nav-next").isVisible());
       await page.waitForTimeout(2300);
-      check(`${userAgent} today's store buttons stay hidden; the page's own badge is under the content`, !await page.locator("#store-buttons").isVisible() && await page.locator(".pn-foot-badges a").count() === 1 && await page.locator(".pn-foot-badges a").getAttribute("href") === (userAgent === "iPhone" ? "https://apps.apple.com/jp/app/playnavi/id6756201875" : "https://play.google.com/store/apps/details?id=com.playnavilab.playnavi.app"));
+      check(`${userAgent} r7: no store buttons or badges on the phone (today's ones stay hidden too)`, !await page.locator("#store-buttons").isVisible() && !await page.locator(".pn-end-stores").isVisible());
       check(`${userAgent} content is still on screen after the launch attempt`, await page.locator("#share-view").isVisible() && !await page.locator("#heading").isVisible());
       check(`${userAgent} has no horizontal overflow`, await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
       await mobile.close();

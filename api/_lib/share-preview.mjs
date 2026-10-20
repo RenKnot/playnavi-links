@@ -6,8 +6,6 @@ export const PREVIEW_META_URL =
 
 // TASK-20261017-002 r5: 記録のページの中身 (EF share-view)。リンクカードの EF と同じプロジェクト
 export const SHARE_VIEW_URL = PREVIEW_META_URL.replace(/\/share-preview-meta$/, "/share-view");
-// iOS Safari のアプリの帯 (入っていれば「開く」、無ければ「入手」)。App Store の番号は assets/app.mjs の APP_STORE_URL と同じ
-export const APP_STORE_ID = "6756201875";
 
 export const GENERIC_CARD = Object.freeze({
   title: "PlayNavi",
@@ -208,10 +206,9 @@ export function jsonForScript(value) {
 
 function shareViewTags(shareView) {
   if (!shareView) return [];
+  // r7 P3 (overview §11.2): iPhone の Safari のアプリの帯 (apple-itunes-app) は出さない (主役は本人の投稿。
+  // アプリを入れた人がアプリで開く流れは assets/app.mjs のまま)
   return [
-    `    <meta name="apple-itunes-app" content="${
-      escapeHtmlAttribute(`app-id=${APP_STORE_ID}, app-argument=${shareView.view.app_url}`)
-    }">`,
     // 描く部品を app.mjs と同時に読み始める (app.mjs は中身がある時だけ share-view.mjs を読み込む)
     `    <link rel="modulepreload" href="/assets/share-view.mjs">`,
     // r6 (Q2): 記録のページだけ書体を Noto Sans JP に (Web 版と同じ)。読めない時は端末の書体のまま (display=swap)

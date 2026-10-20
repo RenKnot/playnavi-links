@@ -359,7 +359,7 @@ test("r5: the share-view URL is the same project as the card function", () => {
   assert.equal(new URL(SHARE_VIEW_URL).pathname, "/functions/v1/share-view");
 });
 
-test("r5: a canonical moment / review page embeds the record and the iOS app banner; the card stays the same", async () => {
+test("r5: a canonical moment / review page embeds the record (r7: no iOS app banner); the card stays the same", async () => {
   for (const [request, view, path] of [[momentRequest, momentView(), MOMENT_PATH], [logRequest, reviewView(), LOG_PATH]]) {
     const up = upstreamFixture({ view });
     const response = await invoke(request, { fetchImpl: up.fetchImpl, metaUrl: META, viewUrl: VIEW });
@@ -369,10 +369,9 @@ test("r5: a canonical moment / review page embeds the record and the iOS app ban
     assert.equal(viewCalls[0].options.cache, "no-store");
     assert.ok(viewCalls[0].options.signal, "the same 3-second cut-off");
     assert.deepEqual(embedded(response.body), { status: "ok", view });
-    assert.equal(
-      tag(response.body, "apple-itunes-app"),
-      escapeHtmlAttribute(`app-id=6756201875, app-argument=https://links.playnavilab.com${path}`),
-    );
+    // r7 P3: no Safari app banner (the poster's record is the hero; app owners still open the app via app.mjs)
+    assert.equal(tag(response.body, "apple-itunes-app"), undefined);
+    assert.equal(response.body.includes("apple-itunes-app"), false);
     assert.ok(response.body.includes('<link rel="modulepreload" href="/assets/share-view.mjs">'));
     // The card and the response headers are what they are without the embed.
     const without = await invoke(request, { fetchImpl: upstreamFixture().fetchImpl, metaUrl: META, viewUrl: VIEW });
@@ -392,7 +391,7 @@ test("r5: a short link asks share-view by code and embeds a moment / review", as
   assert.deepEqual([...up.viewCalls()[0].url.searchParams], [["code", CODE]]);
   assert.equal(embedded(response.body).view.canonical_path, MOMENT_PATH);
   assert.equal(tag(response.body, "og:url"), `https://playnavi.app/s/${CODE}?utm_source=x`);
-  assert.match(tag(response.body, "apple-itunes-app"), /app-argument=https:\/\/links\.playnavilab\.com\/game\/42\?logId=/);
+  assert.equal(tag(response.body, "apple-itunes-app"), undefined);
 });
 
 test("r5: other link kinds never ask share-view and get no embed or banner", async () => {
@@ -491,8 +490,8 @@ test("r5: user text cannot close the script; < > & U+2028 U+2029 are escaped and
   assert.equal(JSON.parse(inner).view.body, body);
   assert.equal(JSON.parse(inner).view.title, "</SCRIPT >");
   assert.equal(jsonForScript({ a: "<>&\u2028\u2029" }), '{"a":"\\u003c\\u003e\\u0026\\u2028\\u2029"}');
-  // The banner's app-argument is an escaped attribute (the & of the canonical URL).
-  assert.match(response.body, /<meta name="apple-itunes-app" content="app-id=6756201875, app-argument=https:\/\/links\.playnavilab\.com\/game\/42\?logId=[0-9a-f-]+&amp;moment=[0-9a-f-]+">/);
+  // r7: no app banner meta at all
+  assert.equal(response.body.includes("apple-itunes-app"), false);
 });
 
 test("r5: renderPreviewHtml without a share view is unchanged", () => {

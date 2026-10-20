@@ -9,7 +9,13 @@
 //   細い頭 (印 + 「アプリで開く」) → 画面幅いっぱいの写真・動画 (左右に払う・点と「1/4」・動画はその場で再生)
 //   → 名前・日付 → ゲーム (表紙 + 題名 + 状態の札) → 文。下に固定の帯 (スマホ = アプリで開く / PC = ストアの印)。
 //   PC (1024px 以上) は左に写真・動画、右に名前・ゲーム・文の 2 列。色は Web 版 (web/src/app/globals.css) と同じ。
-// アプリを開きに行く流れ (assets/app.mjs) は変えない: 帯には app.mjs の #primary-btn そのものを移して使う。
+// アプリを開きに行く流れ (assets/app.mjs) は変えない: app.mjs の #primary-btn そのものを移して使う。
+//
+// r7 (overview §11 P2・P3、10/21 Emiya「主役はユーザーの投稿なのに PlayNavi を推しすぎ」): 主役は本人。
+//   PlayNavi は左上の小さな印と、ページの一番下の控えめな文字のリンク 1 つ (スマホ =「PlayNaviアプリで開く」= app.mjs の
+//   #primary-btn、PC = ストアの小さな文字のリンク) だけ。頭の「アプリで開く」・下の固定の帯・ストアの印・宣伝の一言は出さない。
+//   並び: 名前・日付 → 写真・動画 → (レビュー: 満足度) → 文 → ゲーム。その下に加点の「このプレイの記録」
+//   (EF share-view の story = 親のレビューと同じプレイのほかの公開のモーメント。押すとその場で開く)。
 
 // サーバが中身を埋め込む要素の id (api/_lib/share-preview.mjs)
 export const EMBED_ID = "pn-share-view";
@@ -17,19 +23,24 @@ export const EMBED_ID = "pn-share-view";
 export const PAGE_CLASS = "pn-rec-page";
 // 共有ページを出すリンクの種類 (assets/link-routing.mjs の type)
 export const SHARE_VIEW_TYPES = new Set(["moment", "log"]);
-export const SOFT_LINE = "PlayNavi でゲームの記録を残そう";
 export const SPOILER_BUTTON = "ネタバレを表示";
 export const SPOILER_NOTE = "ネタバレを含む内容です";
 export const SPOILER_TEXT_NOTE = "本文はネタバレを含むため隠しています";
 export const UNPLAYABLE_TEXT = "このブラウザでは再生できません";
 export const OPEN_IN_APP = "アプリで見る";
-export const TOP_OPEN = "アプリで開く";
+export const STORY_TITLE = "このプレイの記録";
+export const STORY_SPOILER = "ネタバレを含むモーメント";
+export const READ_MORE = "続きを読む";
 // ストア (assets/app.mjs の APP_STORE_URL / PLAY_STORE_URL と同じ)
 export const APP_STORE_URL = "https://apps.apple.com/jp/app/playnavi/id6756201875";
 export const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=com.playnavilab.playnavi.app";
 
 const MAX_TEXT = 10_000;
 const MAX_MEDIA = 12;
+// EF share-view の story.moments の上限 (supabase share-view/handler.ts STORY_MOMENTS_LIMIT)
+export const STORY_MAX = 12;
+// レビューの感想は 4 行を超えると「続きを読む」で開く (目安の字数)
+const COMMENT_FOLD = 140;
 // 写真・動画の枠の縦横比は 4:5 (縦長) 〜 16:9 (横長) に収める (Instagram と同じ幅)
 export const RATIO_MIN = 4 / 5;
 export const RATIO_MAX = 16 / 9;
@@ -156,19 +167,80 @@ export function shareModel(payload) {
     spoiler: view.spoiler === true,
     media,
   };
+  const story = storyModel(view.story);
   if (view.kind === "moment") {
-    return { ...model, title: text(view.title, 200), body: text(view.body) };
+    return { ...model, story, title: text(view.title, 200), body: text(view.body) };
   }
   const moments = Number.isSafeInteger(view.moments_count) && view.moments_count > 0 ? view.moments_count : 0;
   return {
     ...model,
+    story,
+    ...reviewFields(view),
+    // story が無い (古い EF) 時だけの一言
+    momentsLine: !story && moments > 0 ? `このプレイのモーメント ${moments} 件はアプリで` : null,
+  };
+}
+
+function reviewFields(view) {
+  return {
     statusLabel: STATUS_LABELS[view.status] ?? null,
     status: STATUS_LABELS[view.status] ? view.status : null,
     score: typeof view.score === "number" && scoreText(view.score) ? view.score : null,
     scoreText: scoreText(view.score),
     comment: text(view.comment),
-    momentsLine: moments > 0 ? `このプレイのモーメント ${moments} 件はアプリで` : null,
   };
+}
+
+function storyThumb(value) {
+  if (!value || typeof value !== "object") return null;
+  if (value.kind === "image") {
+    const url = safeUrl(value.url);
+    return url ? { kind: "image", url } : null;
+  }
+  if (value.kind === "video") {
+    const url = safeUrl(value.url);
+    return url ? { kind: "video", url, posterUrl: safeUrl(value.poster_url) } : null;
+  }
+  return null;
+}
+
+function storyMoment(value) {
+  if (!value || typeof value !== "object" || typeof value.memory_id !== "string" || !/^[0-9a-f-]{36}$/i.test(value.memory_id)) {
+    return null;
+  }
+  const media = Array.isArray(value.media) ? value.media.slice(0, 4).map(mediaItem).filter(Boolean) : [];
+  return {
+    id: value.memory_id.toLowerCase(),
+    title: text(value.title, 200),
+    body: text(value.body),
+    dateIso: typeof value.date === "string" ? value.date : null,
+    dateText: formatJstDate(value.date),
+    spoiler: value.spoiler === true,
+    thumb: storyThumb(value.thumb),
+    mediaCount: Number.isSafeInteger(value.media_count) && value.media_count > 0 ? Math.min(value.media_count, 4) : media.length,
+    media,
+  };
+}
+
+// r7 P2: EF share-view の story (このプレイの記録) → 描く物。中身が無ければ null (= 出さない)
+export function storyModel(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  let review = null;
+  if (value.review && typeof value.review === "object") {
+    const fields = reviewFields(value.review);
+    if (fields.scoreText || fields.comment || fields.statusLabel) {
+      review = {
+        ...fields,
+        spoiler: value.review.spoiler === true,
+        dateIso: typeof value.review.date === "string" ? value.review.date : null,
+        dateText: formatJstDate(value.review.date),
+      };
+    }
+  }
+  const moments = Array.isArray(value.moments) ? value.moments.slice(0, STORY_MAX).map(storyMoment).filter(Boolean) : [];
+  if (!review && moments.length === 0) return null;
+  const total = Number.isSafeInteger(value.moments_total) && value.moments_total >= moments.length ? value.moments_total : moments.length;
+  return { review, moments, total };
 }
 
 // 隠す中身があるか (ネタバレの時に「ネタバレを表示」を出すか)
@@ -245,29 +317,6 @@ function logo(doc) {
   dark.width = 694;
   dark.height = 138;
   box.append(light, dark);
-  return box;
-}
-
-// ストアの公式の印。ios = App Store だけ、android = Google Play だけ、ほか = 両方 (assets/app.mjs の showStores と同じ)
-function storeBadges(doc, platform, className) {
-  const box = el(doc, "div", `pn-badges ${className}`);
-  box.setAttribute("aria-label", "アプリストア");
-  if (platform !== "android") {
-    const apple = link(doc, "pn-badge pn-badge-apple", APP_STORE_URL);
-    const img = image(doc, "", "/assets/brand/badge-app-store-ja.svg", "App Store からダウンロード");
-    img.width = 120;
-    img.height = 40;
-    apple.append(img);
-    box.append(apple);
-  }
-  if (platform !== "ios") {
-    const google = link(doc, "pn-badge pn-badge-google", PLAY_STORE_URL);
-    const img = image(doc, "", "/assets/brand/badge-google-play-ja.png", "Google Play で手に入れよう");
-    img.width = 646;
-    img.height = 198;
-    google.append(img);
-    box.append(google);
-  }
   return box;
 }
 
@@ -495,6 +544,185 @@ function textNodes(doc, model) {
   return nodes;
 }
 
+// ---------------------------------------------------------------- r7 P2: このプレイの記録
+
+// レビューの札 (親のレビュー)。満足度を大きく、感想は 4 行まで (長い時は「続きを読む」)。ネタバレは押すまで隠す
+function storyReviewCard(doc, review) {
+  const card = el(doc, "article", "pn-story-review");
+  const head = el(doc, "div", "pn-story-review-head");
+  head.append(el(doc, "p", "pn-story-label", "レビュー"));
+  if (review.statusLabel) head.append(el(doc, "span", `pn-status pn-status-${review.status}`, review.statusLabel));
+  card.append(head);
+  if (review.scoreText) {
+    const score = el(doc, "p", "pn-story-score");
+    score.setAttribute("aria-label", `満足度 ${review.scoreText} / 10`);
+    score.append(el(doc, "span", "pn-story-score-label", "満足度"), el(doc, "strong", "pn-story-score-number", review.scoreText),
+      el(doc, "span", "pn-story-score-max", " / 10"));
+    card.append(score);
+  }
+  if (review.comment) {
+    const body = el(doc, "div", "pn-story-review-body");
+    const comment = el(doc, "p", "pn-story-comment", review.comment);
+    const long = [...review.comment].length > COMMENT_FOLD || review.comment.split("\n").length > 4;
+    const showComment = () => {
+      body.replaceChildren(comment);
+      if (long) {
+        comment.classList.add("is-folded");
+        const more = button(doc, "pn-story-more-button", READ_MORE);
+        more.addEventListener("click", () => {
+          comment.classList.remove("is-folded");
+          more.remove();
+        });
+        body.append(more);
+      }
+    };
+    if (review.spoiler) {
+      const note = el(doc, "div", "pn-spoiler-text");
+      const reveal = button(doc, "pn-spoiler-button", SPOILER_BUTTON);
+      note.append(el(doc, "p", "pn-spoiler-text-note", "感想はネタバレを含むため隠しています"), reveal);
+      reveal.addEventListener("click", showComment);
+      body.append(note);
+    } else {
+      showComment();
+    }
+    card.append(body);
+  }
+  if (review.dateText) {
+    const time = el(doc, "time", "pn-story-date", review.dateText);
+    if (review.dateIso) time.setAttribute("datetime", review.dateIso);
+    card.append(time);
+  }
+  return card;
+}
+
+// 開いた時の写真・動画 (横に並べて払う。写真は押すと全画面、動画はその場で再生)。開くまで読み込まない
+function storyMedia(doc, moment, { onOpen }) {
+  const row = el(doc, "div", "pn-story-media");
+  const images = moment.media.filter((item) => item.kind === "image");
+  moment.media.forEach((item) => {
+    if (item.kind === "video") {
+      const video = doc.createElement("video");
+      video.className = "pn-story-video";
+      video.controls = true;
+      video.playsInline = true;
+      video.setAttribute("playsinline", "");
+      video.preload = "none";
+      if (item.posterUrl) video.poster = item.posterUrl;
+      if (typeof video.canPlayType !== "function" || video.canPlayType(item.mime) !== "") video.src = item.url;
+      row.append(video);
+      return;
+    }
+    const index = images.indexOf(item);
+    const open = button(doc, "pn-story-photo", null, `写真 ${index + 1} / ${images.length} を大きく表示`);
+    open.append(image(doc, "", item.url, ""));
+    open.addEventListener("click", () => onOpen(images, index));
+    row.append(open);
+  });
+  return row;
+}
+
+function storyThumbNode(doc, thumb, count) {
+  const box = el(doc, "span", "pn-story-thumb");
+  box.setAttribute("aria-hidden", "true");
+  const src = thumb.kind === "image" ? thumb.url : thumb.posterUrl;
+  if (src) box.append(image(doc, "", src, ""));
+  if (thumb.kind === "video") box.append(el(doc, "span", "pn-story-thumb-play"));
+  if (count > 1) box.append(el(doc, "span", "pn-story-thumb-count", String(count)));
+  return box;
+}
+
+// 同じプレイのほかのモーメント 1 件。押すとその場で開く (全文と写真・動画)。ネタバレは押すまで写真をぼかし、文を出さない
+function storyMomentItem(doc, moment, { onOpen }) {
+  const item = el(doc, "article", moment.spoiler ? "pn-story-item is-spoiler" : "pn-story-item");
+  const panelId = `pn-story-${moment.id}`;
+  const toggle = button(doc, "pn-story-toggle");
+  toggle.setAttribute("aria-expanded", "false");
+  toggle.setAttribute("aria-controls", panelId);
+  if (moment.thumb) toggle.append(storyThumbNode(doc, moment.thumb, moment.mediaCount));
+  const lines = el(doc, "span", "pn-story-lines");
+  if (moment.spoiler) {
+    lines.append(el(doc, "span", "pn-story-item-title", STORY_SPOILER), el(doc, "span", "pn-story-excerpt", "押すと表示します"));
+  } else {
+    const heading = moment.title ?? moment.body ?? (moment.mediaCount > 0 ? `写真・動画 ${moment.mediaCount}` : "モーメント");
+    lines.append(el(doc, "span", "pn-story-item-title", heading));
+    if (moment.title && moment.body) lines.append(el(doc, "span", "pn-story-excerpt", moment.body));
+  }
+  if (moment.dateText) {
+    const time = el(doc, "time", "pn-story-date", moment.dateText);
+    if (moment.dateIso) time.setAttribute("datetime", moment.dateIso);
+    lines.append(time);
+  }
+  toggle.append(lines);
+  item.append(toggle);
+
+  const panel = el(doc, "div", "pn-story-panel");
+  panel.id = panelId;
+  panel.hidden = true;
+  item.append(panel);
+  let built = false;
+  toggle.addEventListener("click", () => {
+    const open = toggle.getAttribute("aria-expanded") !== "true";
+    if (open && !built) {
+      built = true;
+      // ふだんは見出しの文が全文になる (CSS の is-open で行の上限を外す)。ネタバレは押した時に初めて文を入れる
+      if (moment.spoiler) {
+        item.classList.remove("is-spoiler");
+        if (moment.title) panel.append(el(doc, "h3", "pn-story-panel-title", moment.title));
+        if (moment.body) panel.append(el(doc, "p", "pn-story-panel-body", moment.body));
+      }
+      if (moment.media.length > 0) panel.append(storyMedia(doc, moment, { onOpen }));
+    }
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    panel.hidden = !open;
+    item.classList[open ? "add" : "remove"]("is-open");
+  });
+  return item;
+}
+
+export function storySection(doc, model, { onOpen = () => {} } = {}) {
+  const story = model.story;
+  if (!story) return null;
+  const section = el(doc, "section", "pn-story");
+  section.setAttribute("aria-labelledby", "pn-story-heading");
+  const head = el(doc, "header", "pn-story-head");
+  const title = el(doc, "h2", "pn-story-title", STORY_TITLE);
+  title.id = "pn-story-heading";
+  head.append(title, el(doc, "p", "pn-story-sub", `${model.author.name}さんの『${model.game.title}』`));
+  section.append(head);
+  const grid = el(doc, "div", story.review ? "pn-story-grid has-review" : "pn-story-grid");
+  if (story.review) grid.append(storyReviewCard(doc, story.review));
+  if (story.moments.length > 0) {
+    const list = el(doc, "div", "pn-story-list");
+    list.setAttribute("role", "list");
+    for (const moment of story.moments) {
+      const node = storyMomentItem(doc, moment, { onOpen });
+      node.setAttribute("role", "listitem");
+      list.append(node);
+    }
+    grid.append(list);
+  }
+  section.append(grid);
+  const rest = story.total - story.moments.length;
+  if (rest > 0) section.append(el(doc, "p", "pn-story-rest", `ほか ${rest} 件のモーメントはアプリで`));
+  return section;
+}
+
+// ---------------------------------------------------------------- ページ全体
+
+// ページの一番下の控えめな行 (r7 P3)。スマホ = app.mjs の「PlayNaviアプリで開く」(startShareView が移す)、
+// PC = ストアの小さな文字のリンク (iPhone = App Store だけ、Android = Google Play だけ、ほか = 両方)
+function endLine(doc, platform) {
+  const end = el(doc, "footer", "pn-end");
+  const inner = el(doc, "div", "pn-end-inner");
+  inner.append(el(doc, "span", "pn-end-brand", "PlayNavi"), el(doc, "div", "pn-end-slot"));
+  const stores = el(doc, "div", "pn-end-stores");
+  if (platform !== "android") stores.append(link(doc, "pn-end-store", APP_STORE_URL, "App Store"));
+  if (platform !== "ios") stores.append(link(doc, "pn-end-store", PLAY_STORE_URL, "Google Play"));
+  inner.append(stores);
+  end.append(inner);
+  return end;
+}
+
 export function buildShareView(doc, model, { onOpen = () => {}, platform = "other" } = {}) {
   const root = el(doc, "div", "pn-rec");
   root.dataset.kind = model.kind;
@@ -503,14 +731,16 @@ export function buildShareView(doc, model, { onOpen = () => {}, platform = "othe
   const masked = model.spoiler && hasMaskedContent(model);
   if (masked) root.classList.add("is-spoiler");
 
-  // 細い頭 (印 + 「アプリで開く」)
+  // 左上の小さな印だけ (r7 P3)
   const top = el(doc, "header", "pn-top");
   const topInner = el(doc, "div", "pn-top-inner");
-  topInner.append(logo(doc), link(doc, "pn-top-open pn-app-link", model.appUrl ?? "#", TOP_OPEN));
+  topInner.append(logo(doc));
   top.append(topInner);
   root.append(top);
 
   const layout = el(doc, "div", model.media.length > 0 ? "pn-layout has-media" : "pn-layout");
+  // 名前・日付 (主役は本人。スマホは写真・動画の上、PC は右の列の頭)
+  layout.append(author(doc, model));
   let heroParts = null;
   if (model.media.length > 0) {
     heroParts = hero(doc, model, { onOpen, appHref: model.appUrl });
@@ -518,10 +748,10 @@ export function buildShareView(doc, model, { onOpen = () => {}, platform = "othe
   }
 
   const details = el(doc, "div", "pn-details");
-  details.append(author(doc, model), gameChip(doc, model));
   if (model.kind === "review" && model.scoreText) details.append(scoreBlock(doc, model));
   const textBox = el(doc, "div", "pn-text");
   details.append(textBox);
+  details.append(gameChip(doc, model));
 
   if (masked) {
     // Q5: 写真・動画はぼかし (操作できない)、文は入れない。「ネタバレを表示」1 つで両方出る
@@ -550,32 +780,17 @@ export function buildShareView(doc, model, { onOpen = () => {}, platform = "othe
     textBox.append(...textNodes(doc, model));
   }
   if (model.kind === "review" && model.momentsLine) details.append(el(doc, "p", "pn-moments", model.momentsLine));
-
-  const foot = el(doc, "footer", "pn-foot");
-  foot.append(storeBadges(doc, platform, "pn-foot-badges"));
-  details.append(foot);
   layout.append(details);
   root.append(layout);
 
-  // 下に固定の帯 (Q3)。スマホ = app.mjs の「PlayNaviアプリで開く」(#primary-btn を startShareView が移す)、
-  // PC (アプリを開くボタンが出ない) = アプリの印 + ストアの印
-  const bar = el(doc, "div", "pn-bar");
-  const barInner = el(doc, "div", "pn-bar-inner");
-  const brand = el(doc, "div", "pn-bar-brand");
-  const icon = image(doc, "pn-bar-icon", "/assets/brand/app-icon-120.webp");
-  icon.width = 40;
-  icon.height = 40;
-  const brandText = el(doc, "div", "pn-bar-text");
-  brandText.append(el(doc, "p", "pn-bar-name", "PlayNavi"), el(doc, "p", "pn-bar-sub", "ゲームの記録を残そう"));
-  brand.append(icon, brandText);
-  barInner.append(brand, el(doc, "div", "pn-bar-slot"), storeBadges(doc, platform, "pn-bar-badges"));
-  bar.append(barInner);
-  root.append(bar);
+  const story = storySection(doc, model, { onOpen });
+  if (story) root.append(story);
+  root.append(endLine(doc, platform));
   return root;
 }
 
-// アプリを開くリンク (頭の「アプリで開く」・再生できない時の「アプリで見る」) を app.mjs の #primary-btn にそろえる。
-// #primary-btn が出ている (スマホ) 時はその住所、出ていない (PC・確認中) 時は頭の「アプリで開く」を隠す
+// アプリを開くリンク (再生できない時の「アプリで見る」) を app.mjs の #primary-btn にそろえる。
+// #primary-btn が出ている (スマホ) 時はその住所、出ていない (PC・確認中) 時は記録の正規の住所
 export function syncAppLinks(root, primary, fallbackHref) {
   if (!root) return;
   const on = Boolean(primary) && !primary.classList.contains("hidden");
@@ -678,17 +893,11 @@ export function startShareView(target, { doc = document, userAgent } = {}) {
   linkView.classList.add("has-share");
   doc.documentElement?.classList?.add(PAGE_CLASS);
 
-  // app.mjs の「PlayNaviアプリで開く」(とその横の「もう一度試す」) を下の帯へ移す。要素そのものを移すので、
-  // app.mjs が持っている参照・住所の決め方・2 秒後のストア表示はそのまま
+  // app.mjs の「PlayNaviアプリで開く」(とその横の「もう一度試す」) をページの一番下の控えめな行へ移す (r7 P3)。
+  // 要素そのものを移すので、app.mjs が持っている参照・住所の決め方はそのまま (ストアの印は出さない)
   const actions = typeof linkView.querySelector === "function" ? linkView.querySelector(".actions") : null;
-  const slot = typeof root.querySelector === "function" ? root.querySelector(".pn-bar-slot") : null;
+  const slot = typeof root.querySelector === "function" ? root.querySelector(".pn-end-slot") : null;
   if (actions && slot) slot.append(actions);
-  const soft = doc.getElementById("share-soft");
-  if (soft) {
-    soft.classList.remove("hidden");
-    const foot = typeof root.querySelector === "function" ? root.querySelector(".pn-foot") : null;
-    foot?.prepend?.(soft);
-  }
   const primary = doc.getElementById("primary-btn");
   const sync = () => syncAppLinks(root, primary, model.appUrl);
   sync();

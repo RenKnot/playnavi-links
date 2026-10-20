@@ -436,8 +436,7 @@ html.pn-rec-page {
   --st-watched-fill: color-mix(in srgb, var(--st-watched) var(--st-fill-mix), #000000);
   --st-dropped-fill: color-mix(in srgb, var(--st-dropped) var(--st-fill-mix), #000000);
   --pn-font: "Noto Sans JP", system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", sans-serif;
-  --pn-top-h: 52px;
-  --pn-bar-h: 72px;
+  --pn-top-h: 40px;
   --pn-shell: 1200px;
   --pn-glass: color-mix(in srgb, var(--bg) 86%, transparent);
   background: var(--bg);
@@ -484,8 +483,7 @@ html.pn-rec-page #link-view > #spinner,
 html.pn-rec-page #link-view > #heading,
 html.pn-rec-page #link-view > #description,
 html.pn-rec-page #link-view > #store-buttons,
-html.pn-rec-page #link-view > .actions,
-html.pn-rec-page #link-view > #share-soft { display: none; }
+html.pn-rec-page #link-view > .actions { display: none; }
 html.pn-rec-page .share-view { margin: 0; }
 
 .pn-rec { min-height: 100vh; min-height: 100dvh; color: var(--text); font-size: 16px; line-height: 1.6; }
@@ -494,20 +492,14 @@ html.pn-rec-page .share-view { margin: 0; }
 .pn-rec [hidden] { display: none !important; }
 .pn-rec :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
-/* 細い頭 */
-.pn-top {
-  position: sticky; top: 0; z-index: 20;
-  padding-top: env(safe-area-inset-top);
-  border-bottom: 1px solid var(--line);
-  background: var(--pn-glass);
-  -webkit-backdrop-filter: saturate(180%) blur(16px);
-  backdrop-filter: saturate(180%) blur(16px);
-}
+/* 左上の小さな印だけ (r7 P3: 頭の帯・「アプリで開く」は出さない。主役は本人の投稿) */
+.pn-top { padding-top: env(safe-area-inset-top); }
 .pn-top-inner {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  display: flex; align-items: center;
   max-width: var(--pn-shell); height: var(--pn-top-h); margin: 0 auto; padding: 0 16px;
 }
-.pn-logo { position: relative; display: inline-block; flex: none; width: 112px; aspect-ratio: 200 / 35; line-height: 0; border-radius: 4px; }
+.pn-logo { position: relative; display: inline-block; flex: none; width: 76px; aspect-ratio: 200 / 35; line-height: 0; border-radius: 4px; opacity: .8; }
+.pn-logo:hover { opacity: 1; }
 .pn-logo img { display: block; max-width: none; }
 .pn-logo .pn-logo-light { width: 100%; height: 100%; }
 .pn-logo .pn-logo-dark { display: none; position: absolute; left: 50%; top: 50%; width: 102.5%; height: auto; transform: translate(-50%, -50%); }
@@ -516,15 +508,10 @@ html.pn-rec-page .share-view { margin: 0; }
   .pn-logo .pn-logo-light { display: none; }
   .pn-logo .pn-logo-dark { display: block; }
 }
-.pn-top-open {
-  display: inline-flex; align-items: center; height: 34px; padding: 0 16px; border-radius: 999px;
-  color: var(--on-accent); background: var(--accent);
-  font-size: 14px; font-weight: 700; line-height: 1; text-decoration: none; white-space: nowrap;
-}
-.pn-rec[data-app="off"] .pn-top-open { display: none; }
 
-/* 並び (スマホ = 1 列) */
-.pn-layout { max-width: 640px; margin: 0 auto; padding-bottom: calc(var(--pn-bar-h) + env(safe-area-inset-bottom) + 16px); }
+/* 並び (スマホ = 1 列): 名前・日付 → 写真・動画 → (満足度) → 文 → ゲーム */
+.pn-layout { max-width: 640px; margin: 0 auto; }
+.pn-layout > .pn-author { padding: 4px 16px 12px; }
 .pn-details { display: grid; gap: 16px; padding: 16px 20px 0; }
 
 /* 写真・動画 (Q1) */
@@ -676,67 +663,145 @@ html.pn-rec-page .share-view { margin: 0; }
 .pn-body { max-width: 36em; color: var(--text); font-size: 16px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
 .pn-moments { color: var(--accent-strong); font-size: 14px; font-weight: 700; }
 
-/* ページの終わり (スマホ: 一言 + ストアの印) */
-.pn-foot { display: grid; gap: 12px; justify-items: center; margin-top: 8px; padding: 20px 0 8px; border-top: 1px solid var(--line); }
-.pn-foot .share-soft { margin: 0; color: var(--text-sub); font-size: 13px; text-align: center; }
-.pn-rec[data-app="off"] .pn-foot { display: none; }
-.pn-badges { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: center; }
-.pn-badge { display: inline-flex; flex: none; border-radius: 8px; line-height: 0; }
-.pn-badge img { display: block; width: auto; height: 40px; }
-.pn-badge-google img { height: calc(40px * 198 / 192); aspect-ratio: 646 / 198; object-fit: cover; object-position: center; }
-
-/* 下に固定の帯 (Q3) */
-.pn-bar {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
-  padding-bottom: env(safe-area-inset-bottom);
-  border-top: 1px solid var(--line); background: var(--pn-glass);
-  -webkit-backdrop-filter: saturate(180%) blur(16px); backdrop-filter: saturate(180%) blur(16px);
+/* r7 P2: このプレイの記録 (親のレビュー + 同じプレイのほかのモーメント。押すとその場で開く) */
+.pn-story { max-width: 640px; margin: 32px auto 0; padding: 24px 20px 0; border-top: 1px solid var(--line); }
+.pn-story-head { display: grid; gap: 2px; margin-bottom: 16px; }
+.pn-story-title { color: var(--text); font-size: 18px; font-weight: 700; line-height: 1.4; }
+.pn-story-sub { overflow: hidden; color: var(--text-sub); font-size: 13px; line-height: 1.5; text-overflow: ellipsis; white-space: nowrap; }
+.pn-story-grid { display: grid; gap: 16px; align-items: start; }
+.pn-story-label { color: var(--text-sub); font-size: 13px; font-weight: 700; line-height: 1.4; }
+.pn-story-review {
+  display: grid; gap: 10px; padding: 16px 18px;
+  border: 1px solid var(--line); border-radius: 16px; background: var(--bg-raised);
 }
-.pn-bar-inner { display: flex; align-items: center; gap: 12px; max-width: var(--pn-shell); min-height: var(--pn-bar-h); margin: 0 auto; padding: 12px 16px; }
-.pn-bar-brand { display: none; flex: 1; align-items: center; gap: 12px; min-width: 0; }
-.pn-bar-icon { flex: none; width: 40px; height: 40px; border-radius: 10px; }
-.pn-bar-text { min-width: 0; }
-.pn-bar-name { color: var(--text); font-size: 15px; font-weight: 700; line-height: 1.3; }
-.pn-bar-sub { overflow: hidden; color: var(--text-sub); font-size: 13px; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
-.pn-bar-slot { flex: 1; min-width: 0; }
-.pn-bar-slot .actions { display: grid; gap: 8px; }
-.pn-bar-slot #primary-btn {
-  min-height: 48px; padding: 12px 20px; border-radius: 999px;
-  color: var(--on-accent); background: var(--accent); box-shadow: none; font-size: 16px;
+.pn-story-review-head { display: flex; align-items: center; gap: 10px; }
+.pn-story-score { display: flex; align-items: baseline; gap: 6px; color: var(--text); line-height: 1; }
+.pn-story-score-label { color: var(--text-sub); font-size: 13px; font-weight: 700; }
+.pn-story-score-number { font-size: 34px; font-weight: 700; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.pn-story-score-max { color: var(--text-faint); font-size: 15px; font-weight: 700; }
+.pn-story-review-body { display: grid; gap: 8px; justify-items: start; }
+.pn-story-comment { color: var(--text); font-size: 15px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pn-story-comment.is-folded { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 4; }
+.pn-story-more-button {
+  padding: 0; border: 0; background: none; color: var(--accent-strong); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer;
 }
-.pn-bar-slot #primary-btn:active { background: var(--accent-strong); }
-.pn-bar-badges { display: none; flex-wrap: nowrap; }
-.pn-rec[data-app="off"] .pn-bar-brand { display: flex; }
-.pn-rec[data-app="off"] .pn-bar-badges { display: flex; }
-.pn-rec[data-app="off"] .pn-bar-slot { display: none; }
+.pn-story-date { color: var(--text-faint); font-size: 12px; line-height: 1.5; }
+.pn-story-list { display: grid; gap: 10px; }
+.pn-story-item { border: 1px solid var(--line); border-radius: 16px; background: var(--bg); overflow: hidden; }
+.pn-story-item.is-open { border-color: var(--line-strong); }
+.pn-story-toggle {
+  display: flex; align-items: flex-start; gap: 14px; width: 100%; margin: 0; padding: 12px; border: 0;
+  background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.pn-story-toggle:hover { background: var(--bg-raised); }
+.pn-story-toggle:focus-visible { outline-offset: -3px; }
+.pn-story-thumb {
+  position: relative; flex: none; width: 88px; height: 88px; overflow: hidden; border-radius: 12px; background: var(--bg-sunken);
+}
+.pn-story-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.pn-story-item.is-spoiler .pn-story-thumb img { filter: blur(14px) brightness(.8); transform: scale(1.2); }
+.pn-story-thumb-play {
+  position: absolute; left: 50%; top: 50%; width: 32px; height: 32px; margin: -16px 0 0 -16px; border-radius: 50%;
+  background: rgb(0 0 0 / .55); box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / .9);
+}
+.pn-story-thumb-play::after {
+  content: ""; position: absolute; left: 12px; top: 9px;
+  border-style: solid; border-width: 7px 0 7px 11px; border-color: transparent transparent transparent #fff;
+}
+.pn-story-thumb-count {
+  position: absolute; right: 6px; bottom: 6px; min-width: 20px; padding: 0 6px; border-radius: 999px;
+  color: #fff; background: rgb(0 0 0 / .6); font-size: 11px; font-weight: 700; line-height: 18px; text-align: center;
+}
+.pn-story-lines { display: grid; gap: 4px; min-width: 0; padding-top: 2px; }
+.pn-story-item-title {
+  display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  color: var(--text); font-size: 15px; font-weight: 700; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap;
+}
+.pn-story-excerpt {
+  display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  color: var(--text-sub); font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; white-space: pre-wrap;
+}
+.pn-story-item.is-spoiler .pn-story-item-title { color: var(--text-sub); }
+.pn-story-item.is-open .pn-story-item-title,
+.pn-story-item.is-open .pn-story-excerpt { display: block; -webkit-line-clamp: unset; }
+.pn-story-item.is-open .pn-story-excerpt { color: var(--text); font-size: 15px; line-height: 1.75; }
+.pn-story-panel { display: grid; gap: 10px; padding: 0 12px 14px; }
+.pn-story-panel:empty { display: none; }
+.pn-story-panel-title { margin: 0; color: var(--text); font-size: 16px; font-weight: 700; line-height: 1.5; }
+.pn-story-panel-body { color: var(--text); font-size: 15px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pn-story-media {
+  display: flex; gap: 8px; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; overscroll-behavior-x: contain;
+}
+.pn-story-media::-webkit-scrollbar { display: none; }
+.pn-story-photo, .pn-story-video {
+  flex: none; height: 220px; max-width: 86%; margin: 0; padding: 0; border: 0; border-radius: 12px; overflow: hidden;
+  background: var(--bg-sunken); scroll-snap-align: start; cursor: zoom-in;
+}
+.pn-story-photo img { display: block; width: auto; height: 100%; max-width: none; object-fit: cover; }
+.pn-story-video { width: auto; aspect-ratio: 16 / 9; background: #000; cursor: auto; }
+.pn-story-rest { margin-top: 12px; color: var(--text-sub); font-size: 13px; text-align: left; }
 
-/* PC (Q6): 左に写真・動画 (約 6 割)、右に名前・ゲーム・文。中央寄せで最大 1100px */
+/* ページの一番下の控えめな行 (r7 P3)。スマホ = 文字のリンク「PlayNaviアプリで開く」、PC = ストアの小さな文字のリンク */
+.pn-end { margin-top: 40px; padding: 0 0 env(safe-area-inset-bottom); border-top: 1px solid var(--line); }
+.pn-end-inner {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px;
+  max-width: var(--pn-shell); min-height: 56px; margin: 0 auto; padding: 14px 20px 20px;
+  color: var(--text-faint); font-size: 13px; line-height: 1.5;
+}
+.pn-end-brand { color: var(--text-faint); font-weight: 700; }
+.pn-end-slot { flex: 1; min-width: 0; }
+.pn-end-slot .actions { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0; }
+.pn-end-slot .button {
+  display: inline; width: auto; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 0;
+  color: var(--accent-strong); background: none; box-shadow: none;
+  font: inherit; font-size: 14px; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+}
+.pn-end-stores { display: flex; gap: 14px; }
+.pn-end-store { color: var(--text-sub) !important; font-weight: 700; text-decoration: none; }
+.pn-end-store:hover { text-decoration: underline; }
+.pn-rec[data-app="on"] .pn-end-stores,
+.pn-rec[data-app="on"] .pn-end-brand { display: none; }
+
+/* PC (Q6): 左に写真・動画 (約 6 割)、右に名前・文・ゲーム。下に「このプレイの記録」を幅いっぱいに */
 @media (min-width: 1024px) {
   /* 中身の幅は Web 版の決まり (画面幅の 88%) にそろえ、1100〜1600px に収める (1920 でも小さく縮こまらない) */
-  html.pn-rec-page { --pn-top-h: 60px; --pn-shell: clamp(1100px, 88vw, 1600px); }
-  .pn-top-inner, .pn-bar-inner { padding-left: 32px; padding-right: 32px; }
-  .pn-logo { width: 120px; }
-  .pn-layout { max-width: 720px; padding: 40px 32px calc(var(--pn-bar-h) + 48px); }
+  html.pn-rec-page { --pn-top-h: 56px; --pn-shell: clamp(1100px, 88vw, 1600px); }
+  .pn-top-inner { padding-left: 32px; padding-right: 32px; }
+  .pn-logo { width: 84px; }
+  .pn-layout { max-width: 720px; padding: 24px 32px 0; }
+  .pn-layout > .pn-author { padding: 0 0 4px; }
   /* 上から置く (上下の真ん中に寄せると、広い画面で上に大きな空白ができる。10/20 Emiya「WEB はダサい」の見直し) */
   .pn-layout.has-media {
-    display: grid; grid-template-columns: minmax(0, 7fr) minmax(360px, 5fr); gap: 56px; align-items: start; align-content: start;
-    max-width: var(--pn-shell); padding-top: 48px;
+    display: grid; grid-template-columns: minmax(0, 7fr) minmax(360px, 5fr); grid-template-rows: auto 1fr;
+    column-gap: 56px; row-gap: 20px; align-items: start; align-content: start;
+    max-width: var(--pn-shell); padding-top: 24px;
   }
-  .pn-layout.has-media .pn-hero { position: sticky; top: calc(var(--pn-top-h) + 32px); }
+  .pn-layout.has-media .pn-hero { grid-column: 1; grid-row: 1 / span 2; position: sticky; top: 24px; }
+  .pn-layout.has-media > .pn-author { grid-column: 2; grid-row: 1; padding-top: 4px; }
+  .pn-layout.has-media .pn-details { grid-column: 2; grid-row: 2; }
   .pn-layout.has-media .pn-frame {
-    width: min(100%, calc((100vh - var(--pn-top-h) - var(--pn-bar-h) - 120px) * var(--pn-ratio, 1)));
+    width: min(100%, calc((100vh - 120px) * var(--pn-ratio, 1)));
     margin: 0 auto; border-radius: 16px;
   }
   .pn-details { gap: 20px; padding: 0; }
-  .pn-layout.has-media .pn-details { padding-top: 4px; }
-  .pn-avatar { width: 48px; height: 48px; }
-  .pn-author-line { font-size: 16px; }
+  .pn-avatar { width: 52px; height: 52px; }
+  .pn-author-line { font-size: 17px; }
   .pn-date { font-size: 14px; }
   .pn-game-title { font-size: 16px; }
-  .pn-title { font-size: 24px; line-height: 1.45; }
-  .pn-body { font-size: 17px; line-height: 1.8; }
-  .pn-bar-badges .pn-badge img { height: 44px; }
-  .pn-bar-badges .pn-badge-google img { height: calc(44px * 198 / 192); }
+  .pn-title { font-size: 26px; line-height: 1.45; }
+  .pn-body { font-size: 17px; line-height: 1.85; }
+  .pn-story { max-width: var(--pn-shell); margin-top: 56px; padding: 32px 32px 0; }
+  .pn-story-head { margin-bottom: 20px; }
+  .pn-story-title { font-size: 20px; }
+  .pn-story-sub { font-size: 14px; }
+  /* レビューの札は左の列、モーメントは右に 2 列〜。モーメントだけの時は全部の幅に並べる */
+  .pn-story-grid.has-review { grid-template-columns: minmax(320px, 4fr) minmax(0, 8fr); gap: 24px; }
+  .pn-story-list { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
+  .pn-story-item.is-open { grid-column: 1 / -1; }
+  .pn-story-thumb { width: 112px; height: 112px; }
+  .pn-story-photo, .pn-story-video { height: 320px; }
+  .pn-end { margin-top: 64px; }
+  .pn-end-inner { padding-left: 32px; padding-right: 32px; }
 }
 
 /* 写真を全画面で見る */

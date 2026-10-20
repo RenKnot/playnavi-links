@@ -18,8 +18,10 @@ import {
   scoreText,
   readEmbeddedShareView,
   shareModel,
-  SOFT_LINE,
   SPOILER_BUTTON,
+  STORY_SPOILER,
+  STORY_TITLE,
+  storyModel,
   startShareView,
   syncAppLinks,
   UNPLAYABLE_TEXT,
@@ -206,15 +208,18 @@ test("r6: the media frame ratio is fixed before loading and kept between 4:5 and
   assert.equal(detectPlatform("Mozilla/5.0 (Windows NT 10.0)"), "other");
 });
 
-test("the page is built with text nodes only and puts media first, then author, game and text", async () => {
+test("the page is built with text nodes only: author first, then media, text and game (r7: the poster is the hero)", async () => {
   const doc = fakeDocument();
   const root = buildShareView(doc, shareModel(ok(MOMENT_VIEW)));
   const text = root.text();
-  for (const piece of ["あかり", "さんのモーメント", "ゼルダの伝説", "2026年10月21日", "ついに倒した", "<img src=x onerror=alert(1)>\n2 行目", "1:23", "アプリで開く"]) {
+  for (const piece of ["あかり", "さんのモーメント", "ゼルダの伝説", "2026年10月21日", "ついに倒した", "<img src=x onerror=alert(1)>\n2 行目", "1:23"]) {
     assert.ok(text.includes(piece), piece);
   }
-  // Order: thin header -> media -> author -> game -> text.
-  const order = ["pn-top", "pn-hero", "pn-author", "pn-game", "pn-text", "pn-bar"].map((name) => [...root.walk()].indexOf(root.byClass(name)[0]));
+  // r7 P3: PlayNavi is only the small mark top-left and the quiet end line (no top pill, no fixed bar, no badges, no slogan)
+  for (const gone of ["pn-top-open", "pn-bar", "pn-foot", "pn-badges"]) assert.equal(root.byClass(gone).length, 0, gone);
+  assert.equal(text.includes("ゲームの記録を残そう"), false);
+  // Order: mark -> author -> media -> text -> game -> end line.
+  const order = ["pn-top", "pn-author", "pn-hero", "pn-text", "pn-game", "pn-end"].map((name) => [...root.walk()].indexOf(root.byClass(name)[0]));
   assert.deepEqual([...order].sort((a, b) => a - b), order, JSON.stringify(order));
   assert.ok(order.every((index) => index > 0));
   // The body's markup-looking text stays text (no element was made from it).
@@ -270,7 +275,7 @@ test("r6 Q7: a video the browser cannot play shows the poster, the message and a
   assert.equal(broken.byClass("pn-play")[0].hidden, true);
 });
 
-test("a review shows status, the big satisfaction with a bar, the comment, photos and the moments line", () => {
+test("a review shows status, the big satisfaction with a bar, the comment, photos and (old EF without story) the moments line", () => {
   const root = buildShareView(fakeDocument(), shareModel(ok(REVIEW_VIEW)));
   const text = root.text();
   for (const piece of ["さんのレビュー", "クリア", "満足度", "9.5", " / 10", "最高でした", "このプレイのモーメント 3 件はアプリで"]) {
@@ -324,12 +329,15 @@ test("tapping a photo opens the viewer on that photo (videos are not in the view
   assert.deepEqual(opened, [[2, 1]]);
 });
 
-test("r6 Q3: store badges follow the platform; app links follow app.mjs's open button", () => {
-  const badges = (platform) => buildShareView(fakeDocument(), shareModel(ok(MOMENT_VIEW)), { platform })
-    .byClass("pn-foot-badges")[0].all((node) => node.tagName === "A").map((node) => node.href);
-  assert.deepEqual(badges("ios"), [APP_STORE_URL]);
-  assert.deepEqual(badges("android"), [PLAY_STORE_URL]);
-  assert.deepEqual(badges("other"), [APP_STORE_URL, PLAY_STORE_URL]);
+test("r7 P3: the end line has small store links on PC only; app links follow app.mjs's open button", () => {
+  const stores = (platform) => buildShareView(fakeDocument(), shareModel(ok(MOMENT_VIEW)), { platform })
+    .byClass("pn-end-stores")[0].all((node) => node.tagName === "A").map((node) => [node.href, node.textContent]);
+  assert.deepEqual(stores("ios"), [[APP_STORE_URL, "App Store"]]);
+  assert.deepEqual(stores("android"), [[PLAY_STORE_URL, "Google Play"]]);
+  assert.deepEqual(stores("other"), [[APP_STORE_URL, "App Store"], [PLAY_STORE_URL, "Google Play"]]);
+  for (const node of buildShareView(fakeDocument(), shareModel(ok(MOMENT_VIEW))).all((n) => n.tagName === "IMG")) {
+    assert.doesNotMatch(String(node.src), /badge/, "no store badge images");
+  }
 
   const root = buildShareView(fakeDocument(), shareModel(ok(MOMENT_VIEW)), { platform: "ios" });
   const primary = new FakeNode("a");
@@ -337,11 +345,9 @@ test("r6 Q3: store badges follow the platform; app links follow app.mjs's open b
   primary.setAttribute("href", "https://playnavi-links.vercel.app/game/42");
   syncAppLinks(root, primary, MOMENT_VIEW.app_url);
   assert.equal(root.dataset.app, "on");
-  assert.equal(root.byClass("pn-top-open")[0].href, "https://playnavi-links.vercel.app/game/42");
   primary.classList.add("hidden");
   syncAppLinks(root, primary, MOMENT_VIEW.app_url);
-  assert.equal(root.dataset.app, "off", "PC / while resolving: the bar shows the stores instead");
-  assert.equal(root.byClass("pn-top-open")[0].href, MOMENT_VIEW.app_url);
+  assert.equal(root.dataset.app, "off", "PC / while resolving: the end line shows the small store links instead");
 });
 
 function embed(doc, text) {
@@ -369,11 +375,11 @@ test("the content is read from the JSON the server embedded (no network); broken
 });
 
 test("startShareView fills the page from the embedded JSON and leaves today's page alone without it", () => {
-  const ids = [["share-view", "share-view hidden"], ["link-view", "card"], ["share-soft", "share-soft hidden"]];
+  const ids = [["share-view", "share-view hidden"], ["link-view", "card"]];
   const target = canonicalTargetFromPath(MOMENT_VIEW.canonical_path);
 
   const doc = embed(fakeDocument(ids), JSON.stringify(ok(MOMENT_VIEW)));
-  // app.mjs's buttons live in #link-view; the page moves them into the bottom bar (same elements).
+  // app.mjs's buttons live in #link-view; the page moves them into the quiet end line (same elements).
   const actions = new FakeNode("div");
   actions.className = "actions";
   const primary = new FakeNode("a");
@@ -385,14 +391,11 @@ test("startShareView fills the page from the embedded JSON and leaves today's pa
   assert.equal(startShareView(target, { doc, userAgent: "Android" }), true);
   assert.equal(doc.byId.get("share-view").classList.contains("hidden"), false);
   assert.equal(doc.byId.get("link-view").classList.contains("has-share"), true);
-  assert.equal(doc.byId.get("share-soft").classList.contains("hidden"), false);
   assert.ok(doc.documentElement.classList.contains(PAGE_CLASS));
   const root = doc.byId.get("share-view").children[0];
   assert.equal(root.dataset.platform, "android");
-  assert.equal(actions.parent, root.byClass("pn-bar-slot")[0], "the open button sits in the bottom bar");
-  assert.equal(doc.byId.get("share-soft").parent, root.byClass("pn-foot")[0]);
+  assert.equal(actions.parent, root.byClass("pn-end-slot")[0], "the open button sits in the end line");
   assert.equal(root.dataset.app, "on");
-  assert.equal(root.byClass("pn-top-open")[0].href, "playnavi://game/42");
 
   // /s/<code>: the type is decided by the server, so the page passes null.
   const short = embed(fakeDocument(ids), JSON.stringify(ok(REVIEW_VIEW)));
@@ -403,7 +406,6 @@ test("startShareView fills the page from the embedded JSON and leaves today's pa
   assert.equal(startShareView(target, { doc: failed }), false);
   assert.equal(failed.byId.get("share-view").classList.contains("hidden"), true);
   assert.equal(failed.byId.get("link-view").classList.contains("has-share"), false);
-  assert.equal(failed.byId.get("share-soft").classList.contains("hidden"), true);
 
   assert.equal(startShareView(target, { doc: fakeDocument(ids) }), false);
 
@@ -413,12 +415,12 @@ test("startShareView fills the page from the embedded JSON and leaves today's pa
   assert.equal(game.byId.get("share-view").classList.contains("hidden"), true);
 });
 
-test("index.html carries the share containers and the soft line; the app module loads share-view lazily", async () => {
+test("index.html carries the share container (r7: no slogan line); the app module loads share-view lazily", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   assert.match(html, /<article id="share-view" class="share-view hidden"><\/article>/);
-  assert.ok(html.includes(`<p id="share-soft" class="share-soft hidden">${SOFT_LINE}</p>`));
+  assert.equal(html.includes("share-soft"), false);
+  assert.equal(html.includes("ゲームの記録を残そう"), false);
   assert.ok(html.indexOf('id="share-view"') < html.indexOf('id="primary-btn"'), "content above the app button");
-  assert.ok(html.indexOf('id="store-buttons"') < html.indexOf('id="share-soft"'));
   const app = await readFile(new URL("../assets/app.mjs", import.meta.url), "utf8");
   assert.match(app, /await import\("\.\/share-view\.mjs"\)/);
   assert.doesNotMatch(app, /from "\.\/share-view\.mjs"/);
@@ -433,4 +435,126 @@ test("index.html carries the share containers and the soft line; the app module 
   // r6: when the page cannot be drawn, the server's record-page mark is removed (= today's page)
   assert.match(app, /drawn = startShareView\(target\);/);
   assert.match(app, /if \(!drawn\) document\.documentElement\.classList\.remove\("pn-rec-page"\);/);
+});
+
+// ---- r7 P2: このプレイの記録 (EF share-view の story) ----
+
+const M2 = "abcdefab-cdef-cdef-cdef-abcdefab0002";
+const M3 = "abcdefab-cdef-cdef-cdef-abcdefab0003";
+const STORY = {
+  review: { status: "completed", score: 9.5, comment: "最高でした\n2 行目", spoiler: false, date: "2026-10-20T01:00:00Z" },
+  moments: [
+    {
+      memory_id: M2, title: "船をもらった", body: "行ける場所が増えた", date: "2026-10-19T12:00:00Z", spoiler: false,
+      thumb: { kind: "image", url: `${STORAGE}/game-log-media-private/t.jpg?token=t`, poster_url: null }, media_count: 2,
+      media: [
+        { kind: "image", url: `${STORAGE}/game-log-media-private/a.jpg?token=a`, width: 1440, height: 810 },
+        { kind: "video", url: `${STORAGE}/game-log-video-private/v.mp4?token=v`, poster_url: `${STORAGE}/game-log-media-private/vp.jpg?token=p`, duration_ms: 9000 },
+      ],
+    },
+    { memory_id: M3, title: "正体", body: "犯人は", date: "2026-10-19T13:00:00Z", spoiler: true,
+      thumb: { kind: "image", url: `${STORAGE}/game-log-media-private/s.jpg?token=s`, poster_url: null }, media_count: 1,
+      media: [{ kind: "image", url: `${STORAGE}/game-log-media-private/s.jpg?token=s`, width: 800, height: 600 }] },
+  ],
+  moments_total: 5,
+};
+
+test("r7 P2: the story model keeps the parent review, https media only and the rest count; empty or broken stories are dropped", () => {
+  const story = shareModel(ok({ ...MOMENT_VIEW, story: STORY })).story;
+  assert.equal(story.review.scoreText, "9.5");
+  assert.equal(story.review.statusLabel, "クリア");
+  assert.equal(story.review.dateText, "2026年10月20日");
+  assert.deepEqual(story.moments.map((m) => m.id), [M2, M3]);
+  assert.equal(story.moments[0].mediaCount, 2);
+  assert.deepEqual(story.moments[0].media.map((m) => m.kind), ["image", "video"]);
+  assert.equal(story.total, 5);
+  assert.equal(storyModel(null), null);
+  assert.equal(storyModel({ review: null, moments: [] }), null);
+  assert.equal(storyModel({ review: { status: null, score: null, comment: null }, moments: [] }), null, "an empty review card is not drawn");
+  const unsafe = storyModel({ review: null, moments: [
+    { memory_id: "not-a-uuid", title: "x" },
+    { memory_id: M2, title: "ok", thumb: { kind: "image", url: "javascript:alert(1)" }, media: [{ kind: "image", url: "http://x/a.jpg" }] },
+  ] });
+  assert.equal(unsafe.moments.length, 1);
+  assert.equal(unsafe.moments[0].thumb, null);
+  assert.deepEqual(unsafe.moments[0].media, []);
+  assert.equal(unsafe.total, 1);
+  // A review with a story no longer prints the old "N 件はアプリで" line.
+  assert.equal(shareModel(ok({ ...REVIEW_VIEW, story: { review: null, moments: STORY.moments, moments_total: 2 } })).momentsLine, null);
+});
+
+test("r7 P2: 「このプレイの記録」 comes after the record: the review card, the moments, and the rest line", () => {
+  const root = buildShareView(fakeDocument(), shareModel(ok({ ...MOMENT_VIEW, story: STORY })));
+  const walk = [...root.walk()];
+  const section = root.byClass("pn-story")[0];
+  assert.ok(walk.indexOf(section) > walk.indexOf(root.byClass("pn-game")[0]), "after the record itself");
+  assert.ok(walk.indexOf(section) < walk.indexOf(root.byClass("pn-end")[0]), "before the end line");
+  const text = section.text();
+  for (const piece of [STORY_TITLE, "あかりさんの『ゼルダの伝説』", "レビュー", "クリア", "9.5", " / 10", "最高でした\n2 行目", "船をもらった", "行ける場所が増えた", "2026年10月19日", "ほか 3 件のモーメントはアプリで"]) {
+    assert.ok(text.includes(piece), piece);
+  }
+  assert.equal(root.byClass("pn-story-item").length, 2);
+  assert.equal(root.byClass("pn-story-thumb-count")[0].textContent, "2");
+  // Nothing is loaded for a moment until it is opened (no media nodes in the panel).
+  assert.equal(root.byClass("pn-story-media").length, 0);
+  assert.equal(root.all((node) => node.tagName === "VIDEO").length, 1, "only the record's own video");
+});
+
+test("r7 P2: tapping a moment opens it in place (full text, photos to the viewer, the video plays in place); tapping again closes it", () => {
+  const opened = [];
+  const root = buildShareView(fakeDocument(), shareModel(ok({ ...MOMENT_VIEW, story: STORY })), { onOpen: (images, index) => opened.push([images.length, index]) });
+  const [first] = root.byClass("pn-story-item");
+  const toggle = first.byClass("pn-story-toggle")[0];
+  const panel = first.byClass("pn-story-panel")[0];
+  assert.equal(toggle.tagName, "BUTTON");
+  assert.equal(toggle.getAttribute("aria-expanded"), "false");
+  assert.equal(toggle.getAttribute("aria-controls"), panel.id);
+  assert.equal(panel.hidden, true);
+  toggle.click();
+  assert.equal(toggle.getAttribute("aria-expanded"), "true");
+  assert.equal(panel.hidden, false);
+  assert.ok(first.classList.contains("is-open"));
+  const photo = first.byClass("pn-story-photo")[0];
+  assert.equal(photo.tagName, "BUTTON");
+  photo.click();
+  assert.deepEqual(opened, [[1, 0]]);
+  const video = first.all((node) => node.tagName === "VIDEO")[0];
+  assert.equal(video.controls, true);
+  assert.equal(video.preload, "none");
+  assert.equal(video.getAttribute("playsinline"), "");
+  assert.match(video.poster, /vp\.jpg/);
+  toggle.click();
+  assert.equal(panel.hidden, true);
+  assert.equal(first.classList.contains("is-open"), false);
+  toggle.click();
+  assert.equal(first.byClass("pn-story-media").length, 1, "built once");
+});
+
+test("r7 P2: a spoiler moment and a spoiler review stay hidden until tapped", () => {
+  const story = { ...STORY, review: { ...STORY.review, spoiler: true } };
+  const root = buildShareView(fakeDocument(), shareModel(ok({ ...MOMENT_VIEW, story })));
+  const section = root.byClass("pn-story")[0];
+  assert.equal(section.text().includes("犯人は"), false);
+  assert.equal(section.text().includes("正体"), false);
+  assert.equal(section.text().includes("最高でした"), false);
+  assert.ok(section.text().includes("9.5"), "the satisfaction is not a spoiler");
+  const spoiled = root.byClass("pn-story-item")[1];
+  assert.ok(spoiled.classList.contains("is-spoiler"));
+  assert.ok(spoiled.text().includes(STORY_SPOILER));
+  spoiled.byClass("pn-story-toggle")[0].click();
+  assert.equal(spoiled.classList.contains("is-spoiler"), false);
+  assert.ok(spoiled.text().includes("正体") && spoiled.text().includes("犯人は"));
+  const reveal = root.byClass("pn-story-review")[0].all((node) => node.textContent === SPOILER_BUTTON)[0];
+  reveal.click();
+  assert.ok(root.byClass("pn-story-review")[0].text().includes("最高でした"));
+});
+
+test("r7 P2: a long review comment is folded with 「続きを読む」", () => {
+  const long = "あ".repeat(200);
+  const root = buildShareView(fakeDocument(), shareModel(ok({ ...MOMENT_VIEW, story: { ...STORY, review: { ...STORY.review, comment: long } } })));
+  const comment = root.byClass("pn-story-comment")[0];
+  assert.ok(comment.classList.contains("is-folded"));
+  root.byClass("pn-story-more-button")[0].click();
+  assert.equal(comment.classList.contains("is-folded"), false);
+  assert.equal(root.byClass("pn-story-more-button").length, 0);
 });

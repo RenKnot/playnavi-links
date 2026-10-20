@@ -128,6 +128,19 @@ function r3Fields(large, { spoiler, max, imagesOnly }) {
   return out;
 }
 
+// TASK-20261017-002 r7 (§11 P3/P4): who posted the record, drawn large on the card. Present only when the
+// edge function sent author_name (older payloads keep their shape and version hash). A bad icon URL is dropped
+// (the card draws the initial), never fatal.
+const AUTHOR_NAME_MAX = 100;
+function authorFields(large) {
+  const name = large.author_name;
+  if (typeof name !== "string" || !name.trim() || name.length > AUTHOR_NAME_MAX) return {};
+  return {
+    author_name: name.trim(),
+    author_avatar_url: allowedImageUrl(large.author_avatar_url) ? large.author_avatar_url : null,
+  };
+}
+
 // Returns a normalized copy (fixed key order) or null.
 export function validLarge(large) {
   try {
@@ -148,6 +161,7 @@ export function validLarge(large) {
           // r3: review photos (images only, at most 3), what the page holds, spoiler.
           ...r3Fields(large, { spoiler: large.spoiler === true, max: REVIEW_MEDIA_MAX, imagesOnly: true }),
           ...(typeof large.spoiler === "boolean" ? { spoiler: large.spoiler } : {}),
+          ...authorFields(large),
         };
       case "moment":
         onlyKeys(large);
@@ -163,6 +177,7 @@ export function validLarge(large) {
           cover_url: imageUrl(large.cover_url),
           // r3: up to 4 photos / video posters in the record's order. A spoiler never carries them.
           ...r3Fields(large, { spoiler: large.spoiler, max: MOMENT_MEDIA_MAX, imagesOnly: false }),
+          ...authorFields(large),
         };
       case "profile": {
         onlyKeys(large);
