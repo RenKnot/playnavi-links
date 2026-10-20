@@ -26,6 +26,110 @@ const DIAGNOSIS_ACCENT = "#70D5E2";
 const LOGO_W = 160;
 const BADGE = [64, 100];
 
+// ---------------------------------------------------------------- r3 (TASK-20261017-002 V1/V2)
+// X draws the post title over the bottom-left of the card, so the r3 layouts
+// keep everything that matters above the bottom 90px and put the logo top-right.
+export const SAFE_BOTTOM = 90;
+// Cards that carry the poster's photos are JPEG (Bluesky thumb limit 1MB).
+export const JPEG_MAX_BYTES = 900_000;
+const JPEG_QUALITIES = [86, 78, 70, 60, 50, 40];
+const CTA = "タップして見る";
+const CTA_SPOILER_MOMENT = "ネタバレを含むモーメント";
+const COLLAGE = { x: 40, y: 40, w: 640, h: 500, gap: 10 };
+const REVIEW_COVER = [270, 360];
+const REVIEW_PHOTOS = { w: 300, h: 360, gap: 10 };
+const R3_PHOTO_BOX = [600, 500];
+
+// Tile rectangles inside the collage box: 1 = one large, 2 = side by side,
+// 3 = one large + two stacked, 4 = 2x2.
+export function collageSlots(count, { w, h, gap } = COLLAGE) {
+  const half = (w - gap) / 2;
+  const halfH = (h - gap) / 2;
+  switch (count) {
+    case 1: return [{ x: 0, y: 0, w, h }];
+    case 2: return [{ x: 0, y: 0, w: half, h }, { x: half + gap, y: 0, w: half, h }];
+    case 3: {
+      const big = Math.round((w - gap) * 0.66);
+      const small = w - gap - big;
+      return [
+        { x: 0, y: 0, w: big, h },
+        { x: big + gap, y: 0, w: small, h: halfH },
+        { x: big + gap, y: halfH + gap, w: small, h: halfH },
+      ];
+    }
+    case 4: return [
+      { x: 0, y: 0, w: half, h: halfH }, { x: half + gap, y: 0, w: half, h: halfH },
+      { x: 0, y: halfH + gap, w: half, h: halfH }, { x: half + gap, y: halfH + gap, w: half, h: halfH },
+    ];
+    default: return [];
+  }
+}
+
+// Review photos next to the cover: 1 = one tall, 2 = stacked, 3 = one + two below.
+export function reviewSlots(count, { w, h, gap } = REVIEW_PHOTOS) {
+  const halfH = (h - gap) / 2;
+  const halfW = (w - gap) / 2;
+  switch (count) {
+    case 1: return [{ x: 0, y: 0, w, h }];
+    case 2: return [{ x: 0, y: 0, w, h: halfH }, { x: 0, y: halfH + gap, w, h: halfH }];
+    case 3: return [
+      { x: 0, y: 0, w, h: halfH },
+      { x: 0, y: halfH + gap, w: halfW, h: halfH }, { x: halfW + gap, y: halfH + gap, w: halfW, h: halfH },
+    ];
+    default: return [];
+  }
+}
+
+// r3 layouts apply only when the edge function sent the r3 keys.
+export const isR3 = (large) =>
+  (large.layout === "moment" || large.layout === "game") && (large.media !== undefined || large.counts !== undefined);
+
+// What the share page holds, in the order of the V2 example ("動画 1・写真 3・全文").
+export function chipParts(large) {
+  if (large.layout === "moment") {
+    if (large.spoiler) return [CTA_SPOILER_MOMENT];
+    const media = large.media ?? [];
+    const counts = large.counts ?? {
+      photos: media.filter((item) => item.kind === "image").length,
+      videos: media.filter((item) => item.kind === "video").length,
+      text: false,
+    };
+    return [
+      counts.videos > 0 ? `動画 ${counts.videos}` : null,
+      counts.photos > 0 ? `写真 ${counts.photos}` : null,
+      counts.text ? "全文" : null,
+    ].filter(Boolean);
+  }
+  if (large.layout === "game") {
+    const photos = large.counts?.photos ?? (large.media ?? []).length;
+    return [
+      large.score !== undefined ? "満足度" : null,
+      large.counts?.text ? (large.spoiler ? "ネタバレを含む感想" : "感想の全文") : null,
+      photos > 0 ? `写真 ${photos}` : null,
+    ].filter(Boolean);
+  }
+  return [];
+}
+
+export function chipText(large) {
+  const parts = chipParts(large);
+  return parts.length > 0 ? `${CTA}｜${parts.join("・")}` : CTA;
+}
+
+// 61_000 -> "1:01"
+export function formatDuration(ms) {
+  if (typeof ms !== "number" || !Number.isFinite(ms) || ms < 0) return null;
+  const total = Math.round(ms / 1000);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
+
+// Whether the card draws the poster's own photos (then it is sent as JPEG).
+export function drawsUserPhotos(large) {
+  if (large.layout === "moment") return !large.spoiler && ((large.media?.length ?? 0) > 0 || Boolean(large.photo_url));
+  if (large.layout === "game") return (large.media?.length ?? 0) > 0;
+  return false;
+}
+
 // ---------------------------------------------------------------- fonts
 
 const FONT_CACHE_LIMIT = 200;
@@ -88,6 +192,7 @@ export function cardText(large) {
     if (large.excerpt !== undefined) parts.push(large.excerpt);
   }
   if (large.layout === "moment") parts.push(large.heading, large.title, "『』", large.excerpt ?? "", MOMENT_SPOILER);
+  if (isR3(large)) parts.push(chipText(large), "›:");
   if (large.layout === "profile") parts.push(large.name);
   if (large.layout === "grid") parts.push(large.title, large.subtitle, large.description ?? "");
   if (large.layout === "diagnosis") {
@@ -238,6 +343,7 @@ export async function loadCardImages(large, fetchImpl) {
     if (large.photo_url) urls.add(large.photo_url);
     if (large.cover_url) urls.add(large.cover_url);
   }
+  for (const item of large.media ?? []) urls.add(item.url);
   if (large.layout === "profile") {
     if (large.avatar_url) urls.add(large.avatar_url);
     if (large.background_url) urls.add(large.background_url);
@@ -255,16 +361,38 @@ export async function loadCardImages(large, fetchImpl) {
   ));
   const get = (url) => (url ? raw.get(url) ?? null : null);
 
+  if (large.layout === "game" && (large.media?.length ?? 0) > 0) {
+    // r3 review with photos: a smaller cover and the photos beside it.
+    const buffer = get(large.cover_url);
+    const slots = reviewSlots(large.media.length);
+    const [cover, background, ...tiles] = await Promise.all([
+      coverUri(buffer, ...REVIEW_COVER),
+      blurUri(buffer ?? get(large.media[0].url)),
+      ...large.media.map((item, i) => coverUri(get(item.url), slots[i].w, slots[i].h)),
+    ]);
+    return { cover, background, tiles };
+  }
   if (large.layout === "game") {
     const buffer = get(large.cover_url);
     const [cover, background] = await Promise.all([coverUri(buffer, ...COVER.game), blurUri(buffer)]);
     return { cover, background };
   }
+  if (large.layout === "moment" && (large.media?.length ?? 0) > 0) {
+    // r3 collage. A tile that cannot be loaded is drawn as an empty frame.
+    const slots = collageSlots(large.media.length);
+    const firstLoaded = large.media.map((item) => get(item.url)).find(Boolean) ?? null;
+    const [cover, background, ...tiles] = await Promise.all([
+      coverUri(get(large.cover_url), ...COVER.moment),
+      blurUri(firstLoaded ?? get(large.cover_url)),
+      ...large.media.map((item, i) => coverUri(get(item.url), slots[i].w, slots[i].h)),
+    ]);
+    return { cover, background, tiles };
+  }
   if (large.layout === "moment") {
     const photoBuffer = get(large.photo_url);
     const coverBuffer = get(large.cover_url);
     const [photo, cover, background] = await Promise.all([
-      fittedUri(photoBuffer, ...PHOTO_BOX),
+      fittedUri(photoBuffer, ...(isR3(large) ? R3_PHOTO_BOX : PHOTO_BOX)),
       coverUri(coverBuffer, ...COVER.moment),
       blurUri(photoBuffer ?? coverBuffer),
     ]);
@@ -616,12 +744,177 @@ function momentCard(large, images, assets) {
   );
 }
 
+// ---------------------------------------------------------------- r3 layouts
+
+// Same as frame() but the logo sits top-right, clear of X's bottom-left title.
+function frameTopLogo(assets, background, ...children) {
+  return div(
+    { width: W, height: H, position: "relative", backgroundColor: "#0B1524", fontFamily: "Noto Sans JP" },
+    background
+      ? img(background, FULL)
+      : div({ ...FULL, backgroundImage: DARK_GRADIENT }),
+    div({ ...FULL, backgroundImage: "linear-gradient(90deg, rgba(8,14,26,0.62) 0%, rgba(8,14,26,0.45) 100%)" }),
+    ...children,
+    img(assets.logo, { position: "absolute", right: 36, top: 30, width: LOGO_W, height: assets.logoHeight }),
+  );
+}
+
+const PLAY_ICON = `data:image/svg+xml;base64,${Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">' +
+  '<circle cx="48" cy="48" r="45" fill="#08101C" fill-opacity="0.62" stroke="#FFFFFF" stroke-width="4"/>' +
+  '<path d="M39 29 L71 48 L39 67 Z" fill="#FFFFFF"/></svg>',
+).toString("base64")}`;
+
+function mediaTile(item, uri, slot) {
+  const size = Math.round(Math.min(96, Math.min(slot.w, slot.h) * 0.36));
+  const duration = item.kind === "video" ? formatDuration(item.duration_ms) : null;
+  return div(
+    { position: "absolute", left: slot.x, top: slot.y, width: slot.w, height: slot.h, borderRadius: 14,
+      overflow: "hidden", backgroundColor: "rgba(148,163,184,0.28)", alignItems: "center", justifyContent: "center",
+      boxShadow: "0 10px 30px rgba(0,0,0,0.45)" },
+    uri ? img(uri, { position: "absolute", left: 0, top: 0, width: slot.w, height: slot.h }) : null,
+    item.kind === "video" ? img(PLAY_ICON, { width: size, height: size }) : null,
+    duration
+      ? div({ position: "absolute", right: 10, bottom: 10, fontSize: slot.h > 300 ? 26 : 22, fontWeight: 700,
+        color: "#FFFFFF", backgroundColor: "rgba(8,14,26,0.72)", borderRadius: 8, padding: "2px 10px" }, duration)
+      : null,
+  );
+}
+
+function tiles(media, uris, slots, box) {
+  return div(
+    { position: "relative", width: box.w, height: box.h, flexShrink: 0 },
+    ...media.map((item, i) => mediaTile(item, uris[i] ?? null, slots[i])),
+  );
+}
+
+// "タップして見る ›" + what is behind the tap.
+function chip(large, maxWidth) {
+  const parts = chipParts(large);
+  const spoiler = large.spoiler === true && large.layout === "moment";
+  return div(
+    { flexDirection: "column", alignSelf: "flex-start", marginTop: 28, padding: "14px 24px", borderRadius: 18, maxWidth,
+      backgroundColor: "#FFFFFF", border: spoiler ? "4px solid #FBBF24" : "0",
+      boxShadow: "0 10px 28px rgba(0,0,0,0.35)" },
+    div({ fontSize: 32, color: "#0B6775", fontWeight: 900, lineHeight: 1.25 }, `${CTA} ›`),
+    parts.length > 0
+      ? div({ fontSize: 26, color: "#1E293B", fontWeight: 700, lineHeight: 1.35, marginTop: 4, maxWidth: maxWidth - 48,
+        ...ELLIPSIS }, parts.join("・"))
+      : null,
+  );
+}
+
+function rightColumn(left, width, ...children) {
+  return div(
+    { position: "absolute", left, top: 90, width, height: H - SAFE_BOTTOM - 90, flexDirection: "column",
+      justifyContent: "center", minWidth: 0 },
+    ...children,
+  );
+}
+
+function momentCardR3(large, images, assets) {
+  const media = large.media ?? [];
+  let left;
+  let leftWidth;
+  if (images.tiles && media.length > 0) {
+    left = div({ position: "absolute", left: COLLAGE.x, top: COLLAGE.y },
+      tiles(media, images.tiles, collageSlots(media.length), COLLAGE));
+    leftWidth = COLLAGE.w;
+  } else {
+    const photo = images.photo;
+    const [cw, ch] = COVER.moment;
+    const width = photo ? photo.width : cw;
+    const height = photo ? photo.height : ch;
+    const top = Math.round(40 + (H - SAFE_BOTTOM - 40 - height) / 2);
+    left = div({ position: "absolute", left: 56, top },
+      photo
+        ? img(photo.uri, { width, height, borderRadius: 18, boxShadow: "0 16px 48px rgba(0,0,0,0.55)" })
+        : images.cover
+        ? img(images.cover, { width, height, borderRadius: 16, boxShadow: "0 16px 48px rgba(0,0,0,0.55)" })
+        : placeholder(width, height, 16));
+    leftWidth = 16 + width;
+  }
+  const colLeft = COLLAGE.x + leftWidth + 44;
+  const colWidth = W - colLeft - 44;
+  return frameTopLogo(
+    assets,
+    images.background,
+    left,
+    rightColumn(
+      colLeft,
+      colWidth,
+      div({ fontSize: 28, color: "#E2E8F0", fontWeight: 700, maxWidth: colWidth, ...ELLIPSIS }, large.heading),
+      div({ display: "block", fontSize: large.title.length > 14 ? 38 : 46, lineHeight: 1.3, color: "#FFFFFF",
+        fontWeight: 900, marginTop: 14, maxWidth: colWidth, overflow: "hidden", lineClamp: 3 }, `『${large.title}』`),
+      chip(large, colWidth),
+    ),
+  );
+}
+
+function gameCardR3(large, images, assets) {
+  const media = large.media ?? [];
+  const withPhotos = images.tiles && media.length > 0;
+  const [cw, ch] = withPhotos ? REVIEW_COVER : COVER.game;
+  const top = Math.round(40 + (H - SAFE_BOTTOM - 40 - ch) / 2);
+  const cover = images.cover
+    ? img(images.cover, { width: cw, height: ch, borderRadius: 16, boxShadow: "0 16px 48px rgba(0,0,0,0.55)" })
+    : placeholder(cw, ch, 16);
+  const left = div(
+    { position: "absolute", left: 48, top, alignItems: "flex-start" },
+    cover,
+    withPhotos
+      ? div({ marginLeft: 14 }, tiles(media, images.tiles, reviewSlots(media.length), REVIEW_PHOTOS))
+      : null,
+  );
+  const leftWidth = cw + (withPhotos ? 14 + REVIEW_PHOTOS.w : 0);
+  const colLeft = 48 + leftWidth + 44;
+  const colWidth = W - colLeft - 44;
+  return frameTopLogo(
+    assets,
+    images.background,
+    left,
+    rightColumn(
+      colLeft,
+      colWidth,
+      large.heading
+        ? div({ fontSize: 28, color: "#E2E8F0", fontWeight: 700, maxWidth: colWidth, ...ELLIPSIS }, large.heading)
+        : null,
+      div({ display: "block", fontSize: large.title.length > 14 ? 38 : 48, lineHeight: 1.25, color: "#FFFFFF",
+        fontWeight: 900, marginTop: 12, maxWidth: colWidth, overflow: "hidden", lineClamp: 2 }, large.title),
+      large.score !== undefined ? scoreBadge(large.score) : null,
+      chip(large, colWidth),
+    ),
+  );
+}
+
 export function cardElement(large, images, assets) {
+  if (isR3(large)) return large.layout === "moment" ? momentCardR3(large, images, assets) : gameCardR3(large, images, assets);
   if (large.layout === "moment") return momentCard(large, images, assets);
   if (large.layout === "diagnosis") return diagnosisCard(large, images, assets);
   if (large.layout === "game") return gameCard(large, images, assets);
   if (large.layout === "profile") return profileCard(large, images, assets);
   return gridCard(large, images, assets);
+}
+
+// Encodes the drawn PNG as JPEG at the highest quality that fits the limit.
+export async function toJpeg(png, maxBytes = JPEG_MAX_BYTES) {
+  let out = null;
+  for (const quality of JPEG_QUALITIES) {
+    out = await sharp(png).flatten({ background: "#0B1524" }).jpeg({ quality, mozjpeg: true }).toBuffer();
+    if (out.length <= maxBytes) return out;
+  }
+  throw new Error(`card JPEG exceeds ${maxBytes} bytes`);
+}
+
+// Renders a raw `large` payload: { body, contentType }. Cards that draw the
+// poster's photos are JPEG <= JPEG_MAX_BYTES; the rest stay PNG.
+export async function renderCardImage(rawLarge, options = {}) {
+  const large = validLarge(rawLarge);
+  if (!large) throw new Error("invalid large card");
+  const png = await renderCard(large, options);
+  return drawsUserPhotos(large)
+    ? { body: await toJpeg(png), contentType: "image/jpeg" }
+    : { body: png, contentType: "image/png" };
 }
 
 // Renders a validated `large` payload to a PNG buffer.

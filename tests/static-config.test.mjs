@@ -63,6 +63,10 @@ test("production-only legacy routes and share preview stay ahead of safe fallbac
     "/api/share-links/:code",
     "/api/share-links/:code",
     "/api/share-links/:code",
+    "/api/share-view",
+    "/api/share-view",
+    "/api/share-view",
+    "/api/share-view",
     "/mcp",
     "/mcp/:path*",
     "/ai-auth",
@@ -95,6 +99,12 @@ test("production-only legacy routes and share preview stay ahead of safe fallbac
       "playnavi-links.vercel.app",
     ],
     "/api/share-links/:code": [
+      "playnavi.app",
+      "links.playnavilab.com",
+      "playnavi-links.vercel.app",
+    ],
+    // TASK-20261017-002 r3: 共有ページの中身 (EF share-view) も短縮リンクと同じホストだけ
+    "/api/share-view": [
       "playnavi.app",
       "links.playnavilab.com",
       "playnavi-links.vercel.app",
@@ -229,7 +239,7 @@ test("survey pages receive strict privacy and script policies", async () => {
 
 test("short-link documents and proxy responses are not cached or indexed", async () => {
   const config = await readJson("../vercel.json");
-  for (const source of ["/s/(.*)", "/api/share-links/(.*)"]) {
+  for (const source of ["/s/(.*)", "/api/share-links/(.*)", "/api/share-view"]) {
     const headers = Object.fromEntries(
       config.headers.find((entry) => entry.source === source).headers.map(({ key, value }) => [key, value]),
     );
@@ -349,4 +359,21 @@ test("OpenAI domain verification token is served byte-exact as plain text (ChatG
   const rule = config.headers.find(({ source }) => source === "/.well-known/openai-apps-challenge");
   assert.equal(rule?.headers.find(({ key }) => key === "Content-Type")?.value, "text/plain; charset=utf-8");
   assert.equal(config.rewrites.some(({ source }) => source.startsWith("/.well-known/")), false, "no rewrite under /.well-known");
+});
+
+test("share page content proxy forwards the original ?path= query to the share-view function (TASK-20261017-002 r3)", async () => {
+  // Vercel は書き換えの時に元の問い合わせ文字列 (?path=<encodeURIComponent した正規パス>) を転送先へ渡す
+  // (/game/:id の書き換えが logId / moment を share-preview へ渡しているのと同じ)。転送先に ?path= を書くと
+  // 二重になるので、転送先には問い合わせ文字列を書かない
+  const config = await readJson("../vercel.json");
+  const routes = config.rewrites.filter((route) => route.source === "/api/share-view" && route.has);
+  assert.equal(routes.length, 3);
+  for (const route of routes) {
+    assert.match(route.destination, /^https:\/\/[a-z]+\.supabase\.co\/functions\/v1\/share-view$/);
+  }
+  const resolver = config.rewrites.find((route) => route.source === "/api/share-links/:code" && route.has);
+  assert.equal(new URL(routes[0].destination).host, new URL(resolver.destination).host, "same project as the resolver");
+  const app = await readFile(new URL("../assets/share-view.mjs", import.meta.url), "utf8");
+  assert.match(app, /export const SHARE_VIEW_URL = "\/api\/share-view";/);
+  assert.match(app, /\?path=\$\{encodeURIComponent\(path\)\}/);
 });

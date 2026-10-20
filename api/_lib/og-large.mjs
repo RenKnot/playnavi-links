@@ -81,6 +81,53 @@ function photoUrl(value) {
   return value;
 }
 
+// TASK-20261017-002 r3 (V1/V2): the drawn previews of the record (C1 `media`)
+// and what the share page holds (C1 `counts`). Each media entry goes through
+// the same signed-path check as photo_url; a bad entry is dropped, never fatal.
+export const MOMENT_MEDIA_MAX = 4;
+export const REVIEW_MEDIA_MAX = 3;
+function mediaItem(value, { imagesOnly }) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  if (value.kind !== "image" && value.kind !== "video") return null;
+  if (imagesOnly && value.kind !== "image") return null;
+  try {
+    photoUrl(value.url);
+  } catch {
+    return null;
+  }
+  if (value.url === null) return null;
+  if (value.kind === "image") return { kind: "image", url: value.url };
+  const duration = value.duration_ms;
+  const valid = typeof duration === "number" && Number.isFinite(duration) && duration >= 0 &&
+    duration <= 24 * 3600 * 1000;
+  return { kind: "video", url: value.url, duration_ms: valid ? Math.round(duration) : null };
+}
+function mediaList(value, max, { imagesOnly = false } = {}) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 16).map((item) => mediaItem(item, { imagesOnly }))
+    .filter(Boolean).slice(0, max);
+}
+function mediaCounts(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const { photos, videos, text: hasText } = value;
+  if (!Number.isSafeInteger(photos) || photos < 0 || !Number.isSafeInteger(videos) || videos < 0 ||
+    typeof hasText !== "boolean") return null;
+  return { photos, videos, text: hasText };
+}
+// Present only when the edge function sent them, so an old payload keeps the
+// exact normalized shape (and version hash) it had before r3.
+function r3Fields(large, { spoiler, max, imagesOnly }) {
+  const out = {};
+  if (large.media !== undefined && large.media !== null) {
+    out.media = spoiler ? [] : mediaList(large.media, max, { imagesOnly });
+  }
+  if (large.counts !== undefined && large.counts !== null) {
+    const counts = mediaCounts(large.counts);
+    if (counts) out.counts = counts;
+  }
+  return out;
+}
+
 // Returns a normalized copy (fixed key order) or null.
 export function validLarge(large) {
   try {
@@ -98,6 +145,9 @@ export function validLarge(large) {
           // log cards (TASK-20261017-002): satisfaction and the head of the review.
           ...optional(large, "score", score),
           ...optional(large, "excerpt", (value) => text(value)),
+          // r3: review photos (images only, at most 3), what the page holds, spoiler.
+          ...r3Fields(large, { spoiler: large.spoiler === true, max: REVIEW_MEDIA_MAX, imagesOnly: true }),
+          ...(typeof large.spoiler === "boolean" ? { spoiler: large.spoiler } : {}),
         };
       case "moment":
         onlyKeys(large);
@@ -111,6 +161,8 @@ export function validLarge(large) {
           spoiler: large.spoiler,
           photo_url: large.spoiler ? null : photoUrl(large.photo_url),
           cover_url: imageUrl(large.cover_url),
+          // r3: up to 4 photos / video posters in the record's order. A spoiler never carries them.
+          ...r3Fields(large, { spoiler: large.spoiler, max: MOMENT_MEDIA_MAX, imagesOnly: false }),
         };
       case "profile": {
         onlyKeys(large);
@@ -177,10 +229,18 @@ export function validLarge(large) {
 // The moment photo URL carries a fresh signature on every read; the version
 // hashes the stored object (origin + path) instead, so the image URL stays the
 // same between reads and the CDN copy is reused.
+const unsigned = (value) => {
+  const url = new URL(value);
+  return `${url.origin}${url.pathname}`;
+};
 function versionSource(large) {
-  if (large.layout !== "moment" || !large.photo_url) return large;
-  const url = new URL(large.photo_url);
-  return { ...large, photo_url: `${url.origin}${url.pathname}` };
+  let source = large;
+  if (large.layout === "moment" && large.photo_url) source = { ...source, photo_url: unsigned(large.photo_url) };
+  // r3: the media URLs are signed too; hash only the stored objects.
+  if (Array.isArray(large.media) && large.media.length > 0) {
+    source = { ...source, media: large.media.map((item) => ({ ...item, url: unsigned(item.url) })) };
+  }
+  return source;
 }
 
 export function largeVersion(large) {

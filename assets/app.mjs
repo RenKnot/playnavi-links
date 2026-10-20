@@ -125,7 +125,20 @@ function manualHrefForCanonical(target) {
   return target.schemeUrl;
 }
 
+// TASK-20261017-002 r3 (V3): モーメント・レビューは、アプリを開きに行く今の流れはそのままで、
+// 画面の中身を共有ページにする。部品や中身が読めない時は今の画面のまま
+async function showShareView(target) {
+  if (target.type !== "moment" && target.type !== "log") return;
+  try {
+    const { startShareView } = await import("./share-view.mjs");
+    await startShareView(target);
+  } catch {
+    // 共有ページは付け足し。失敗してもリンクを開く画面は変えない
+  }
+}
+
 function openCanonicalTarget(target) {
+  void showShareView(target);
   hideActions();
   setContent({
     heading: "PlayNaviを起動しています…",

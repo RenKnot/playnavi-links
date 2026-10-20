@@ -177,6 +177,13 @@ async function withServer(handler, check) {
   }
 }
 
+async function jpegSize(buffer) {
+  assert.deepEqual([...buffer.subarray(0, 3)], [0xff, 0xd8, 0xff]);
+  const meta = await sharp(buffer).metadata();
+  assert.equal(meta.format, "jpeg");
+  return [meta.width, meta.height];
+}
+
 function pngSize(buffer) {
   assert.deepEqual([...buffer.subarray(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
   return [buffer.readUInt32BE(16), buffer.readUInt32BE(20)];
@@ -382,14 +389,22 @@ for (const [name, large] of [
   ["spoiler moment", { ...MOMENT, spoiler: true }],
   ["log with a satisfaction and review head", { ...GAME, score: 9, excerpt: "Great game" }],
 ]) {
-  test(`a valid ${name} card renders a 1200x630 PNG`, async () => {
+  test(`a valid ${name} card renders a 1200x630 image`, async () => {
     const { fetchImpl, seen } = upstream(large);
     await withServer(createOgHandler({ fetchImpl, fontLoader }), async (origin) => {
       const response = await fetch(`${origin}/api/og?code=${CODE}&v=abc`, { redirect: "manual" });
       assert.equal(response.status, 200);
       assert.equal(response.headers.get("cache-control"),
         large.layout === "moment" ? OG_MOMENT_CACHE_CONTROL : OG_CACHE_CONTROL);
-      assert.deepEqual(pngSize(Buffer.from(await response.arrayBuffer())), [1200, 630]);
+      const body = Buffer.from(await response.arrayBuffer());
+      // r3: a card that draws the poster's photo is JPEG (Bluesky thumb limit); the rest stay PNG.
+      if (large.layout === "moment" && large.photo_url && !large.spoiler) {
+        assert.equal(response.headers.get("content-type"), "image/jpeg");
+        assert.deepEqual(await jpegSize(body), [1200, 630]);
+      } else {
+        assert.equal(response.headers.get("content-type"), "image/png");
+        assert.deepEqual(pngSize(body), [1200, 630]);
+      }
     });
     if (large.layout === "moment" && large.photo_url && !large.spoiler) {
       assert.ok(seen.includes(large.photo_url), "the signed photo is fetched while drawing");
@@ -442,4 +457,190 @@ test("an old links site shape (no moment layout) still gets a small card from a 
   const response = await sharePage({ headers: { host: "playnavi.app" }, query: { code: CODE } }, { ...MOMENT, layout: "future" });
   assert.equal(tag(response.body, "twitter:card"), "summary");
   assert.equal(tag(response.body, "og:image"), COVER);
+});
+
+// ---------------------------------------------------------------- TASK-20261017-002 r3 (V1/V2)
+
+const { chipText, collageSlots, drawsUserPhotos, formatDuration, isR3, reviewSlots, toJpeg, JPEG_MAX_BYTES, SAFE_BOTTOM, H: CARD_H } =
+  await import("../api/_lib/og-card.mjs");
+const signed = (name, token = "t") => `https://${STORAGE}/storage/v1/object/sign/game-log-media-private/u/memories/m/${name}?token=${token}`;
+const image = (name, token) => ({ kind: "image", url: signed(name, token) });
+const video = (name, duration_ms = 83_000, token) => ({ kind: "video", url: signed(name, token), duration_ms });
+const R3_MOMENT = {
+  ...MOMENT, photo_url: signed("a.jpg"),
+  media: [video("v.jpg"), image("a.jpg"), image("b.jpg"), image("c.jpg")],
+  counts: { photos: 3, videos: 1, text: true },
+};
+const R3_REVIEW = {
+  ...GAME, heading: "Ao log", score: 8.5,
+  media: [image("r1.jpg"), image("r2.jpg"), image("r3.jpg")],
+  counts: { photos: 3, videos: 0, text: true }, spoiler: false,
+};
+
+test("r3: moment media and counts are validated entry by entry; bad entries are dropped, not fatal", () => {
+  assert.deepEqual(validLarge(R3_MOMENT).media, R3_MOMENT.media);
+  assert.deepEqual(validLarge(R3_MOMENT).counts, R3_MOMENT.counts);
+  const noisy = validLarge({
+    ...R3_MOMENT,
+    media: [
+      image("a.jpg"),
+      { kind: "image", url: COVER }, // not the private bucket
+      { kind: "image", url: signed("x.jpg").replace(/\?token=.*/, "") }, // unsigned
+      { kind: "image", url: `https://${STORAGE}/storage/v1/object/public/avatars/a.png?token=x` },
+      { kind: "image", url: `https://example.com/storage/v1/object/sign/game-log-media-private/a.jpg?token=x` },
+      { kind: "audio", url: signed("y.jpg") }, null, "x", { kind: "image" },
+      { kind: "video", url: signed("v.jpg"), duration_ms: "12" },
+      { kind: "video", url: signed("w.jpg"), duration_ms: 1234.4, extra: 1 },
+      image("b.jpg"), image("c.jpg"), image("d.jpg"),
+    ],
+  });
+  assert.deepEqual(noisy.media, [
+    image("a.jpg"),
+    { kind: "video", url: signed("v.jpg"), duration_ms: null },
+    { kind: "video", url: signed("w.jpg"), duration_ms: 1234 },
+    image("b.jpg"),
+  ], "at most 4, record order kept");
+  // A broken counts object is dropped; the card still renders.
+  assert.equal(validLarge({ ...R3_MOMENT, counts: { photos: -1, videos: 0, text: true } }).counts, undefined);
+  assert.equal(validLarge({ ...R3_MOMENT, counts: "3" }).counts, undefined);
+  assert.deepEqual(validLarge({ ...R3_MOMENT, media: "nope" }).media, []);
+  // A spoiler moment never carries media, even if the payload had some.
+  assert.deepEqual(validLarge({ ...R3_MOMENT, spoiler: true }).media, []);
+  // Old payloads (no media / counts) keep their exact shape and version.
+  assert.deepEqual(Object.keys(validLarge(MOMENT)), Object.keys(MOMENT));
+  assert.equal(isR3(validLarge(MOMENT)), false);
+  assert.equal(isR3(validLarge(GAME)), false);
+  assert.equal(isR3(validLarge(R3_MOMENT)), true);
+});
+
+test("r3: review media are images only (at most 3) and a spoiler review carries none", () => {
+  const review = validLarge({ ...R3_REVIEW, media: [video("v.jpg"), ...R3_REVIEW.media, image("r4.jpg")] });
+  assert.deepEqual(review.media, R3_REVIEW.media);
+  assert.equal(review.spoiler, false);
+  assert.deepEqual(validLarge({ ...R3_REVIEW, spoiler: true }).media, []);
+  assert.equal(validLarge({ ...R3_REVIEW, spoiler: "yes" }).spoiler, undefined);
+  // A plain game card is untouched.
+  assert.deepEqual(validLarge(GAME), GAME);
+});
+
+test("r3: the image version ignores media signatures but follows the stored objects", () => {
+  const a = largeVersion(validLarge(R3_MOMENT));
+  const resigned = { ...R3_MOMENT, photo_url: signed("a.jpg", "zz"), media: R3_MOMENT.media.map((item) => ({ ...item, url: item.url.replace("token=t", "token=zz") })) };
+  assert.equal(largeVersion(validLarge(resigned)), a);
+  assert.notEqual(largeVersion(validLarge({ ...R3_MOMENT, media: [image("other.jpg")] })), a);
+  assert.equal(largeVersion(validLarge({ ...R3_REVIEW, media: R3_REVIEW.media.map((item) => ({ ...item, url: item.url.replace("token=t", "token=q") })) })),
+    largeVersion(validLarge(R3_REVIEW)));
+  // The share page advertises the same og:image URL on every read.
+  assert.doesNotMatch(JSON.stringify(a), /token/);
+});
+
+test("r3: collage and review slots tile their box without overlap", () => {
+  const box = { w: 640, h: 500 };
+  for (const count of [1, 2, 3, 4]) {
+    const slots = collageSlots(count);
+    assert.equal(slots.length, count);
+    for (const slot of slots) {
+      assert.ok(slot.x >= 0 && slot.y >= 0 && slot.x + slot.w <= box.w && slot.y + slot.h <= box.h, JSON.stringify(slot));
+    }
+    for (let i = 0; i < slots.length; i += 1) {
+      for (let j = i + 1; j < slots.length; j += 1) {
+        const [p, q] = [slots[i], slots[j]];
+        const overlap = p.x < q.x + q.w && q.x < p.x + p.w && p.y < q.y + q.h && q.y < p.y + p.h;
+        assert.equal(overlap, false, `${count}: ${i}/${j}`);
+      }
+    }
+  }
+  assert.deepEqual(collageSlots(1), [{ x: 0, y: 0, w: 640, h: 500 }]);
+  assert.equal(collageSlots(3)[0].h, 500, "3 = one large + two stacked");
+  assert.equal(collageSlots(3)[1].x, collageSlots(3)[2].x);
+  assert.equal(new Set(collageSlots(4).map((slot) => slot.w)).size, 1, "4 = 2x2");
+  assert.deepEqual(reviewSlots(3).length, 3);
+  // The collage (top 40 + 500) ends above X's bottom-left title band.
+  assert.ok(40 + 500 <= CARD_H - SAFE_BOTTOM);
+});
+
+test("r3: the chip says what is behind the tap", () => {
+  assert.equal(chipText(validLarge(R3_MOMENT)), "タップして見る｜動画 1・写真 3・全文");
+  assert.equal(chipText(validLarge({ ...R3_MOMENT, counts: { photos: 2, videos: 0, text: false } })), "タップして見る｜写真 2");
+  assert.equal(chipText(validLarge({ ...R3_MOMENT, media: [], counts: { photos: 0, videos: 0, text: false } })), "タップして見る");
+  assert.equal(chipText(validLarge({ ...R3_MOMENT, spoiler: true })), "タップして見る｜ネタバレを含むモーメント");
+  assert.equal(chipText(validLarge(R3_REVIEW)), "タップして見る｜満足度・感想の全文・写真 3");
+  assert.equal(chipText(validLarge({ ...R3_REVIEW, media: [], counts: { photos: 0, videos: 0, text: true } })), "タップして見る｜満足度・感想の全文");
+  assert.equal(chipText(validLarge({ ...R3_REVIEW, spoiler: true })), "タップして見る｜満足度・ネタバレを含む感想・写真 3");
+  for (const character of "タップして見る｜動画写真全文・›:") assert.ok(cardText(validLarge(R3_MOMENT)).includes(character), character);
+  assert.equal(formatDuration(83_000), "1:23");
+  assert.equal(formatDuration(5_000), "0:05");
+  assert.equal(formatDuration(null), null);
+});
+
+test("r3: only cards that draw the poster's photos are JPEG", () => {
+  assert.equal(drawsUserPhotos(validLarge(R3_MOMENT)), true);
+  assert.equal(drawsUserPhotos(validLarge({ ...R3_MOMENT, spoiler: true })), false);
+  assert.equal(drawsUserPhotos(validLarge({ ...R3_MOMENT, media: [], photo_url: null })), false);
+  assert.equal(drawsUserPhotos(validLarge(R3_REVIEW)), true);
+  assert.equal(drawsUserPhotos(validLarge({ ...R3_REVIEW, media: [] })), false);
+  for (const large of [GAME, PROFILE, GRID, DIAGNOSIS]) assert.equal(drawsUserPhotos(validLarge(large)), false);
+});
+
+// Random noise is the worst case for JPEG size.
+const NOISE = await sharp(Buffer.from(Array.from({ length: 1600 * 1200 * 3 }, () => Math.floor(Math.random() * 256))),
+  { raw: { width: 1600, height: 1200, channels: 3 } }).jpeg({ quality: 95 }).toBuffer();
+
+function r3Upstream(large) {
+  const seen = [];
+  const fetchImpl = async (url) => {
+    const href = String(url);
+    seen.push(href);
+    if (href.includes("/functions/v1/share-preview-meta")) {
+      return Response.json({ status: "ok", card: { title: "t", description: "d", image_url: COVER, large } });
+    }
+    return new Response(href.includes("/object/sign/") ? NOISE : IMAGE);
+  };
+  return { fetchImpl, seen };
+}
+
+for (const [name, large, type] of [
+  ["moment collage (video + 3 photos)", R3_MOMENT, "image/jpeg"],
+  ["moment with one photo", { ...R3_MOMENT, media: [image("a.jpg")] }, "image/jpeg"],
+  ["review with 3 photos", R3_REVIEW, "image/jpeg"],
+  ["spoiler moment", { ...R3_MOMENT, spoiler: true }, "image/png"],
+  ["review without photos", { ...R3_REVIEW, media: [], counts: { photos: 0, videos: 0, text: true } }, "image/png"],
+  ["text-only moment", { ...R3_MOMENT, photo_url: null, media: [], counts: { photos: 0, videos: 0, text: true } }, "image/png"],
+]) {
+  test(`r3: a ${name} card renders a 1200x630 ${type} within the size bound`, async () => {
+    const { fetchImpl, seen } = r3Upstream(large);
+    await withServer(createOgHandler({ fetchImpl, fontLoader }), async (origin) => {
+      const response = await fetch(`${origin}/api/og?code=${CODE}&v=abc`, { redirect: "manual" });
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("content-type"), type);
+      const body = Buffer.from(await response.arrayBuffer());
+      if (type === "image/jpeg") {
+        assert.deepEqual(await jpegSize(body), [1200, 630]);
+        assert.ok(body.length <= JPEG_MAX_BYTES, `${body.length} bytes`);
+      } else {
+        assert.deepEqual(pngSize(body), [1200, 630]);
+      }
+    });
+    const normalized = validLarge(large);
+    for (const item of normalized.media ?? []) assert.ok(seen.includes(item.url), `fetched ${item.url}`);
+    if (large.spoiler) assert.ok(!seen.some((url) => url.includes("/object/sign/")), "a spoiler card fetches no photo");
+  });
+}
+
+test("r3: the JPEG encoder steps quality down to the byte limit and refuses beyond it", async () => {
+  const png = await sharp(NOISE).resize(1200, 630).png().toBuffer();
+  const loose = await toJpeg(png);
+  assert.ok(loose.length <= JPEG_MAX_BYTES);
+  const tight = await toJpeg(png, Math.round(loose.length * 0.6));
+  assert.ok(tight.length <= Math.round(loose.length * 0.6) && tight.length < loose.length);
+  await assert.rejects(toJpeg(png, 1000), /exceeds/);
+});
+
+test("r3: the share page advertises the large image with a version that survives re-signing", async () => {
+  const first = await sharePage({ headers: { host: "playnavi.app" }, query: { code: CODE } }, R3_MOMENT);
+  const second = await sharePage({ headers: { host: "playnavi.app" }, query: { code: CODE } },
+    { ...R3_MOMENT, media: R3_MOMENT.media.map((item) => ({ ...item, url: item.url.replace("token=t", "token=new") })) });
+  assert.equal(tag(first.body, "twitter:card"), "summary_large_image");
+  assert.equal(tag(first.body, "og:image"), tag(second.body, "og:image"));
+  assert.equal(first.body.includes("/object/sign/"), false);
 });
