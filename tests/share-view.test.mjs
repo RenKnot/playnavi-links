@@ -730,15 +730,15 @@ test("r8: tapping a tile opens the one viewer on that item; a spoiler tile is re
   assert.equal(spoilerTile.classList.contains("is-spoiler"), false);
 });
 
-test("r13: with the play's album, the post's list still opens only the post's items (borrowing the album's small pictures); the album section stays below", () => {
+test("r13: with the play's album, the post's list still opens only the post's items (its own pictures, never the album's by position); the album section stays below", () => {
   const opened = [];
   const root = buildShareView(fakeDocument(), shareModel(ok(ALBUM_VIEW)), { onOpenAlbum: (items, index) => opened.push([items.length, index]) });
   const post = root.byClass("pn-hero")[0];
   const tiles = post.byClass("pn-post-tile");
   assert.equal(tiles.length, 3);
-  // the album has this moment's 3 items in the same order = their small pictures are used
+  // the list uses the post's own pictures (video = its poster, photo = the photo), not the album's small ones
   assert.match(tiles[0].byClass("pn-album-img")[0].src, /p\.jpg/);
-  assert.match(tiles[2].byClass("pn-album-img")[0].src, /2-640\.webp/);
+  assert.doesNotMatch(tiles[2].byClass("pn-album-img")[0].src, /-640\.webp/);
   tiles[2].click();
   assert.deepEqual(opened, [[3, 2]], "the viewer has the post's 3, not the album's 6");
   // the album section is a separate part further down
@@ -747,9 +747,13 @@ test("r13: with the play's album, the post's list still opens only the post's it
   assert.equal(album.byClass("pn-post-tile").length, 0);
   album.byClass("pn-album-tile")[4].click();
   assert.deepEqual(opened[1], [6, 4]);
-  // the album's order differs from the post (fewer of this moment) = no borrowing
-  const mismatch = shareModel(ok({ ...MOMENT_VIEW, album: [ALBUM[0], ALBUM[2], ALBUM[4]], album_total: 3 }));
-  assert.equal(mismatch.postItems[2].thumbUrl, mismatch.media[2].url);
+  // 10/21 STG R1: the album's order (by each photo's date) differed from the post's (display_order) and the list showed
+  // the wrong pictures. Whatever the album holds, each tile shows its own item
+  const reordered = shareModel(ok({ ...MOMENT_VIEW, album: [ALBUM[3], ALBUM[1], ALBUM[2]], album_total: 3 }));
+  reordered.postItems.forEach((item, i) => {
+    const own = reordered.media[i];
+    assert.equal(item.thumbUrl, own.kind === "image" ? own.url : own.posterUrl, `tile ${i}`);
+  });
 });
 
 test("r8: a review shows play time and platforms (and so does the parent review card in the story)", () => {

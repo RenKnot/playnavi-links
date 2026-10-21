@@ -299,16 +299,13 @@ export function albumModel(view, media = []) {
 }
 
 // r13: この投稿の写真・動画 (一覧と全画面で見る分)。全画面はアルバムと同じ部品なので同じ形にそろえる。
-// 一覧の小さな絵は、EF の album に同じ記録の分が同じ順・同じ種類で入っていればその thumb_url を借りる (軽い)。無ければ本体
+// 一覧の絵は投稿の物そのもの (写真 = 本体、動画 = 表紙)。アルバムの小さな絵を番号で借りると、アルバムの並び (写真ごとの日付順) と
+// 投稿の並び (display_order) が違う記録で絵を取り違えた (10/21 STG の R1: 2 枚目の縦長の枠に横長の写真)。見分ける鍵が無いので借りない
 function postItems(view, model, title) {
   const key = model.recordKey ?? "post";
-  const own = Array.isArray(view.album)
-    ? view.album.map(albumItem).filter((item) => item && item.key === key)
-    : [];
-  const borrow = own.length === model.media.length && own.every((item, index) => item.kind === model.media[index].kind);
-  return model.media.map((item, index) => ({
+  return model.media.map((item) => ({
     ...item,
-    thumbUrl: (borrow ? own[index].thumbUrl : null) ?? (item.kind === "image" ? item.url : item.posterUrl),
+    thumbUrl: item.kind === "image" ? item.url : item.posterUrl,
     key,
     spoiler: false,
     title,
