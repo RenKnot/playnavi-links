@@ -461,7 +461,7 @@ test("an old links site shape (no moment layout) still gets a small card from a 
 
 // ---------------------------------------------------------------- TASK-20261017-002 r3 (V1/V2)
 
-const { authorName, collageSlots, drawsUserPhotos, formatDuration, isR3, toJpeg, JPEG_MAX_BYTES, W: CARD_W, H: CARD_H } =
+const { authorName, drawsUserPhotos, servesJpeg, formatDuration, isR3, toJpeg, JPEG_MAX_BYTES, W: CARD_W, H: CARD_H } =
   await import("../api/_lib/og-card.mjs");
 const signed = (name, token = "t") => `https://${STORAGE}/storage/v1/object/sign/game-log-media-private/u/memories/m/${name}?token=${token}`;
 const image = (name, token) => ({ kind: "image", url: signed(name, token) });
@@ -534,28 +534,6 @@ test("r3: the image version ignores media signatures but follows the stored obje
   assert.doesNotMatch(JSON.stringify(a), /token/);
 });
 
-test("r7: the collage fills the whole card (the poster's photos edge to edge) without overlap", () => {
-  const box = { w: CARD_W, h: CARD_H };
-  for (const count of [1, 2, 3, 4]) {
-    const slots = collageSlots(count);
-    assert.equal(slots.length, count);
-    for (const slot of slots) {
-      assert.ok(slot.x >= 0 && slot.y >= 0 && slot.x + slot.w <= box.w && slot.y + slot.h <= box.h, JSON.stringify(slot));
-    }
-    for (let i = 0; i < slots.length; i += 1) {
-      for (let j = i + 1; j < slots.length; j += 1) {
-        const [p, q] = [slots[i], slots[j]];
-        const overlap = p.x < q.x + q.w && q.x < p.x + p.w && p.y < q.y + q.h && q.y < p.y + p.h;
-        assert.equal(overlap, false, `${count}: ${i}/${j}`);
-      }
-    }
-  }
-  assert.deepEqual(collageSlots(1), [{ x: 0, y: 0, w: 1200, h: 630 }]);
-  assert.equal(collageSlots(3)[0].h, 630, "3 = one large + two stacked");
-  assert.equal(collageSlots(3)[1].x, collageSlots(3)[2].x);
-  assert.equal(new Set(collageSlots(4).map((slot) => slot.w)).size, 1, "4 = 2x2");
-});
-
 test("r7 P3/P4: the poster is the hero — author name / icon are validated, the old heading still gives the name", () => {
   const avatar = `https://${STORAGE}/storage/v1/object/public/avatars/hinata.png`;
   const moment = validLarge({ ...R3_MOMENT, author_name: " Hinata ", author_avatar_url: avatar });
@@ -611,11 +589,11 @@ for (const [name, large, type] of [
   ["moment collage (video + 3 photos)", R3_MOMENT, "image/jpeg"],
   ["moment with one photo", { ...R3_MOMENT, media: [image("a.jpg")] }, "image/jpeg"],
   ["review with 3 photos", R3_REVIEW, "image/jpeg"],
-  ["spoiler moment", { ...R3_MOMENT, spoiler: true }, "image/png"],
-  ["review without photos", { ...R3_REVIEW, media: [], counts: { photos: 0, videos: 0, text: true } }, "image/png"],
-  ["text-only moment", { ...R3_MOMENT, photo_url: null, media: [], counts: { photos: 0, videos: 0, text: true } }, "image/png"],
+  ["spoiler moment", { ...R3_MOMENT, spoiler: true }, "image/jpeg"],
+  ["review without photos", { ...R3_REVIEW, media: [], counts: { photos: 0, videos: 0, text: true } }, "image/jpeg"],
+  ["text-only moment", { ...R3_MOMENT, photo_url: null, media: [], counts: { photos: 0, videos: 0, text: true } }, "image/jpeg"],
   ["r7 moment with the poster's icon", { ...R3_MOMENT, author_name: "Ao", author_avatar_url: AVATAR }, "image/jpeg"],
-  ["r7 text-only review with the poster's icon", { ...R3_REVIEW, media: [], counts: { photos: 0, videos: 0, text: true }, author_name: "Ao", author_avatar_url: AVATAR }, "image/png"],
+  ["r7 text-only review with the poster's icon", { ...R3_REVIEW, media: [], counts: { photos: 0, videos: 0, text: true }, author_name: "Ao", author_avatar_url: AVATAR }, "image/jpeg"],
 ]) {
   test(`r3: a ${name} card renders a 1200x630 ${type} within the size bound`, async () => {
     const { fetchImpl, seen } = r3Upstream(large);
@@ -670,7 +648,7 @@ test("hyphens between letters/digits in card titles do not break (HD-2D)", async
 
 // ---------------------------------------------------------------- TASK-20261017-002 r8 (§12.2): 写真の無い記録 = このプレイの写真を切らずに
 
-const { PLAY_BOX, PLAY_TILES_MAX } = await import("../api/_lib/og-card.mjs");
+const { PLAY_TILES_MAX } = await import("../api/_lib/og-card.mjs");
 const playSigned = (name) => `https://${STORAGE}/storage/v1/object/sign/game-log-media-private/u/memories/p/${name}?token=t`;
 const PLAY_MEDIA = [
   { kind: "image", url: playSigned("1.jpg") }, { kind: "image", url: playSigned("2.jpg") }, { kind: "image", url: playSigned("3.jpg") },
@@ -703,14 +681,6 @@ test("r8: the card with the play's photos is a JPEG", () => {
   assert.equal(drawsUserPhotos(validLarge({ ...TEXT_ONLY, spoiler: true })), false);
 });
 
-test("r9: the play's photos fill the collage inside the box under the header, at most 4", () => {
-  assert.equal(PLAY_TILES_MAX, 4);
-  assert.ok(PLAY_BOX.y >= 96 && PLAY_BOX.x + PLAY_BOX.w <= CARD_W && PLAY_BOX.y + PLAY_BOX.h <= CARD_H);
-  for (const count of [1, 2, 3, 4]) {
-    for (const slot of collageSlots(count, PLAY_BOX)) assert.ok(slot.x + slot.w <= PLAY_BOX.w + 0.5 && slot.y + slot.h <= PLAY_BOX.h + 0.5);
-  }
-});
-
 for (const [name, large] of [["text-only moment with the play's photos", TEXT_ONLY], ["review without photos with the play's photos", NO_PHOTO_REVIEW]]) {
   test(`r8: a ${name} renders a 1200x630 JPEG and fetches the play's photos`, async () => {
     const { fetchImpl, seen } = r3Upstream(large);
@@ -739,6 +709,8 @@ test("r8: the version hash survives re-signing the play's photos", async () => {
 
 const { CTA_LABELS, SPOILER_LABEL, cardElement, ctaText, headerWidths, loadCardImages, loadStaticAssets, recordMode, renderCardImage, titleText } =
   await import("../api/_lib/og-card.mjs");
+const { layoutCard, BOX } = await import("../api/_lib/card-layout.mjs");
+const { chromePlacement, ctaOverTile, ctaWidth } = await import("../api/_lib/og-card.mjs");
 const LANDSCAPE = await sharp({ create: { width: 320, height: 180, channels: 3, background: "#cc6633" } }).jpeg().toBuffer();
 const PORTRAIT = await sharp({ create: { width: 300, height: 400, channels: 3, background: "#3366cc" } }).jpeg().toBuffer();
 const imageFetch = (buffer) => async () => new Response(buffer);
@@ -816,22 +788,67 @@ test("r9: the small header carries the poster's name (left) and the game title (
 });
 function mode(raw) { return raw.spoiler === true ? "spoiler" : "other"; }
 
-test("r9: a single portrait / near-square photo is drawn uncropped over a blurred copy; a landscape one fills the card", async () => {
+test("r10: the poster's photos are drawn uncropped in the shared layout, a portrait one too", async () => {
   const one = validLarge({ ...R3_MOMENT, media: [image("a.jpg")] });
   const portrait = await loadCardImages(one, imageFetch(PORTRAIT));
-  assert.ok(portrait.contained, "contained");
-  assert.equal(portrait.contained.height, CARD_H);
-  assert.equal(portrait.contained.width, Math.round((CARD_H * 300) / 400));
-  assert.match(portrait.containedBackdrop ?? "", /^data:image\//);
-  assert.equal(portrait.tiles[0], null, "not cut to fill");
+  assert.equal(portrait.tiles.length, 1);
+  assert.deepEqual(portrait.tiles[0].slot, layoutCard([300 / 400]).slots[0]);
+  assert.equal(portrait.tiles[0].slot.h, BOX.h, "a portrait photo is as tall as the box");
+  assert.match(portrait.tiles[0].image ?? "", /^data:image\//);
+  assert.match(portrait.ownBackground ?? "", /^data:image\//, "the first photo blurred behind");
   assert.equal(recordMode(one, portrait), "own");
-  const landscape = await loadCardImages(one, imageFetch(LANDSCAPE));
-  assert.equal(landscape.contained, null);
-  assert.match(landscape.tiles[0] ?? "", /^data:image\//);
-  // 2 枚以上は切り抜いて敷き詰める
-  const two = await loadCardImages(validLarge({ ...R3_MOMENT, media: [image("a.jpg"), image("b.jpg")] }), imageFetch(PORTRAIT));
-  assert.equal(two.contained, null);
-  assert.equal(two.tiles.filter(Boolean).length, 2);
+  // 写真の大きさに縮めるだけ (切らない): 描く絵の縦横 = 枠の縦横
+  const drawn = await sharp(Buffer.from(portrait.tiles[0].image.split(",")[1], "base64")).metadata();
+  assert.ok(Math.abs(drawn.width / drawn.height - 0.75) < 0.01, `${drawn.width}x${drawn.height}`);
+  // 縦長 + 横長: どちらも切らない
+  const mixed = await loadCardImages(validLarge({ ...R3_MOMENT, media: [image("p.jpg"), image("l.jpg")] }),
+    async (url) => new Response(String(url).includes("/p.jpg") ? PORTRAIT : LANDSCAPE));
+  assert.deepEqual(mixed.tiles.map((tile) => tile.slot), layoutCard([0.75, 16 / 9]).slots);
+  // 読めない写真は外して、読めた物だけで並べる
+  const broken = await loadCardImages(validLarge({ ...R3_MOMENT, media: [image("x.jpg"), image("a.jpg")] }),
+    async (url) => new Response(String(url).includes("/x.jpg") ? "not an image" : LANDSCAPE));
+  assert.equal(broken.tiles.length, 1);
+  assert.equal(broken.tiles[0].item.url, signed("a.jpg"));
+});
+
+test("r10: over the photos, the CTA sits inside the right-most bottom tile it fits in (never hides a small tile), else in the card corner", () => {
+  const label = CTA_LABELS.own;
+  // 横長 1 枚 + 正方形 3 枚: 右の小さな正方形でなく、横長の右下
+  const lsss = layoutCard([16 / 9, 1, 1, 1]);
+  const big = lsss.slots[0];
+  const place = ctaOverTile(lsss.slots.map((slot) => ({ slot })), lsss.group, label);
+  assert.ok(place, "placed over a tile");
+  const left = CARD_W - place.right - ctaWidth(label);
+  assert.ok(left >= big.x + 16 && CARD_W - place.right <= big.x + big.w - 16 + 0.5, JSON.stringify(place));
+  assert.ok(left >= 260, "clear of X's address label (bottom-left)");
+  assert.ok(CARD_H - place.bottom <= CARD_H - 15, "inside X's 2:1 crop");
+  // スマホの画面 1 枚 (幅が足りない): カードの角
+  const t = layoutCard([9 / 19.5]);
+  assert.equal(ctaOverTile(t.slots.map((slot) => ({ slot })), t.group, label), null);
+});
+
+test("r10: the header and the CTA sit in the room above / below the photos when there is room, else over them (inside X's 2:1 crop)", () => {
+  assert.deepEqual(chromePlacement(layoutCard([0.75]).group), { room: 24, headerTop: null, ctaBottom: null, compact: false, overlayTop: 32, inset: 32, ctaRight: 28 });
+  for (const [aspects, wantRoom] of [[[16 / 9, 16 / 9], true], [[16 / 9, 0.75], true], [[16 / 9, 16 / 9, 16 / 9], true], [[1, 1, 1, 1], false]]) {
+    const { group } = layoutCard(aspects);
+    const place = chromePlacement(group);
+    assert.equal(place.headerTop !== null, wantRoom, JSON.stringify(aspects));
+    if (place.headerTop === null) continue;
+    // 帯は写真より上、札は写真より下。どちらも X に切られうる上下 15px の内側
+    assert.ok(place.headerTop + 56 <= group.y && place.headerTop + 1.5 >= 15, JSON.stringify(place));
+    const ctaH = place.compact ? 52 : 62;
+    assert.ok(CARD_H - place.ctaBottom - ctaH >= group.y + group.h && place.ctaBottom >= 15, JSON.stringify(place));
+  }
+});
+
+test("r10: the play's photos are laid out like the poster's own (at most 4, never cropped)", async () => {
+  assert.equal(PLAY_TILES_MAX, 4);
+  const large = validLarge(TEXT_ONLY);
+  const images = await loadCardImages(large, imageFetch(LANDSCAPE));
+  assert.equal(images.playTiles.length, 4, "4 of the 5");
+  assert.deepEqual(images.playTiles.map((tile) => tile.item), large.play_media.slice(0, 4));
+  for (const { slot } of images.playTiles) assert.ok(Math.abs(slot.w / slot.h - 320 / 180) < 0.01, JSON.stringify(slot));
+  assert.deepEqual(images.playTiles.map((tile) => tile.slot), layoutCard([16 / 9, 16 / 9, 16 / 9, 16 / 9]).slots);
 });
 
 const R9_PATTERNS = [
@@ -853,6 +870,61 @@ for (const [name, raw, photo] of R9_PATTERNS) {
       assert.equal(contentType, "image/png");
       assert.deepEqual(pngSize(body), [1200, 630]);
     }
-    assert.equal(contentType === "image/jpeg", drawsUserPhotos(validLarge(raw)));
+    assert.equal(contentType === "image/jpeg", servesJpeg(validLarge(raw)));
   });
 }
+
+// ---------------------------------------------------------------- TASK-20261017-002 r10: どの写真も切らずに並べる (全パターン)
+
+// 形ごとの雑音の写真 (JPEG の大きさのいちばん悪い場合)。名前の頭の字で形を選ぶ
+const { randomBytes } = await import("node:crypto");
+const SHAPES = { L: [1600, 900], S: [1100, 1100], P: [900, 1200], T: [600, 1300], W: [1680, 720] };
+const NOISY = Object.fromEntries(await Promise.all(Object.entries(SHAPES).map(async ([key, [width, height]]) =>
+  [key, await sharp(randomBytes(width * height * 3), { raw: { width, height, channels: 3 } }).jpeg({ quality: 92 }).toBuffer()])));
+const shapeFetch = async (url) => {
+  const href = String(url);
+  if (!href.includes("/object/sign/")) return new Response(IMAGE);
+  const key = href.split("/").pop().split("?")[0][0];
+  return new Response(NOISY[key] ?? NOISY.L);
+};
+const shaped = (keys, prefix = "") => [...keys].map((key, i) => image(`${key}${prefix}${i}.jpg`));
+const multisets = [];
+const walk = (acc, from) => {
+  if (acc.length) multisets.push(acc);
+  if (acc.length < 4) for (let i = from; i < 3; i += 1) walk(acc + "LSP"[i], i);
+};
+walk("", 0);
+const R10_PATTERNS = [
+  ...multisets.map((keys) => [`moment ${keys}`, { ...R3_MOMENT, media: shaped(keys) }]),
+  ...["T", "TT", "TL", "W", "WW"].map((keys) => [`moment ${keys}`, { ...R3_MOMENT, media: shaped(keys) }]),
+  ["moment video L", { ...R3_MOMENT, media: [video("L-v.jpg", 9_000)] }],
+  ["moment video P", { ...R3_MOMENT, media: [video("P-v.jpg", 83_000)] }],
+  ["text-only moment, the play has L P S + video", { ...TEXT_ONLY, play_media: [...shaped("LPS", "-play"), video("L-play-v.jpg", 9_000)] }],
+  ["text-only moment, nothing in the play", { ...R3_MOMENT, photo_url: null, media: [], author_name: "ひなた" }],
+  ["spoiler moment", { ...R3_MOMENT, spoiler: true, author_name: "ひなた" }],
+  ...["L", "LS", "LLP"].map((keys) => [`review ${keys}`, { ...R3_REVIEW, author_name: "ひなた", media: shaped(keys, "-r") }]),
+];
+
+test("r10: the pattern list covers every multiset of L/S/P up to 4 photos (34)", () => {
+  assert.equal(multisets.length, 34);
+});
+
+for (const [name, raw] of R10_PATTERNS) {
+  test(`r10: the ${name} card renders 1200x630 without throwing, JPEG within the size bound`, async () => {
+    const { body, contentType } = await renderCardImage(raw, { fetchImpl: shapeFetch, fontLoader });
+    if (contentType === "image/jpeg") {
+      assert.deepEqual(await jpegSize(body), [1200, 630]);
+      assert.ok(body.length <= JPEG_MAX_BYTES, `${body.length} bytes`);
+    } else {
+      assert.equal(contentType, "image/png");
+      assert.deepEqual(pngSize(body), [1200, 630]);
+    }
+    assert.equal(contentType === "image/jpeg", servesJpeg(validLarge(raw)));
+  });
+}
+
+test("r10: record cards are always JPEG (the cover card stays under Bluesky's 1MB thumb limit); old layouts stay PNG", () => {
+  assert.equal(servesJpeg(validLarge({ ...R3_MOMENT, spoiler: true })), true);
+  assert.equal(servesJpeg(validLarge({ ...R3_REVIEW, media: [] })), true);
+  for (const large of [GAME, PROFILE, GRID, DIAGNOSIS]) assert.equal(servesJpeg(validLarge(large)), false);
+});

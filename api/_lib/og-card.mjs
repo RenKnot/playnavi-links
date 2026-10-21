@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { ImageResponse } from "@vercel/og";
 import { createElement as h } from "react";
 import sharp from "sharp";
+import { layoutCard } from "./card-layout.mjs";
 import { allowedImageUrl, validLarge } from "./og-large.mjs";
 
 export { ALLOWED_IMAGE_HOSTS, allowedImageUrl, validLarge } from "./og-large.mjs";
@@ -33,10 +34,14 @@ export const SAFE_BOTTOM = 90;
 // Cards that carry the poster's photos are JPEG (Bluesky thumb limit 1MB).
 export const JPEG_MAX_BYTES = 900_000;
 const JPEG_QUALITIES = [86, 78, 70, 60, 50, 40];
-// r9: 写真・動画はカードいっぱいに、つなぎ目は細く。
-const COLLAGE = { x: 0, y: 0, w: W, h: H, gap: 4 };
-// r9: 1 枚だけの写真が縦長・正方形に近い (幅 / 高さ がこれ未満) 時は切らずに、ぼかした同じ写真の上に置く。
-export const CONTAIN_BELOW = 1.3;
+// r10: 写真・動画は切らずに並べる (並べ方は card-layout.mjs。アプリのプレビューと同じ答え)。枠の角の丸み
+const TILE_RADIUS = 14;
+// r10: まとまりの上下の空き (上下は同じ高さ) がこれ以上あれば、上の帯と右下の札をその空きに置く (影は描かない)。
+// 足りなければ写真の上に重ね、r9 と同じ薄い影を敷く。並べ方 (写真の位置と大きさ) は札のために変えない
+// 64px では X の上下の切れ目 (上下 15px) を避けると帯が窮屈になるので 80px
+export const ROOM_MIN = 80;
+// X の公式の枠は 2:1 (1200x600) で、1200x630 の絵は上下 15px ずつ切られうる。上の帯の字・アイコンと右下の札はこの内側
+export const X_SAFE = { top: 15, bottom: H - 15 };
 // r9: 上の帯 (投稿者は左、ゲームは右)。どちらも小さく、主役は写真。
 const HEADER = { x: 32, top: 22, h: 56, w: W - 64, gap: 40, shade: 200 };
 // 上の帯の影より下 (動画の長さの札をここより下に置き、帯とぶつけない)
@@ -58,31 +63,6 @@ export const CTA_LABELS = {
   spoiler: "タップして見る",
 };
 export const SPOILER_LABEL = "ネタバレを含みます";
-
-// Tile rectangles inside the collage box: 1 = one large, 2 = side by side,
-// 3 = one large + two stacked, 4 = 2x2.
-export function collageSlots(count, { w, h, gap } = COLLAGE) {
-  const half = (w - gap) / 2;
-  const halfH = (h - gap) / 2;
-  switch (count) {
-    case 1: return [{ x: 0, y: 0, w, h }];
-    case 2: return [{ x: 0, y: 0, w: half, h }, { x: half + gap, y: 0, w: half, h }];
-    case 3: {
-      const big = Math.round((w - gap) * 0.66);
-      const small = w - gap - big;
-      return [
-        { x: 0, y: 0, w: big, h },
-        { x: big + gap, y: 0, w: small, h: halfH },
-        { x: big + gap, y: halfH + gap, w: small, h: halfH },
-      ];
-    }
-    case 4: return [
-      { x: 0, y: 0, w: half, h: halfH }, { x: half + gap, y: 0, w: half, h: halfH },
-      { x: 0, y: halfH + gap, w: half, h: halfH }, { x: half + gap, y: halfH + gap, w: half, h: halfH },
-    ];
-    default: return [];
-  }
-}
 
 // r3 layouts apply only when the edge function sent the r3 keys.
 export const isR3 = (large) =>
@@ -106,10 +86,8 @@ export function drawsUserPhotos(large) {
   return false;
 }
 
-// r9: the box the play's photos fill (under the small header; X's label and the CTA may overlap the photos only).
-// 同じ並べ方 (collageSlots) で 4 つまで、角を丸めた枠に切り抜いて大きく (r8 の「切らずに並べる」は小さくなりすぎた)。
-// 切らずに全部を見せるのはリンクの先の「このプレイのアルバム」。
-export const PLAY_BOX = { x: 28, y: 100, w: W - 56, h: H - 100 - 28, gap: 8 };
+// r10: 同じプレイの写真・動画も、投稿者の物と同じ決まり (card-layout.mjs) で 4 つまで切らずに並べる。
+// 全部を見せるのはリンクの先の「このプレイのアルバム」。
 export const PLAY_TILES_MAX = 4;
 
 // ---------------------------------------------------------------- fonts
@@ -349,27 +327,24 @@ export async function loadCardImages(large, fetchImpl) {
   const get = (url) => (url ? raw.get(url) ?? null : null);
 
   if (isR3(large)) {
-    // r9: the poster's photos edge to edge (a single portrait / near-square photo uncropped over a blurred copy of
-    // itself), else the play's photos, else the cover large. The poster's icon and the cover thumbnail are small
-    // (header). A tile that cannot be loaded is drawn as an empty frame.
+    // r10: 投稿者の写真・動画を切らずに並べ (card-layout.mjs)、無ければ同じプレイの写真・動画を同じ決まりで、それも無ければ
+    // カバーを大きく。投稿者のアイコンとカバーの小さな絵は上の帯。背景は 1 枚目をぼかして暗くした物 (無い時はカバー)。
     const spoiler = large.spoiler === true;
     const media = spoiler ? [] : large.media ?? [];
-    const slots = collageSlots(media.length);
     const coverBuffer = get(large.cover_url);
-    const single = media.length === 1 ? get(media[0].url) : null;
-    const aspect = await imageAspect(single);
-    const contain = aspect !== null && aspect < CONTAIN_BELOW;
-    const [author, thumb, background, hero, contained, containedBackdrop, ...tiles] = await Promise.all([
+    const [author, thumb, background, hero, own] = await Promise.all([
       pngUri(get(large.author_avatar_url), HEAD_AVATAR * 2, HEAD_AVATAR * 2),
       coverUri(coverBuffer, THUMB[0] * 2, THUMB[1] * 2),
       blurUri(coverBuffer ?? get(large.photo_url)),
       media.length === 0 && !spoiler ? coverUri(coverBuffer, ...HERO_COVER) : null,
-      contain ? fittedUri(single, W, H) : null,
-      contain ? blurUri(single) : null,
-      ...media.map((item, i) => (contain ? null : coverUri(get(item.url), slots[i].w, slots[i].h))),
+      layoutTiles(media, get, media.length),
     ]);
-    const play = media.length === 0 && !spoiler ? await playTiles(large.play_media ?? [], get) : null;
-    return { author, thumb, background, hero, contained, containedBackdrop, tiles, ...(play ?? {}) };
+    const play = media.length === 0 && !spoiler ? await layoutTiles(large.play_media ?? [], get, PLAY_TILES_MAX) : null;
+    return {
+      author, thumb, background, hero,
+      tiles: own?.tiles ?? [], group: own?.group ?? null, ownBackground: own?.backdrop ?? null,
+      ...(play ? { playTiles: play.tiles, playGroup: play.group, playBackground: play.backdrop } : {}),
+    };
   }
   if (large.layout === "game") {
     const buffer = get(large.cover_url);
@@ -414,9 +389,7 @@ export async function loadCardImages(large, fetchImpl) {
   return { background, owner, covers };
 }
 
-// r9: the play's photos (a record without its own photos): the first PLAY_TILES_MAX that can be read, cut to fill the
-// tiles of the same collage as the poster's own photos, inside PLAY_BOX. A photo that cannot be read is left out;
-// the blurred backdrop is made from the first one. imageAspect = width / height with the EXIF rotation applied.
+// imageAspect = 幅 ÷ 高さ (EXIF の向きを当てた後)。読めない時は null
 async function imageAspect(buffer) {
   if (!buffer) return null;
   try {
@@ -429,18 +402,27 @@ async function imageAspect(buffer) {
     return null;
   }
 }
-async function playTiles(items, get) {
+// r10: 写真・動画 (動画は代表の絵) を、読めた物の縦横で card-layout.mjs に並べてもらい、各枠の大きさにちょうど縮める
+// (縦横が同じなので切れない)。読めない物は外す。並べ方が外した物 (短い辺が足りない) は描かない。
+// 背景は 1 枚目をぼかした物。返り値の tiles は表示する順 (外した物を除く)、group はまとまりの外枠
+async function layoutTiles(items, get, max) {
   if (items.length === 0) return null;
-  const read = await Promise.all(items.map(async (item) => ({ item, buffer: get(item.url), aspect: await imageAspect(get(item.url)) })));
-  const usable = read.filter((entry) => entry.aspect !== null).slice(0, PLAY_TILES_MAX);
+  const read = await Promise.all(items.map(async (item) => {
+    const buffer = get(item.url);
+    return { item, buffer, aspect: await imageAspect(buffer) };
+  }));
+  const usable = read.filter((entry) => entry.aspect !== null).slice(0, max);
   if (usable.length === 0) return null;
-  const slots = collageSlots(usable.length, PLAY_BOX).map((slot) => ({ ...slot, x: PLAY_BOX.x + slot.x, y: PLAY_BOX.y + slot.y }));
-  const [playBackground, ...cut] = await Promise.all([
-    blurUri(usable[0].buffer),
-    ...usable.map((entry, i) => coverUri(entry.buffer, slots[i].w, slots[i].h)),
+  const layout = layoutCard(usable.map((entry) => entry.aspect));
+  const shown = usable.map((entry, i) => ({ ...entry, slot: layout.slots[i] })).filter((entry) => entry.slot);
+  if (shown.length === 0) return null;
+  const [backdropUri, ...cut] = await Promise.all([
+    blurUri(shown[0].buffer),
+    ...shown.map((entry) => coverUri(entry.buffer, Math.max(1, Math.round(entry.slot.w)), Math.max(1, Math.round(entry.slot.h)))),
   ]);
-  const playTilesOut = usable.map((entry, i) => ({ item: entry.item, slot: slots[i], image: cut[i] })).filter((t) => t.image);
-  return playTilesOut.length > 0 ? { playBackground, playTiles: playTilesOut } : null;
+  // 縮めるのに失敗した枠は空の枠 (並べ方は変えない)。1 つも描けなければ写真なしの形へ
+  const tiles = shown.map((entry, i) => ({ item: entry.item, slot: entry.slot, image: cut[i] }));
+  return tiles.some((tile) => tile.image) ? { tiles, group: layout.group, backdrop: backdropUri } : null;
 }
 
 // ---------------------------------------------------------------- layouts
@@ -768,7 +750,8 @@ const PLAY_ICON = `data:image/svg+xml;base64,${Buffer.from(
 ).toString("base64")}`;
 
 // ---------------------------------------------------------------- r9 layouts (TASK-20261017-002 r9)
-// 写真・動画が主役 (Emiya 10/21「リンクカードは写真を主役にしていいのでは？」)。投稿者の写真・動画をカードいっぱいに敷き、
+// 写真・動画が主役 (Emiya 10/21「リンクカードは写真を主役にしていいのでは？」)。r10: 投稿者の写真・動画は切らずに並べ
+// (並べ方は card-layout.mjs。Emiya 10/21「パターンの洗い出しもせずにとりあえずで作ってない？」)、
 // 上の細い帯の左に投稿者の小さなアイコンと名前、右にゲーム (小さなカバー・題名、レビューは満足度) を置く。PlayNavi の印は描かない。
 // 枚数も書かない。右下に重ねた札「写真・動画をすべて見る ›」で先へ誘う (X はカードの左下に住所を重ねるので、札は右下)。
 // 自分の写真・動画が無い記録は、同じプレイの写真・動画を切らずに並べ (札は「このプレイの写真・動画を見る ›」)、それも無ければ
@@ -790,7 +773,7 @@ const ems = (value) => [...String(value)].reduce((w, ch) => w + (ch.charCodeAt(0
 // どの形で描くか: own = 投稿者の写真・動画 / play = 同じプレイの写真・動画 / plain = カバー / spoiler = ネタバレ
 export function recordMode(large, images = {}) {
   if (large.spoiler === true) return "spoiler";
-  if ((large.media?.length ?? 0) > 0 && ((images.tiles ?? []).some(Boolean) || Boolean(images.contained))) return "own";
+  if ((large.media?.length ?? 0) > 0 && (images.tiles ?? []).some((tile) => tile?.image)) return "own";
   if ((images.playTiles?.length ?? 0) > 0) return "play";
   return "plain";
 }
@@ -808,12 +791,12 @@ const scoreChipWidth = (score) =>
 
 // 上の帯の幅の割り振り: 名前とゲーム名が両方入れば両方そのまま。入らない時は名前に 4 割まで、残りをゲーム名へ
 // (どちらも … で切る)。左右の塊は重ならない。
-export function headerWidths(name, title, { thumb = false, score = null } = {}) {
+export function headerWidths(name, title, { thumb = false, score = null, width = HEADER.w } = {}) {
   // + 10 = 右の余白 (paddingRight 6) と見積もりの誤差
   const nameNeed = Math.ceil(ems(name) * HEAD_NAME) + 10;
   const titleNeed = Math.min(Math.ceil(ems(title) * HEAD_TITLE) + 10, HEAD_TITLE_MAX);
   const rightFixed = (thumb ? THUMB[0] + 12 : 0) + (score === null ? 0 : scoreChipWidth(score) + 14);
-  const room = HEADER.w - HEADER.gap - (HEAD_AVATAR + 12) - rightFixed;
+  const room = width - HEADER.gap - (HEAD_AVATAR + 12) - rightFixed;
   if (nameNeed + titleNeed <= room) return { name: nameNeed, title: titleNeed, room };
   const nameW = Math.min(nameNeed, Math.max(Math.round(room * 0.4), room - titleNeed));
   return { name: nameW, title: room - nameW, room };
@@ -837,25 +820,29 @@ function scoreChip(score) {
   );
 }
 
-// 上の帯: 左に投稿者 (小さなアイコン + 名前)、右にゲーム ([満足度] + 小さなカバー + 題名)。写真の上には上からの薄い影
-function header(large, images, { thumb }) {
+// 上の帯: 左に投稿者 (小さなアイコン + 名前)、右にゲーム ([満足度] + 小さなカバー + 題名)。写真の上には上からの薄い影。
+// r10: top = 帯の上端 (既定は r9 の位置)、shade = 上からの薄い影 (写真の上の空きに置く時は描かない)、inset = 左右の端からの距離
+function header(large, images, { thumb, top = null, shade = true, inset = HEADER.x }) {
   const name = authorName(large);
   const title = titleText(large.title);
   const score = reviewScore(large);
   const showThumb = thumb && Boolean(images.thumb);
-  const widths = headerWidths(name, title, { thumb: showThumb, score });
+  const widths = headerWidths(name, title, { thumb: showThumb, score, width: W - 2 * inset });
   // paddingRight: 末尾の … が切り取られて「‥」に見えないよう、はみ出し分の余白
   const text = { fontWeight: 700, color: "#FFFFFF", lineHeight: 1.25, textShadow: TEXT_SHADOW, paddingRight: 6, ...ELLIPSIS };
+  const y = top ?? HEADER.top;
   return [
-    div({ position: "absolute", left: 0, top: 0, width: W, height: HEADER.shade, backgroundImage:
-      "linear-gradient(180deg, rgba(4,8,16,0.64) 0%, rgba(4,8,16,0.34) 45%, rgba(4,8,16,0) 100%)" }),
+    shade
+      ? div({ position: "absolute", left: 0, top: 0, width: W, height: HEADER.shade, backgroundImage:
+        "linear-gradient(180deg, rgba(4,8,16,0.64) 0%, rgba(4,8,16,0.34) 45%, rgba(4,8,16,0) 100%)" })
+      : null,
     div(
-      { position: "absolute", left: HEADER.x, top: HEADER.top, height: HEADER.h, alignItems: "center" },
+      { position: "absolute", left: inset, top: y, height: HEADER.h, alignItems: "center" },
       avatarCircle(images.author, name, HEAD_AVATAR, 2),
       div({ ...text, marginLeft: 12, fontSize: HEAD_NAME, maxWidth: widths.name }, name),
     ),
     div(
-      { position: "absolute", right: HEADER.x, top: HEADER.top, height: HEADER.h, alignItems: "center" },
+      { position: "absolute", right: inset, top: y, height: HEADER.h, alignItems: "center" },
       score === null ? null : scoreChip(score),
       showThumb
         ? img(images.thumb, { width: THUMB[0], height: THUMB[1], borderRadius: 6, flexShrink: 0, marginLeft: score === null ? 0 : 14,
@@ -872,13 +859,16 @@ const CHEVRON = `data:image/svg+xml;base64,${Buffer.from(
   '<path d="M6 6 L20 22 L6 38" fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
 ).toString("base64")}`;
 
-// 右下の札 (すりガラス風: 暗い半透明 + 細い白の縁)
-function ctaPill(label) {
+// 右下の札 (すりガラス風: 暗い半透明 + 細い白の縁)。r10: 写真の下の空きに置く時は bottom を渡す。空きが狭い時は一回り小さく
+const CTA = { right: 28, bottom: 28, h: 62, compactH: 52 };
+function ctaPill(label, { bottom = CTA.bottom, right = CTA.right, compact = false } = {}) {
+  const height = compact ? CTA.compactH : CTA.h;
   return div(
-    { position: "absolute", right: 28, bottom: 28, height: 62, alignItems: "center", padding: "0 26px 0 30px", borderRadius: 31,
-      backgroundColor: "rgba(10,14,22,0.58)", border: "2px solid rgba(255,255,255,0.62)", boxShadow: "0 8px 28px rgba(0,0,0,0.4)" },
-    div({ fontSize: 27, fontWeight: 700, color: "#FFFFFF", lineHeight: 1.2 }, label),
-    img(CHEVRON, { width: 13, height: 22, marginLeft: 14 }),
+    { position: "absolute", right, bottom, height, alignItems: "center", padding: compact ? "0 22px 0 26px" : "0 26px 0 30px",
+      borderRadius: height / 2, backgroundColor: "rgba(10,14,22,0.58)", border: "2px solid rgba(255,255,255,0.62)",
+      boxShadow: "0 8px 28px rgba(0,0,0,0.4)" },
+    div({ fontSize: compact ? 24 : 27, fontWeight: 700, color: "#FFFFFF", lineHeight: 1.2 }, label),
+    img(CHEVRON, { width: compact ? 12 : 13, height: compact ? 20 : 22, marginLeft: compact ? 12 : 14 }),
   );
 }
 
@@ -899,68 +889,95 @@ const backdrop = (uri, dim) => [
   div({ ...FULL, backgroundColor: `rgba(4,8,16,${dim})` }),
 ];
 
-// 写真・動画 1 つ分の枠 (切り抜いて枠いっぱい)。動画は真ん中に ▶、右上 (上の帯より下) に長さ
-function fullTile(item, uri, slot) {
+// r10: 上の帯と右下の札をどこに置くか。まとまりは上下の真ん中にあるので、上と下の空きは同じ高さ。
+// 空きが ROOM_MIN 以上なら、帯と札をその空きに (X に切られうる上下 15px の内側で、空きの真ん中寄り)。足りなければ写真の上に重ねる
+// 重ねる時、まとまりの左右の空きが狭い (SIDE_INSET_BELOW 未満) と、帯の端のアイコンや札が写真の縁をまたいで落ち着かないので、
+// 帯と札をまとまりの内側へ寄せる (inset / ctaRight)。左右が広く空いている時 (縦長 1 枚など) はカードの端のまま
+const SIDE_INSET_BELOW = 140;
+export function chromePlacement(group) {
+  const room = group ? group.y : 0;
+  if (room < ROOM_MIN) {
+    const side = group ? group.x : 0;
+    const narrow = side < SIDE_INSET_BELOW;
+    // overlayTop: 帯のアイコンが写真の上端から少し下がる所 (左右の inset と釣り合う)
+    return { room, headerTop: null, ctaBottom: null, compact: false, overlayTop: Math.max(HEADER.top, Math.round((group?.y ?? 0) + 8)),
+      inset: narrow ? Math.max(HEADER.x, Math.round(side + 18)) : HEADER.x,
+      ctaRight: narrow ? Math.max(CTA.right, Math.round(side + 16)) : CTA.right };
+  }
+  const compact = room < CTA.h + 2 * 16;
+  const ctaH = compact ? CTA.compactH : CTA.h;
+  const clamp = (value, lo, hi) => Math.max(lo, Math.min(hi, value));
+  return {
+    room,
+    // 帯の中身 (いちばん背の高い小さなカバー) が X_SAFE.top より下に来るように
+    headerTop: clamp(Math.round((room - HEADER.h) / 2), X_SAFE.top - (HEADER.h - THUMB[1]) / 2, HEADER.top),
+    ctaBottom: clamp(Math.round((room - ctaH) / 2), H - X_SAFE.bottom, CTA.bottom),
+    compact, inset: HEADER.x, ctaRight: CTA.right,
+  };
+}
+
+// r10: 札を写真に重ねる時の置き場所。まとまりの下の縁に接する枠のうち、札が丸ごと収まる (左右上下に 16px の余白) いちばん右の枠の
+// 右下に置く (小さな枠を札で隠さない・枠の縁をまたがない)。札の左端は X の住所の札 (左下) と重ならない所まで。
+// 収まる枠が無ければ null (カードの右下の角に置く)
+const CTA_SAFE_LEFT = 260;
+export function ctaWidth(label, compact = false) {
+  // 字 + 左右の余白 + › + 縁
+  return Math.ceil(ems(label) * (compact ? 24 : 27)) + (compact ? 48 + 24 : 56 + 27) + 4;
+}
+export function ctaOverTile(tiles, group, label) {
+  if (!group) return null;
+  const width = ctaWidth(label);
+  const bottomEdge = group.y + group.h;
+  const fits = tiles.map((tile) => tile.slot).filter((slot) => Math.abs(slot.y + slot.h - bottomEdge) < 1 &&
+    slot.w >= width + 32 && slot.h >= CTA.h + 32 && slot.x + slot.w - 16 - width >= CTA_SAFE_LEFT);
+  if (fits.length === 0) return null;
+  const slot = fits.reduce((a, b) => (b.x > a.x ? b : a));
+  return { right: Math.round(W - (slot.x + slot.w) + 16), bottom: Math.round(H - bottomEdge + 16) };
+}
+
+// 写真・動画 1 つ分の枠 (切らずに、枠の大きさ = 写真の大きさ)。角を丸めて薄い影。動画は真ん中に ▶、右上に長さ
+// (上の帯を写真に重ねる時は、帯より下へずらす)
+function mediaTile({ item, image, slot }, { headerOverlay }) {
   const size = Math.round(Math.min(112, Math.min(slot.w, slot.h) * 0.3));
   const duration = item.kind === "video" ? formatDuration(item.duration_ms) : null;
+  // 帯の下 (帯の上端 + 高さ + 余白) まで下げる
+  const chipTop = headerOverlay && slot.y < HEADER_CLEAR + 10 ? Math.round(HEADER_CLEAR + 10 - slot.y) : 14;
   return div(
-    { position: "absolute", left: slot.x, top: slot.y, width: slot.w, height: slot.h, overflow: "hidden",
-      backgroundColor: "#1E293B", alignItems: "center", justifyContent: "center" },
-    uri ? img(uri, { position: "absolute", left: 0, top: 0, width: slot.w, height: slot.h }) : null,
+    { position: "absolute", left: slot.x, top: slot.y, width: slot.w, height: slot.h, borderRadius: TILE_RADIUS,
+      backgroundColor: "rgba(30,41,59,0.85)", boxShadow: "0 10px 30px rgba(0,0,0,0.42)", alignItems: "center", justifyContent: "center" },
+    image ? img(image, { position: "absolute", left: 0, top: 0, width: slot.w, height: slot.h, borderRadius: TILE_RADIUS }) : null,
     item.kind === "video" ? img(PLAY_ICON, { width: size, height: size }) : null,
-    duration ? durationChip(duration, { right: 20, top: Math.max(16, HEADER_CLEAR - slot.y) }) : null,
+    duration ? durationChip(duration, { right: 14, top: chipTop }) : null,
   );
 }
 
-// 縦長・正方形に近い 1 枚: 切らずに真ん中へ、後ろはぼかして暗くした同じ写真
-function containedHero(item, images) {
-  const { uri, width, height } = images.contained;
-  const left = Math.round((W - width) / 2);
-  const top = Math.round((H - height) / 2);
-  const duration = item.kind === "video" ? formatDuration(item.duration_ms) : null;
-  return [
-    ...backdrop(images.containedBackdrop, 0.3),
-    div({ position: "absolute", left, top, width, height, boxShadow: "0 0 64px rgba(0,0,0,0.55)" },
-      img(uri, { width, height })),
-    item.kind === "video" ? img(PLAY_ICON, { position: "absolute", left: (W - 112) / 2, top: (H - 112) / 2, width: 112, height: 112 }) : null,
-    duration ? durationChip(duration, { right: W - (left + width) + 20, top: Math.max(top + 16, HEADER_CLEAR) }) : null,
-  ];
-}
-
-// 投稿者の写真・動画がカードいっぱい
-function photoCard(large, images) {
-  const media = large.media;
-  const slots = collageSlots(media.length);
-  const hero = images.contained
-    ? containedHero(media[0], images)
-    : media.map((item, i) => fullTile(item, images.tiles[i] ?? null, slots[i]));
-  return shell(hero, bottomShade(), header(large, images, { thumb: true }), ctaPill(CTA_LABELS.own));
-}
-
-// r8/r9: 自分の写真・動画が無い記録 (文だけのモーメント・写真の無いレビュー) で、同じプレイに写真・動画がある時。
-// 上の帯の下いっぱいに、そのプレイの写真・動画を 4 つまで大きく並べる。角を丸めて影を付け、ぼかした背景の上に置いて、
-// 投稿者の写真をカードいっぱいに敷く形とは見た目でも分ける (この投稿の物ではないので)。
-function playCard(large, images) {
+// 写真・動画を並べたカード (投稿者の物 = own、同じプレイの物 = play)。ぼかした 1 枚目の上に、切らずに並べる
+function tilesCard(large, images, { tiles, group, background, dim, label }) {
+  const place = chromePlacement(group);
+  const headerOverlay = place.headerTop === null;
   return shell(
-    backdrop(images.playBackground, 0.46),
-    images.playTiles.map(({ item, slot, image }) => {
-      const iconSize = Math.round(Math.min(96, Math.min(slot.w, slot.h) * 0.32));
-      const duration = item.kind === "video" ? formatDuration(item.duration_ms) : null;
-      return div(
-        { position: "absolute", left: slot.x, top: slot.y, width: slot.w, height: slot.h, alignItems: "center",
-          justifyContent: "center", borderRadius: 12, overflow: "hidden", backgroundColor: "rgba(8,12,20,0.55)",
-          boxShadow: "0 10px 30px rgba(0,0,0,0.45)" },
-        img(image, { position: "absolute", left: 0, top: 0, width: slot.w, height: slot.h }),
-        item.kind === "video"
-          ? img(PLAY_ICON, { position: "absolute", left: (slot.w - iconSize) / 2, top: (slot.h - iconSize) / 2, width: iconSize, height: iconSize })
-          : null,
-        duration ? durationChip(duration, { right: 12, top: 12 }) : null,
-      );
-    }),
-    bottomShade(),
-    header(large, images, { thumb: true }),
-    ctaPill(CTA_LABELS.play),
+    backdrop(background, dim),
+    tiles.map((tile) => mediaTile(tile, { headerOverlay })),
+    place.ctaBottom === null ? bottomShade() : null,
+    header(large, images, { thumb: true, top: place.headerTop ?? place.overlayTop, shade: headerOverlay, inset: place.inset }),
+    ctaPill(label, place.ctaBottom === null
+      ? ctaOverTile(tiles, group, label) ?? { right: place.ctaRight }
+      : { bottom: place.ctaBottom, compact: place.compact }),
   );
+}
+
+// 投稿者の写真・動画
+function photoCard(large, images) {
+  return tilesCard(large, images, { tiles: images.tiles, group: images.group, background: images.ownBackground ?? images.background,
+    dim: 0.34, label: CTA_LABELS.own });
+}
+
+// r8〜r10: 自分の写真・動画が無い記録 (文だけのモーメント・写真の無いレビュー) で、同じプレイに写真・動画がある時。
+// そのプレイの写真・動画を 4 つまで、投稿者の物と同じ決まりで切らずに並べる (札は「このプレイの写真・動画を見る」)。
+// この投稿の物ではないので、背景は少し暗く
+function playCard(large, images) {
+  return tilesCard(large, images, { tiles: images.playTiles, group: images.playGroup, background: images.playBackground,
+    dim: 0.46, label: CTA_LABELS.play });
 }
 
 // 描く写真・動画が何も無い: ぼかしたカバーの上に、ゲームのカバーを大きく真ん中に (感想の文は描かない)。
@@ -1039,13 +1056,19 @@ export async function toJpeg(png, maxBytes = JPEG_MAX_BYTES) {
   throw new Error(`card JPEG exceeds ${maxBytes} bytes`);
 }
 
-// Renders a raw `large` payload: { body, contentType }. Cards that draw the
+// r10: the record cards (moment / review) are always JPEG, also without photos (blurred cover). The PNG of the cover
+// card reached ~950KB, close to Bluesky's 1,000,000-byte thumb limit (app.bsky.embed.external thumb maxSize).
+export function servesJpeg(large) {
+  return drawsUserPhotos(large) || isR3(large);
+}
+
+// Renders a raw `large` payload: { body, contentType }. Record cards and cards that draw the
 // poster's photos are JPEG <= JPEG_MAX_BYTES; the rest stay PNG.
 export async function renderCardImage(rawLarge, options = {}) {
   const large = validLarge(rawLarge);
   if (!large) throw new Error("invalid large card");
   const png = await renderCard(large, options);
-  return drawsUserPhotos(large)
+  return servesJpeg(large)
     ? { body: await toJpeg(png), contentType: "image/jpeg" }
     : { body: png, contentType: "image/png" };
 }
