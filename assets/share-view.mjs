@@ -25,6 +25,13 @@
 //     動画はその場で再生)。本文の近くに「このプレイの写真・動画を全部見る（N）」の印
 //   - 投稿の写真 (帯) を押した時も、同じ全画面でアルバム全部を送れる
 //   - レビュー: プレイ時間・遊んだ機種 (EF share-view の play_time / platforms_played)
+//
+// r13 (10/21 Emiya「『タップすると』の先はアルバムみたいに写真が一覧になってるやつじゃないの？」、r12 CONTRACT P7
+//   「シェアは投稿単位」): リンクカードの「写真・動画をすべて見る ›」の先 = この投稿の写真・動画の一覧。
+//   - 投稿の写真・動画が 1 つ = 今までどおり大きく 1 枚 (切らない・動画はその場で再生)
+//   - 2 つ以上 = 全部を一覧 (アルバムと同じ札・切らずに縦横比のまま・行ごとに幅いっぱい)。押すとこの投稿の分だけを
+//     全画面で送って見る (アルバムと同じ全画面: 払う・2 回押しで拡大・動画は再生)。1 枚ずつ払う帯 (「1/3」) はやめた
+//   - 「このプレイの写真・動画を全部見る（N）」の印は消す。「このプレイのアルバム」の枠はページの下に今のまま残す
 
 // サーバが中身を埋め込む要素の id (api/_lib/share-preview.mjs)
 export const EMBED_ID = "pn-share-view";
@@ -41,7 +48,6 @@ export const STORY_TITLE = "このプレイの記録";
 export const STORY_SPOILER = "ネタバレを含むモーメント";
 export const READ_MORE = "続きを読む";
 export const ALBUM_TITLE = "このプレイのアルバム";
-export const ALBUM_JUMP = "このプレイの写真・動画を全部見る";
 export const ALBUM_SPOILER = "ネタバレ";
 export const VIEWER_SPOILER_NOTE = "ネタバレを含む写真・動画です";
 // EF share-view の album の上限 (supabase _shared/sharePlayAlbum.ts PLAY_ALBUM_LIMIT)
@@ -49,6 +55,12 @@ export const ALBUM_MAX = 60;
 // アルバムの 1 枚の縦横比 (幅 / 高さ) の範囲。外れる物は枠の中に切らずに収める (余白が付く)
 export const ALBUM_RATIO_MIN = 1 / 2;
 export const ALBUM_RATIO_MAX = 2.4;
+// r13: 投稿の写真・動画の一覧の高さの目安 (px)。少ない時は大きく、多い時は 1 行の枚数を増やしてこの高さに近づける
+// (スマホ = 2 枚ずつ、PC の左の列 = 2〜4 枚ずつ)。POST_GRID_NARROW より狭い一覧はスマホの目安
+export const POST_GRID_NARROW = 560;
+export const POST_GRID_HEIGHT = Object.freeze({ narrow: 400, wide: 700 });
+// これより低い行は作らない (行を増やす)
+export const POST_GRID_MIN_H = Object.freeze({ narrow: 80, wide: 110 });
 // game_logs.play_time の段階 (アプリ lib/webCreateLogForm.ts PLAY_TIME_BUCKETS)
 const PLAY_TIME_BUCKETS = [0, 10, 30, 50, 70, 100, 200, 500, 1000];
 // ストア (assets/app.mjs の APP_STORE_URL / PLAY_STORE_URL と同じ)
@@ -192,13 +204,15 @@ export function shareModel(payload) {
   model.album = albumModel(view, media);
   model.recordKey = recordKeyOf(view);
   if (view.kind === "moment") {
-    return { ...model, story, title: text(view.title, 200), body: text(view.body) };
+    const title = text(view.title, 200);
+    return { ...model, story, title, body: text(view.body), postItems: postItems(view, model, title) };
   }
   const moments = Number.isSafeInteger(view.moments_count) && view.moments_count > 0 ? view.moments_count : 0;
   return {
     ...model,
     story,
     ...reviewFields(view),
+    postItems: postItems(view, model, null),
     // story が無い (古い EF) 時だけの一言
     momentsLine: !story && moments > 0 ? `このプレイのモーメント ${moments} 件はアプリで` : null,
   };
@@ -282,6 +296,84 @@ export function albumModel(view, media = []) {
     photos: items.filter((item) => item.kind === "image").length,
     videos: items.filter((item) => item.kind === "video").length,
   };
+}
+
+// r13: この投稿の写真・動画 (一覧と全画面で見る分)。全画面はアルバムと同じ部品なので同じ形にそろえる。
+// 一覧の小さな絵は、EF の album に同じ記録の分が同じ順・同じ種類で入っていればその thumb_url を借りる (軽い)。無ければ本体
+function postItems(view, model, title) {
+  const key = model.recordKey ?? "post";
+  const own = Array.isArray(view.album)
+    ? view.album.map(albumItem).filter((item) => item && item.key === key)
+    : [];
+  const borrow = own.length === model.media.length && own.every((item, index) => item.kind === model.media[index].kind);
+  return model.media.map((item, index) => ({
+    ...item,
+    thumbUrl: (borrow ? own[index].thumbUrl : null) ?? (item.kind === "image" ? item.url : item.posterUrl),
+    key,
+    spoiler: false,
+    title,
+    dateIso: model.dateIso,
+    dateText: model.dateText,
+  }));
+}
+
+// r13: 一覧を行に分ける (幅いっぱいの行の並び)。ratios = 1 枚ずつの縦横比 (幅 / 高さ)、width = 一覧の幅 (px)。
+// k 行に分けると 1 行の高さ ≒ 幅 × k ÷ 縦横比の合計、全体の高さ ≒ 幅 × k² ÷ 縦横比の合計。
+// 全体が POST_GRID_HEIGHT に収まる一番多い行の数 k にし、行ごとの縦横比の合計がなるべくそろうように前から順に分ける
+// (同じくらいなら前の行ほど枚数が少ない = 大きい)。行が低すぎる (POST_GRID_MIN_H 未満) なら行を増やす。
+// 返り値 = 行ごとの番号の配列 (例: [[0, 1], [2, 3, 4]])
+export function postGridRows(ratios, width, gap = 4) {
+  const n = ratios.length;
+  if (n === 0) return [];
+  const w = Number.isFinite(width) && width > 0 ? width : 366;
+  const band = w < POST_GRID_NARROW ? "narrow" : "wide";
+  const sum = ratios.reduce((a, b) => a + b, 0);
+  const heightOf = (rows) => Math.min(...rows.map((row) => (w - gap * (row.length - 1)) / row.reduce((a, i) => a + ratios[i], 0)));
+  let k = Math.max(1, Math.min(n, Math.floor(Math.sqrt((POST_GRID_HEIGHT[band] * sum) / w))));
+  for (;;) {
+    const rows = balancedRows(ratios, k);
+    if (k >= n || heightOf(rows) >= POST_GRID_MIN_H[band]) return rows;
+    k += 1;
+  }
+}
+
+// n 枚を k 行に前から分ける全部の分け方 (n は 12 まで = 多くて 2,048 通り) から、行ごとの縦横比の合計のばらつきが最小の物
+function balancedRows(ratios, k) {
+  const n = ratios.length;
+  const target = ratios.reduce((a, b) => a + b, 0) / k;
+  let best = null;
+  let bestCost = Infinity;
+  const sizes = [];
+  const walk = (start, left) => {
+    if (left === 1) {
+      sizes.push(n - start);
+      let at = 0;
+      let cost = 0;
+      for (const size of sizes) {
+        let rowSum = 0;
+        for (let i = at; i < at + size; i += 1) rowSum += ratios[i];
+        cost += (rowSum - target) ** 2;
+        at += size;
+      }
+      // 同じくらい (縦横比の小さな違い・読み込んだ後の比の直し) なら、先に見つかった方 = 前の行ほど枚数が少ない方を残す
+      if (cost < bestCost - 0.02) { bestCost = cost; best = [...sizes]; }
+      sizes.pop();
+      return;
+    }
+    for (let size = 1; size <= n - start - (left - 1); size += 1) {
+      sizes.push(size);
+      walk(start + size, left - 1);
+      sizes.pop();
+    }
+  };
+  walk(0, k);
+  const rows = [];
+  let at = 0;
+  for (const size of best) {
+    rows.push(Array.from({ length: size }, (_, i) => at + i));
+    at += size;
+  }
+  return rows;
 }
 
 // 見出しの下の一言 (何がいくつあるか + 得な所)
@@ -485,106 +577,110 @@ function videoSlide(doc, item, position, total, appHref) {
   return { slide, video, fail };
 }
 
-// 写真・動画の帯 (Q1)。画面幅いっぱいに 1 枚ずつ、左右に払う (scroll-snap)・PC は矢印キーと左右のボタン・点と「1/4」
+// 写真・動画が 1 つの投稿 (Q1・r13)。画面幅いっぱいに大きく 1 枚 (枠の縦横比はその 1 枚に合わせる)。
+// 写真は押すと全画面 (この投稿の分)、動画はその場で再生
 function hero(doc, model, { onOpen, appHref }) {
-  const total = model.media.length;
-  const images = model.media.filter((item) => item.kind === "image");
+  const item = model.media[0];
   const box = el(doc, "section", "pn-hero");
-  box.setAttribute("aria-roledescription", "カルーセル");
-  box.setAttribute("aria-label", "写真と動画");
+  box.setAttribute("aria-label", item.kind === "video" ? "動画" : "写真");
   // 枠の縦横比は描く前に決める (写真が読み込まれても下の文がずれない)
   box.style.setProperty?.("--pn-ratio", String(Number(heroRatio(model.media).toFixed(4))));
   const frame = el(doc, "div", "pn-frame");
   const track = el(doc, "div", "pn-track");
-  track.tabIndex = 0;
-  track.setAttribute("aria-label", total > 1 ? "写真と動画 (左右の矢印キーで切り替え)" : "写真と動画");
-  const videos = [];
-  model.media.forEach((item, index) => {
-    if (item.kind === "video") {
-      const made = videoSlide(doc, item, index + 1, total, appHref);
-      videos.push(made.video);
-      track.append(made.slide);
-      return;
-    }
-    const imageIndex = images.indexOf(item);
-    const slide = button(doc, "pn-slide pn-slide-photo", null, `写真 ${imageIndex + 1} / ${images.length} を大きく表示`);
-    const photo = image(doc, "pn-photo", item.url, `${model.author.name}さんの写真 ${imageIndex + 1}`);
-    if (index === 0) photo.loading = "eager";
+  if (item.kind === "video") {
+    track.append(videoSlide(doc, item, 1, 1, appHref).slide);
+  } else {
+    const slide = button(doc, "pn-slide pn-slide-photo", null, "写真を大きく表示");
+    const photo = image(doc, "pn-photo", item.url, `${model.author.name}さんの写真`);
+    photo.loading = "eager";
     slide.append(photo);
-    slide.addEventListener("click", () => onOpen(images, imageIndex, item));
+    slide.addEventListener("click", () => onOpen(0));
     track.append(slide);
-  });
+  }
   frame.append(track);
   box.append(frame);
+  return { box, frame, track };
+}
 
-  let current = 0;
-  const counter = total > 1 ? el(doc, "p", "pn-counter", `1/${total}`) : null;
-  const dots = [];
-  let prev = null;
-  let next = null;
-  if (total > 1) {
-    counter.setAttribute("aria-live", "polite");
-    const dotBox = el(doc, "div", "pn-dots");
-    dotBox.setAttribute("aria-hidden", "true");
-    for (let i = 0; i < total; i += 1) {
-      const dot = el(doc, "span", i === 0 ? "pn-dot is-current" : "pn-dot");
-      dots.push(dot);
-      dotBox.append(dot);
-    }
-    prev = button(doc, "pn-nav pn-nav-prev", null, "前の写真・動画");
-    next = button(doc, "pn-nav pn-nav-next", null, "次の写真・動画");
-    prev.disabled = true;
-    frame.append(counter, prev, next);
-    box.append(dotBox);
-  }
-
-  const mark = (index) => {
-    if (index === current || index < 0 || index >= total) return;
-    current = index;
-    if (counter) counter.textContent = `${index + 1}/${total}`;
-    dots.forEach((dot, i) => dot.classList[i === index ? "add" : "remove"]("is-current"));
-    if (prev) prev.disabled = index === 0;
-    if (next) next.disabled = index === total - 1;
-    // 見えなくなった動画は止める
-    for (const video of videos) if (!video.paused && typeof video.pause === "function") video.pause();
-  };
-  const goTo = (index) => {
-    const to = Math.max(0, Math.min(total - 1, index));
-    const width = track.clientWidth || 0;
-    if (typeof track.scrollTo === "function") {
-      track.scrollTo({ left: to * width, behavior: prefersReducedMotion(doc) ? "auto" : "smooth" });
-    }
-    mark(to);
-  };
-  let pending = null;
-  track.addEventListener("scroll", () => {
-    if (pending !== null) return;
-    const raf = doc.defaultView?.requestAnimationFrame?.bind(doc.defaultView) ?? ((fn) => setTimeout(fn, 16));
-    pending = raf(() => {
-      pending = null;
-      const width = track.clientWidth || 1;
-      mark(Math.round(track.scrollLeft / width));
+// r13: 写真・動画が 2 つ以上の投稿 = 全部を一覧 (アルバムと同じ札。切らずに縦横比のまま、行ごとに幅いっぱい)。
+// 行の分け方は一覧の幅で決める (postGridRows)。描く前は画面幅から見積もり、置かれた後は本当の幅で並べ直す
+function postGrid(doc, model, { onOpen }) {
+  const items = model.postItems;
+  const box = el(doc, "section", "pn-hero is-grid");
+  box.setAttribute("aria-label", `写真・動画 ${items.length} 件`);
+  const frame = el(doc, "div", "pn-post-frame");
+  const grid = el(doc, "div", "pn-post-grid");
+  grid.setAttribute("role", "list");
+  const ratios = items.map(albumRatio);
+  const tiles = items.map((item, index) => {
+    const tile = albumTile(doc, item, index, items.length, {
+      revealed: new Set(),
+      onPress: (_, at) => onOpen(at),
+      onRatio: (ratio) => { ratios[index] = ratio; layout(true); },
+      // 開いてすぐ見える分は先に読む
+      eager: index < 4,
     });
-  }, { passive: true });
-  track.addEventListener("keydown", (event) => {
-    if (event.target !== track) return;
-    if (event.key === "ArrowRight") { event.preventDefault(); goTo(current + 1); }
-    else if (event.key === "ArrowLeft") { event.preventDefault(); goTo(current - 1); }
+    tile.classList.add("pn-post-tile");
+    tile.setAttribute("role", "listitem");
+    return tile;
   });
-  prev?.addEventListener("click", () => goTo(current - 1));
-  next?.addEventListener("click", () => goTo(current + 1));
-  // PC: どこにも焦点が無い (ページを開いたまま) 時も左右の矢印キーで切り替える (全画面の写真を見ている間・ネタバレの間は除く)
-  if (total > 1) {
-    doc.addEventListener("keydown", (event) => {
-      if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
-      const active = doc.activeElement;
-      if (active && active !== doc.body) return;
-      if (doc.querySelector?.(".share-viewer") || track.hasAttribute?.("inert")) return;
-      event.preventDefault();
-      goTo(current + (event.key === "ArrowRight" ? 1 : -1));
+  frame.append(grid);
+  box.append(frame);
+
+  const win = doc.defaultView ?? null;
+  const gapOf = () => {
+    const raw = win?.getComputedStyle?.(grid)?.getPropertyValue?.("--pn-album-gap");
+    const value = Number.parseFloat(raw);
+    return Number.isFinite(value) ? value : 4;
+  };
+  // 置かれる前の幅の見積もり (site.css の並びと同じ数え方)
+  const guess = () => {
+    const vw = win?.innerWidth ?? 390;
+    if (vw < 1024) return Math.min(vw, 640) - 24;
+    const shell = Math.min(1600, Math.max(1100, vw * 0.88));
+    return ((shell - 64 - 56) * 7) / 12;
+  };
+  let shape = "";
+  function layout(force = false) {
+    const width = grid.clientWidth || guess();
+    const rows = postGridRows(ratios, width, gapOf());
+    const key = JSON.stringify(rows);
+    if (key === shape && !force) return;
+    shape = key;
+    const lines = rows.map((row) => {
+      const line = el(doc, "div", "pn-post-row");
+      const rowSum = row.reduce((a, i) => a + ratios[i], 0);
+      line.style.setProperty?.("--rs", String(Number(rowSum.toFixed(4))));
+      line.style.setProperty?.("--n", String(row.length));
+      line.dataset.count = String(row.length);
+      line.setAttribute("role", "presentation");
+      line.append(...row.map((i) => tiles[i]));
+      return line;
     });
+    grid.replaceChildren(...lines);
   }
-  return { box, frame, track, goTo, get index() { return current; }, total };
+  layout();
+  // 幅が変わった時だけ、次の描く前に並べ直す (高さの変化では動かない = 測り直しの繰り返しにならない)
+  let lastWidth = -1;
+  let pending = false;
+  const later = () => {
+    if (pending) return;
+    pending = true;
+    const raf = win?.requestAnimationFrame?.bind(win) ?? ((fn) => setTimeout(fn, 16));
+    raf(() => { pending = false; layout(); });
+  };
+  const Observer = win?.ResizeObserver;
+  if (typeof Observer === "function") {
+    new Observer((entries) => {
+      const width = Math.round(entries[0]?.contentRect?.width ?? 0);
+      if (width === lastWidth) return;
+      lastWidth = width;
+      later();
+    }).observe(grid);
+  } else {
+    win?.addEventListener?.("resize", later);
+  }
+  return { box, frame, track: grid, tiles, relayout: layout };
 }
 
 function author(doc, model) {
@@ -831,27 +927,13 @@ export function storySection(doc, model, { onOpen = () => {}, onReveal = () => {
 
 // ---------------------------------------------------------------- r8: このプレイのアルバム (DOM)
 
-// 「このプレイの写真・動画を全部見る（N）」= 本文の近くの印 (押すとアルバムへ)
-function albumJump(doc, album) {
-  const jump = link(doc, "pn-album-jump", "#pn-album");
-  jump.append(el(doc, "span", "pn-album-jump-icon"), el(doc, "span", "pn-album-jump-text", ALBUM_JUMP),
-    el(doc, "span", "pn-album-jump-count", String(album.total)));
-  jump.addEventListener("click", (event) => {
-    const target = doc.getElementById?.("pn-album");
-    if (!target || typeof target.scrollIntoView !== "function") return;
-    event.preventDefault?.();
-    target.scrollIntoView({ behavior: prefersReducedMotion(doc) ? "auto" : "smooth", block: "start" });
-  });
-  return jump;
-}
-
 function albumLabel(item, index, total) {
   if (item.kind === "video") return `動画${item.durationText ? ` (${item.durationText})` : ""} ${index + 1} / ${total} を開く`;
   return `写真 ${index + 1} / ${total} を大きく表示`;
 }
 
 // アルバムの 1 枚。縦横比のまま (切らない) 並べるため、枠の比を --a に入れる (CSS が行ごとに幅をそろえる)
-function albumTile(doc, item, index, total, { revealed, onPress }) {
+function albumTile(doc, item, index, total, { revealed, onPress, onRatio = null, eager = false }) {
   const hidden = item.spoiler && !revealed.has(item.key);
   const tile = button(doc, `pn-album-tile pn-album-${item.kind}${hidden ? " is-spoiler" : ""}`, null,
     hidden ? `${ALBUM_SPOILER}: ${index + 1} / ${total} を表示` : albumLabel(item, index, total));
@@ -861,11 +943,14 @@ function albumTile(doc, item, index, total, { revealed, onPress }) {
   setRatio(albumRatio(item));
   if (item.thumbUrl) {
     const thumb = image(doc, "pn-album-img", item.thumbUrl, "");
+    if (eager) thumb.loading = "eager";
     // 大きさの分からなかった物は、読み込んだ本当の縦横比に直す
     if (!(item.width && item.height)) {
       thumb.addEventListener("load", () => {
         if (thumb.naturalWidth > 0 && thumb.naturalHeight > 0) {
-          setRatio(Math.min(ALBUM_RATIO_MAX, Math.max(ALBUM_RATIO_MIN, thumb.naturalWidth / thumb.naturalHeight)));
+          const ratio = Math.min(ALBUM_RATIO_MAX, Math.max(ALBUM_RATIO_MIN, thumb.naturalWidth / thumb.naturalHeight));
+          setRatio(ratio);
+          onRatio?.(ratio);
         }
       });
     }
@@ -1311,7 +1396,7 @@ export function buildShareView(doc, model, { onOpen = () => {}, onOpenAlbum = nu
     open(album.items, index, { touch: platform !== "other", isRevealed: (key) => revealed.has(key), reveal: revealKey, appHref: model.appUrl });
     return true;
   };
-  // 投稿の写真 (帯)・「このプレイの記録」の写真を押した時も、アルバムの同じ 1 枚から全部を送れるようにする
+  // 「このプレイの記録」の写真を押した時は、アルバムの同じ 1 枚から全部を送れるようにする
   const openFromRecord = (key, list, item) => {
     const album = model.album;
     if (!album || !key || !item) return false;
@@ -1320,8 +1405,10 @@ export function buildShareView(doc, model, { onOpen = () => {}, onOpenAlbum = nu
     const hit = position >= 0 ? own[position] : null;
     return hit ? openAlbum(hit.index) : false;
   };
-  const openHero = (images, index, item) => {
-    if (!openFromRecord(model.recordKey, model.media, item)) onOpen(images, index);
+  // r13: 投稿の写真・動画 (一覧・1 枚) を押したら、この投稿の分だけを全画面で送る (アルバムと同じ全画面)
+  const openPost = (index) => {
+    const open = onOpenAlbum ?? ((items, at, options) => openAlbumViewer(doc, items, at, options));
+    open(model.postItems, index, { touch: platform !== "other", isRevealed: () => true, reveal: () => {}, appHref: model.appUrl });
   };
   const openStory = (images, index, item, key) => {
     const moment = model.story?.moments.find((m) => m.id === key);
@@ -1344,8 +1431,11 @@ export function buildShareView(doc, model, { onOpen = () => {}, onOpenAlbum = nu
   // 名前・日付 (主役は本人。スマホは写真・動画の上、PC は右の列の頭)
   layout.append(author(doc, model));
   let heroParts = null;
-  if (model.media.length > 0) {
-    heroParts = hero(doc, model, { onOpen: openHero, appHref: model.appUrl });
+  if (model.media.length > 1) {
+    heroParts = postGrid(doc, model, { onOpen: openPost });
+    layout.append(heroParts.box);
+  } else if (model.media.length === 1) {
+    heroParts = hero(doc, model, { onOpen: openPost, appHref: model.appUrl });
     layout.append(heroParts.box);
   }
 
@@ -1355,8 +1445,6 @@ export function buildShareView(doc, model, { onOpen = () => {}, onOpenAlbum = nu
     const facts = factsBlock(doc, model);
     if (facts) details.append(facts);
   }
-  // r8: 得な所を開いてすぐ分かるように (押すとアルバムへ)
-  if (model.album) details.append(albumJump(doc, model.album));
   const textBox = el(doc, "div", "pn-text");
   details.append(textBox);
   details.append(gameChip(doc, model));

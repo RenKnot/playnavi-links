@@ -567,37 +567,26 @@ html.pn-rec-page .share-view { margin: 0; }
   display: inline-flex; align-items: center; height: 36px; padding: 0 18px; border-radius: 999px;
   color: #0b0c0e; background: #fff; font-size: 14px; font-weight: 700; text-decoration: none;
 }
-.pn-counter {
-  position: absolute; top: 12px; right: 12px; z-index: 2; padding: 2px 10px; border-radius: 999px;
-  color: #fff; background: rgb(0 0 0 / .6); font-size: 12px; font-weight: 700; line-height: 1.7;
-  font-variant-numeric: tabular-nums; pointer-events: none;
+/* r13: 投稿の写真・動画が 2 つ以上 = 全部を一覧 (アルバムの札と同じ見た目・切らない)。行の分け方は share-view.mjs の
+   postGridRows が幅で決め、行の中は縦横比の割合で幅いっぱいに分ける (= 行の中の高さがそろう)。
+   1 枚だけの行が縦長で高くなりすぎないよう、行の幅に上限 (--pn-post-max-h の高さまで) を付けて真ん中に置く */
+.pn-hero.is-grid { --pn-album-gap: 4px; --pn-post-max-h: 440px; padding: 0 12px; }
+.pn-post-frame { position: relative; overflow: hidden; border-radius: 8px; }
+.pn-post-grid { display: grid; gap: var(--pn-album-gap); }
+.pn-post-row {
+  display: flex; gap: var(--pn-album-gap); width: 100%; margin: 0 auto;
+  max-width: calc(var(--rs, 1) * var(--pn-post-max-h) + (var(--n, 1) - 1) * var(--pn-album-gap));
 }
-.pn-dots { display: flex; justify-content: center; gap: 6px; padding: 12px 0 0; }
-.pn-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--line-strong); transition: background .2s ease, transform .2s ease; }
-.pn-dot.is-current { background: var(--accent); transform: scale(1.2); }
-.pn-nav {
-  position: absolute; top: 50%; z-index: 2; display: none; place-items: center;
-  width: 36px; height: 36px; margin-top: -18px; padding: 0; border: 0; border-radius: 50%;
-  background: rgb(255 255 255 / .92); box-shadow: 0 2px 10px rgb(0 0 0 / .25); cursor: pointer;
-}
-.pn-nav::before {
-  content: ""; width: 9px; height: 9px; border-top: 2px solid #1a2c32; border-right: 2px solid #1a2c32;
-}
-.pn-nav-prev { left: 12px; }
-.pn-nav-prev::before { margin-left: 4px; transform: rotate(-135deg); }
-.pn-nav-next { right: 12px; }
-.pn-nav-next::before { margin-left: -4px; transform: rotate(45deg); }
-/* 左右のボタンは PC だけ (スマホは払う) */
-@media (hover: hover) and (pointer: fine) { .pn-rec[data-platform="other"] .pn-nav { display: grid; } }
-.pn-nav:disabled { display: none !important; }
+.pn-post-row > .pn-post-tile { flex: var(--a, 1.333) 1 0; }
+.pn-rec.is-spoiler .pn-post-frame { min-height: 200px; background: var(--bg-sunken); }
 
 /* ネタバレ (Q5): 写真・動画はぼかし、文は入れない。「ネタバレを表示」1 つで両方出る */
 .pn-rec.is-spoiler .pn-track { filter: blur(28px) brightness(.72); transform: scale(1.15); }
-.pn-rec.is-spoiler .pn-counter,
-.pn-rec.is-spoiler .pn-nav,
+.pn-rec.is-spoiler .pn-post-grid { filter: blur(24px) brightness(.72); }
 .pn-rec.is-spoiler .pn-play,
 .pn-rec.is-spoiler .pn-duration,
-.pn-rec.is-spoiler .pn-dots { visibility: hidden; }
+.pn-rec.is-spoiler .pn-post-grid .pn-album-play,
+.pn-rec.is-spoiler .pn-post-grid .pn-album-duration { visibility: hidden; }
 .pn-spoiler-cover {
   position: absolute; inset: 0; z-index: 3; display: grid; place-content: center; justify-items: center; gap: 14px;
   padding: 24px; color: #fff; text-align: center;
@@ -783,6 +772,10 @@ html.pn-rec-page .share-view { margin: 0; }
     width: min(100%, calc((100vh - 120px) * var(--pn-ratio, 1)));
     margin: 0 auto; border-radius: 16px;
   }
+  /* r13: 一覧は左の列の幅いっぱいに 3〜4 枚ずつ。画面より高くなることがあるので止めない (sticky にしない) */
+  .pn-layout.has-media .pn-hero.is-grid { position: relative; top: auto; padding: 0; }
+  .pn-hero.is-grid { --pn-album-gap: 8px; --pn-post-max-h: 560px; }
+  .pn-post-frame { border-radius: 10px; }
   .pn-details { gap: 20px; padding: 0; }
   .pn-layout:not(.has-media) .pn-details { padding-top: 16px; }
   .pn-avatar { width: 52px; height: 52px; }
@@ -811,28 +804,6 @@ html.pn-rec-page .share-view { margin: 0; }
 .pn-fact-label { margin: 0; color: var(--text-sub); font-size: 12px; font-weight: 700; line-height: 1.4; }
 .pn-fact-value { margin: 0; color: var(--text); font-size: 15px; font-weight: 700; line-height: 1.5; overflow-wrap: anywhere; }
 .pn-story-review .pn-facts { margin-top: 2px; }
-
-/* r8: 「このプレイの写真・動画を全部見る（N）」= 開いてすぐ分かる得な所の印 */
-.pn-album-jump {
-  display: inline-flex; align-items: center; gap: 10px; justify-self: start; max-width: 100%;
-  min-height: 44px; padding: 6px 8px 6px 14px; border: 1px solid var(--line-strong); border-radius: 999px;
-  color: var(--text) !important; background: var(--bg-raised); font-size: 14px; font-weight: 700; line-height: 1.4; text-decoration: none;
-  transition: background .15s ease, border-color .15s ease;
-}
-.pn-album-jump:hover { border-color: var(--accent); background: var(--accent-soft); }
-.pn-album-jump-icon {
-  flex: none; width: 18px; height: 14px; border-radius: 3px;
-  background:
-    linear-gradient(var(--accent), var(--accent)) 0 0 / 8px 6px no-repeat,
-    linear-gradient(var(--accent), var(--accent)) 10px 0 / 8px 6px no-repeat,
-    linear-gradient(var(--accent), var(--accent)) 0 8px / 8px 6px no-repeat,
-    linear-gradient(var(--accent), var(--accent)) 10px 8px / 8px 6px no-repeat;
-}
-.pn-album-jump-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pn-album-jump-count {
-  flex: none; min-width: 28px; padding: 0 9px; border-radius: 999px;
-  color: var(--on-accent); background: var(--accent); font-size: 13px; line-height: 26px; text-align: center; font-variant-numeric: tabular-nums;
-}
 
 /* r8: このプレイのアルバム。切らずに (それぞれの縦横比のまま) 行ごとに幅をそろえて並べる (行の高さの目安 = --pn-album-h) */
 .pn-album { --pn-album-h: 96px; --pn-album-gap: 4px; max-width: 640px; margin: 28px auto 0; padding: 22px 12px 0; border-top: 1px solid var(--line); scroll-margin-top: 12px; }
@@ -953,7 +924,6 @@ html.pn-rec-page .share-view { margin: 0; }
   .pn-album-tile { border-radius: 10px; }
   .pn-album-play { width: 52px; height: 52px; margin: -26px 0 0 -26px; }
   .pn-album-play::after { left: 20px; top: 16px; border-width: 10px 0 10px 17px; }
-  .pn-album-jump { font-size: 15px; }
   /* 全画面: 下に小さな絵の列 (押すとその 1 枚へ) */
   .pn-av-slide { padding: 72px 88px 160px; }
   .pn-av-caption { bottom: 96px; padding: 0 96px 8px; background: none; text-align: center; justify-items: center; }

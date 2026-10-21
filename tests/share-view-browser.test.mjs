@@ -154,18 +154,28 @@ test("record page: the server embeds the content, Chrome shows it at once, masks
     check("the embedded JSON did not break out of its script", await page.locator("script").count() === 2);
     check("record page mark and Noto Sans JP stylesheet", await page.evaluate(() => document.documentElement.classList.contains("pn-rec-page")) && await page.locator('link[rel=stylesheet][href^="https://fonts.googleapis.com/css2?family=Noto+Sans+JP"]').count() === 1);
     check("today's spinner text and card are hidden", !await page.locator("#heading").isVisible() && !await page.locator("#spinner").isVisible() && !await page.locator("#link-view > .logo").isVisible());
-    check("one slide per photo / video (4), a 1/4 counter and 4 dots", await page.locator(".pn-track > .pn-slide").count() === 4 && (await page.locator(".pn-counter").innerText()) === "1/4" && await page.locator(".pn-dot").count() === 4);
-    const frame = await page.locator(".pn-frame").boundingBox();
+    // r13: 4 items = the album-like list of the post (all at once, uncropped), no one-at-a-time strip and no jump link
+    check("r13: the post's 4 items are listed at once (no 1/4 strip, no dots, no 「全部見る」 link)", await page.locator(".pn-hero.is-grid .pn-post-tile").count() === 4 && await page.locator(".pn-slide, .pn-counter, .pn-dot, .pn-album-jump").count() === 0 && !(await view.innerText()).includes("このプレイの写真・動画を全部見る"));
+    const frame = await page.locator(".pn-hero").boundingBox();
     const details = await page.locator(".pn-details").boundingBox();
     check("PC: media on the left (~60%), details on the right", frame.x < details.x && details.x > 1440 * 0.5 && frame.width > details.width);
     check("PC: content is centred and at most the shell width", Math.abs((frame.x) - (1440 - details.x - details.width)) < 4);
-    check("frame ratio is reserved from the first sized photo (40x30 = 4:3)", Math.abs(frame.width / frame.height - 4 / 3) < 0.02);
+    await page.evaluate(() => Promise.all([...document.querySelectorAll(".pn-post-tile img")].map((img) => img.complete ? null : new Promise((r) => { img.onload = img.onerror = r; }))));
+    const postTiles = await page.evaluate(() => [...document.querySelectorAll(".pn-post-tile")].map((tile) => {
+      const r = tile.getBoundingClientRect(); const img = tile.querySelector("img");
+      return { x: r.x, right: r.right, top: Math.round(r.top), h: r.height, ratio: r.width / r.height, natural: img ? img.naturalWidth / img.naturalHeight : null, fit: img ? getComputedStyle(img).objectFit : null };
+    }));
+    const rowsOf = (tiles) => [...new Set(tiles.map((t) => t.top))].map((top) => tiles.filter((t) => t.top === top));
+    const pcRows = rowsOf(postTiles);
+    // 動画は大きさが分からない = 表紙を読んだら本当の比 (見本の表紙は 40x30) に直る。3.png は 30x40 と届いた比のまま
+    check("r13 PC: rows that fill the left column, one height per row, each photo uncropped at its own ratio", pcRows.length === 2 && pcRows.every((row) => Math.abs(row[0].x - frame.x) < 1 && Math.abs(row[row.length - 1].right - (frame.x + frame.width)) < 1.5 && Math.max(...row.map((t) => t.h)) - Math.min(...row.map((t) => t.h)) < 1) && postTiles.every((t) => t.fit === "contain") && postTiles.slice(0, 3).every((t) => Math.abs(t.ratio - t.natural) / t.natural < 0.03) && Math.abs(postTiles[3].ratio - 30 / 40) < 0.01);
+    check("r13 PC: the video tile shows ▶ and its length", await page.locator(".pn-post-tile.pn-album-video .pn-album-play").count() === 1 && (await page.locator(".pn-post-tile .pn-album-duration").innerText()) === "1:01");
     check("the browser never asks for the content (it is in the HTML)", !browserRequests.some((path) => path.includes("share-view") && !path.endsWith(".mjs")));
     check("r7: no Safari app banner", await page.locator('meta[name="apple-itunes-app"]').count() === 0);
     check("r7: PlayNavi is only the small mark and the quiet end line (no pill, no fixed bar, no badges)", await page.locator(".pn-top-open, .pn-bar, .pn-foot, .pn-badges").count() === 0 && (await page.locator(".pn-logo").boundingBox()).width <= 90 && await page.locator("#share-view img[src*=badge]").count() === 0);
     check("r7: PC end line has the small store text links, not the app button", await page.locator(".pn-end-stores a").count() === 2 && await page.locator(".pn-end-stores").isVisible() && !await page.locator("#primary-btn").isVisible() && await page.evaluate(() => getComputedStyle(document.querySelector(".pn-end")).position) === "static");
     // r7 P2: このプレイの記録 — 親のレビュー + ほかのモーメント。押すとその場で開く
-    check("r7: the story shows the parent review and the other moment below the record", (await page.locator(".pn-story").innerText()).includes("このプレイの記録") && (await page.locator(".pn-story-review").innerText()).includes("8.5") && (await page.locator(".pn-story-review").innerText()).includes("親のレビューの感想") && await page.locator(".pn-story-item").count() === 1 && (await page.locator(".pn-story").boundingBox()).y > (await page.locator(".pn-frame").boundingBox()).y + (await page.locator(".pn-frame").boundingBox()).height);
+    check("r7: the story shows the parent review and the other moment below the record", (await page.locator(".pn-story").innerText()).includes("このプレイの記録") && (await page.locator(".pn-story-review").innerText()).includes("8.5") && (await page.locator(".pn-story-review").innerText()).includes("親のレビューの感想") && await page.locator(".pn-story-item").count() === 1 && (await page.locator(".pn-story").boundingBox()).y > (await page.locator(".pn-hero").boundingBox()).y + (await page.locator(".pn-hero").boundingBox()).height);
     await page.locator(".pn-story-toggle").click();
     await page.locator(".pn-story-item.is-open .pn-story-photo").first().waitFor();
     check("r7: tapping the moment opens it in place with its photos", await page.locator(".pn-story-item.is-open .pn-story-photo").count() === 2 && await page.locator(".pn-story-toggle").getAttribute("aria-expanded") === "true");
@@ -174,25 +184,20 @@ test("record page: the server embeds the content, Chrome shows it at once, masks
     check("r7: a story photo opens the viewer", (await page.locator(".share-viewer-counter").innerText()) === "2 / 2");
     await page.keyboard.press("Escape");
     await page.evaluate(() => window.scrollTo(0, 0));
-    // 動画: 見本の住所は PNG を返す = 再生できない動画 (Q7)
-    await page.locator(".pn-track").focus();
+    // r13: 一覧の 1 枚を押すと、この投稿の分だけを全画面で送る (動画もその中で再生。見本の住所は PNG = 再生できない動画 Q7)
+    await page.locator(".pn-post-tile").nth(1).click();
+    await page.locator(".pn-av").waitFor();
+    check("r13: a tile opens the viewer of this post on that item", (await page.locator(".pn-av-counter").innerText()) === "2 / 4" && await page.locator(".pn-av-thumb").count() === 4 && (await page.locator(".pn-av-caption-title").innerText()) === "ついに倒した");
     await page.keyboard.press("ArrowRight");
-    await page.waitForFunction(() => document.querySelector(".pn-counter")?.textContent === "2/4");
-    check("arrow keys move the carousel", true);
-    await page.keyboard.press("ArrowLeft");
-    await page.waitForFunction(() => document.querySelector(".pn-counter")?.textContent === "1/4");
-    await page.locator(".pn-slide-video.is-unplayable").waitFor({ timeout: 5000 });
-    check("Q7: a broken video shows the poster, the message and an app link", (await page.locator(".pn-video-fail").innerText()).includes("このブラウザでは再生できません") && (await page.locator(".pn-video-fail-link").innerText()) === "アプリで見る" && await page.locator(".pn-video[poster]").count() === 1);
-    check("video plays in place: playsinline, no autoplay, no controls before start", await page.locator("video.pn-video[playsinline][preload=metadata]:not([autoplay]):not([muted])").count() === 1);
-    await page.locator(".pn-nav-next").click();
-    await page.waitForFunction(() => document.querySelector(".pn-counter")?.textContent === "2/4");
-    await page.locator(".pn-slide-photo").nth(1).click();
-    await page.locator(".share-viewer").waitFor();
-    check("viewer opens on the tapped photo", (await page.locator(".share-viewer-counter").innerText()) === "2 / 3");
-    await page.keyboard.press("ArrowRight");
-    check("arrow key moves to the next photo", (await page.locator(".share-viewer-counter").innerText()) === "3 / 3");
+    await page.waitForFunction(() => document.querySelector(".pn-av-counter")?.textContent === "3 / 4");
+    check("r13: arrow keys move inside the post's items", true);
+    await page.locator(".pn-av-thumb").nth(0).click();
+    await page.waitForFunction(() => document.querySelector(".pn-av-counter")?.textContent === "1 / 4");
+    check("r13: the video is in the viewer with playsinline and no autoplay", await page.locator(".pn-av-slide").nth(0).locator("video.pn-av-video[playsinline]:not([autoplay]):not([muted])").count() === 1);
+    await page.locator(".pn-av-slide.is-unplayable").first().waitFor({ timeout: 5000 });
+    check("Q7: a broken video shows the message and an app link in the viewer", (await page.locator(".pn-av-slide").nth(0).innerText()).includes("このブラウザでは再生できません") && (await page.locator(".pn-av-slide").nth(0).locator(".pn-video-fail-link").innerText()) === "アプリで見る");
     await page.keyboard.press("Escape");
-    check("Escape closes the viewer", await page.locator(".share-viewer").count() === 0);
+    check("Escape closes the viewer", await page.locator(".pn-av").count() === 0);
     await page.close();
 
     page = await open(pc, `${L}${PATHS.spoiler}`);
@@ -209,7 +214,7 @@ test("record page: the server embeds the content, Chrome shows it at once, masks
     check("satisfaction bar is 85%", Math.round((await page.locator(".pn-score-fill").boundingBox()).width / (await page.locator(".pn-score-bar").boundingBox()).width * 100) === 85);
     // r8: プレイ時間・機種、「このプレイのアルバム（4）」(切らずに並べる)、全画面で全部を送る
     check("r8: review play time and platform", reviewText.includes("30〜50時間") && reviewText.includes("Nintendo Switch 2"));
-    check("r8: the album heading carries the count and the jump link sits next to the text", (await page.locator(".pn-album-title").innerText()).replace(/\s/g, "") === "このプレイのアルバム（4）" && (await page.locator(".pn-album-jump").getAttribute("href")) === "#pn-album" && (await page.locator(".pn-album-jump").boundingBox()).x > 700);
+    check("r8: the album heading carries the count; r13: no jump link under the post", (await page.locator(".pn-album-title").innerText()).replace(/\s/g, "") === "このプレイのアルバム（4）" && await page.locator(".pn-album-jump").count() === 0 && (await page.locator(".pn-album").boundingBox()).y > (await page.locator(".pn-details").boundingBox()).y);
     await page.evaluate(() => Promise.all([...document.querySelectorAll(".pn-album img")].map((img) => { img.loading = "eager"; return img.complete ? null : new Promise((r) => { img.onload = img.onerror = r; }); })));
     await page.waitForTimeout(300);
     const tiles = await page.evaluate(() => [...document.querySelectorAll(".pn-album-tile")].map((tile) => {
@@ -242,7 +247,7 @@ test("record page: the server embeds the content, Chrome shows it at once, masks
     check("r8: Escape closes the album viewer", await page.locator(".pn-av").count() === 0);
     await page.locator(".pn-slide-photo").first().click();
     await page.locator(".pn-av").waitFor();
-    check("r8: the post's photo opens the album viewer on the same photo", (await page.locator(".pn-av-counter").innerText()) === "1 / 4");
+    check("r13: the post's one photo opens the viewer with only that photo", (await page.locator(".pn-av-counter").innerText()) === "1 / 1" && await page.locator(".pn-av-slide").count() === 1);
     await page.keyboard.press("Escape");
     await page.close();
 
@@ -291,12 +296,19 @@ test("record page: the server embeds the content, Chrome shows it at once, masks
       const appHref = userAgent === "iPhone" ? `https://playnavi-links.vercel.app${PATHS.moment}` : `playnavi:/${PATHS.moment}`;
       check(`${userAgent} keeps the app button`, await page.locator("#primary-btn").getAttribute("href") === appHref);
       check(`${userAgent} r7: the app button is one quiet text link at the very end`, await page.locator(".pn-end-slot #primary-btn").isVisible() && await page.locator(".pn-end-slot #primary-btn").evaluate((node) => getComputedStyle(node).backgroundColor) === "rgba(0, 0, 0, 0)" && (await page.locator(".pn-end").boundingBox()).y > (await page.locator(".pn-story").boundingBox()).y && await page.locator(".pn-top-open, .pn-bar").count() === 0);
-      const hero = await page.locator(".pn-frame").boundingBox();
+      const hero = await page.locator(".pn-post-grid").boundingBox();
       const author = await page.locator(".pn-author").boundingBox();
-      check(`${userAgent} r7: the author comes first, then the full-width media`, hero.x === 0 && hero.width === 390 && author.y < hero.y && hero.y < 140);
+      check(`${userAgent} r7: the author comes first, then the list of the post's items (12 px sides)`, hero.x === 12 && hero.width === 366 && author.y < hero.y && hero.y < 140);
+      const phoneRows = await page.evaluate(() => [...document.querySelectorAll(".pn-post-row")].map((row) => { const r = row.getBoundingClientRect(); return { n: row.children.length, w: r.width }; }));
+      check(`${userAgent} r13: on the phone the 4 items are in 2 rows that fill the width`, phoneRows.length === 2 && phoneRows.every((row) => Math.abs(row.w - 366) < 1));
       check(`${userAgent} then text and game`, hero.y < (await page.locator(".pn-text").boundingBox()).y && (await page.locator(".pn-text").boundingBox()).y < (await page.locator(".pn-game").boundingBox()).y);
-      check(`${userAgent} no PC arrow buttons on the phone`, !await page.locator(".pn-nav-next").isVisible());
       await page.waitForTimeout(2300);
+      // headless Chrome は playnavi:// を開こうとした後の本物のタップを捨てることがある (r6 capture.mjs と同じ)。捨てられた時だけ click を直接送る
+      await page.locator(".pn-post-tile").nth(1).click();
+      if (!await page.locator(".pn-av").count()) await page.locator(".pn-post-tile").nth(1).dispatchEvent("click");
+      await page.locator(".pn-av.is-touch").waitFor();
+      check(`${userAgent} r13: a tile opens the full-screen viewer on that item (touch)`, (await page.locator(".pn-av-counter").innerText()) === "2 / 4" && !await page.locator(".pn-av-nav.next").isVisible());
+      await page.locator(".pn-av-close").dispatchEvent("click");
       check(`${userAgent} r7: no store buttons or badges on the phone (today's ones stay hidden too)`, !await page.locator("#store-buttons").isVisible() && !await page.locator(".pn-end-stores").isVisible());
       check(`${userAgent} content is still on screen after the launch attempt`, await page.locator("#share-view").isVisible() && !await page.locator("#heading").isVisible());
       check(`${userAgent} has no horizontal overflow`, await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));

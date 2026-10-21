@@ -3,7 +3,6 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
-  ALBUM_JUMP,
   ALBUM_TITLE,
   albumModel,
   albumRatio,
@@ -20,6 +19,7 @@ import {
   PAGE_CLASS,
   PLAY_STORE_URL,
   playTimeText,
+  postGridRows,
   safeUrl,
   scoreText,
   readEmbeddedShareView,
@@ -228,13 +228,18 @@ test("the page is built with text nodes only: author first, then media, text and
   const order = ["pn-top", "pn-author", "pn-hero", "pn-text", "pn-game", "pn-end"].map((name) => [...root.walk()].indexOf(root.byClass(name)[0]));
   assert.deepEqual([...order].sort((a, b) => a - b), order, JSON.stringify(order));
   assert.ok(order.every((index) => index > 0));
-  // The body's markup-looking text stays text (no element was made from it).
-  assert.equal(root.byClass("pn-photo").length, 2);
-  assert.equal(root.byClass("pn-slide").length, 3, "one slide per photo / video, no tiles");
-  assert.equal(root.byClass("pn-hero")[0].style["--pn-ratio"], String(Number((4 / 3).toFixed(4))), "the first photo with a size (1200x900)");
-  assert.equal(root.byClass("pn-counter")[0].textContent, "1/3");
-  assert.equal(root.byClass("pn-dot").length, 3);
-  const video = root.all((node) => node.tagName === "VIDEO")[0];
+  // r13: 3 items = the album-like list of the post (no one-at-a-time strip, no 「1/3」)
+  assert.ok(root.byClass("pn-hero")[0].classList.contains("is-grid"));
+  assert.equal(root.byClass("pn-post-tile").length, 3);
+  for (const gone of ["pn-slide", "pn-counter", "pn-dot", "pn-nav"]) assert.equal(root.byClass(gone).length, 0, gone);
+  assert.equal(root.all((node) => node.tagName === "VIDEO").length, 0, "videos play in the viewer from the list");
+
+  // One video: still one big item that plays in place.
+  const single = buildShareView(fakeDocument(), shareModel(ok({ ...MOMENT_VIEW, media: [MOMENT_VIEW.media[0]] })));
+  assert.equal(single.byClass("pn-slide").length, 1);
+  assert.equal(single.byClass("pn-post-tile").length, 0);
+  assert.ok(single.text().includes("1:23"));
+  const video = single.all((node) => node.tagName === "VIDEO")[0];
   assert.equal(video.controls, undefined, "no controls until the reader starts it");
   assert.equal(video.autoplay, undefined, "no muted autoplay");
   assert.equal(video.preload, "metadata");
@@ -242,7 +247,7 @@ test("the page is built with text nodes only: author first, then media, text and
   assert.match(video.poster, /p\.jpg/);
   assert.match(video.src, /game-log-video-private\/v\.mp4/);
   // Big play button: a real <button> with the length in its name.
-  const play = root.byClass("pn-play")[0];
+  const play = single.byClass("pn-play")[0];
   assert.equal(play.tagName, "BUTTON");
   assert.equal(play.getAttribute("aria-label"), "動画を再生 (1:23)");
   let played = 0;
@@ -273,7 +278,7 @@ test("r6 Q7: a video the browser cannot play shows the poster, the message and a
   assert.equal(link.href, MOMENT_VIEW.app_url);
 
   // A load error (bad file) does the same, once.
-  const broken = buildShareView(fakeDocument(), shareModel(ok(MOMENT_VIEW)));
+  const broken = buildShareView(fakeDocument(), shareModel(ok({ ...MOMENT_VIEW, media: [MOMENT_VIEW.media[0]] })));
   const video = broken.all((node) => node.tagName === "VIDEO")[0];
   for (const fn of video.listeners.error) fn({});
   for (const fn of video.listeners.error) fn({});
@@ -300,15 +305,21 @@ test("r6 Q5: a spoiler blurs the media, leaves the text out, and one button reve
   assert.ok(root.classList.contains("is-spoiler"));
   assert.equal(root.text().includes("ついに倒した"), false);
   assert.equal(root.text().includes("2 行目"), false);
-  assert.ok(root.byClass("pn-track")[0].hasAttribute("inert"), "blurred media cannot be played or opened");
+  assert.ok(root.byClass("pn-post-grid")[0].hasAttribute("inert"), "blurred media cannot be played or opened");
+  assert.equal(root.byClass("pn-post-frame")[0].byClass("pn-spoiler-cover").length, 1, "the cover sits on the list");
   const buttons = root.all((node) => node.textContent === SPOILER_BUTTON);
   assert.equal(buttons.length, 1, "one button");
   assert.equal(buttons[0].tagName, "BUTTON");
   buttons[0].click();
   assert.ok(root.text().includes("ついに倒した"));
   assert.equal(root.classList.contains("is-spoiler"), false);
-  assert.equal(root.byClass("pn-track")[0].hasAttribute("inert"), false);
+  assert.equal(root.byClass("pn-post-grid")[0].hasAttribute("inert"), false);
   assert.equal(root.byClass("pn-spoiler-cover").length + root.byClass("pn-spoiler-text").length, 0);
+
+  // One photo: the same cover on the big photo.
+  const one = buildShareView(fakeDocument(), shareModel(ok({ ...MOMENT_VIEW, spoiler: true, media: [MOMENT_VIEW.media[1]] })));
+  assert.ok(one.byClass("pn-track")[0].hasAttribute("inert"));
+  assert.equal(one.byClass("pn-frame")[0].byClass("pn-spoiler-cover").length, 1);
 
   // Text only: the button sits where the text would be.
   const textOnly = buildShareView(fakeDocument(), shareModel(ok({ ...MOMENT_VIEW, spoiler: true, media: [] })));
@@ -325,14 +336,70 @@ test("r6 Q5: a spoiler blurs the media, leaves the text out, and one button reve
   assert.equal(emptyRoot.classList.contains("is-spoiler"), false);
 });
 
-test("tapping a photo opens the viewer on that photo (videos are not in the viewer)", () => {
+test("r13: 2+ items are listed like an album (all of them, uncropped, rows filling the width); each opens the viewer of this post at that item", () => {
   const opened = [];
-  const root = buildShareView(fakeDocument(), shareModel(ok(MOMENT_VIEW)), { onOpen: (images, index) => opened.push([images.length, index]) });
-  const photos = root.byClass("pn-slide-photo");
-  assert.ok(photos.every((node) => node.tagName === "BUTTON"));
-  assert.equal(photos[1].getAttribute("aria-label"), "写真 2 / 2 を大きく表示");
-  photos[1].click();
-  assert.deepEqual(opened, [[2, 1]]);
+  const model = shareModel(ok(MOMENT_VIEW));
+  const root = buildShareView(fakeDocument(), model, { onOpenAlbum: (items, index, options) => opened.push({ items, index, options }) });
+  const tiles = root.byClass("pn-post-tile");
+  assert.equal(tiles.length, 3);
+  assert.ok(tiles.every((tile) => tile.tagName === "BUTTON" && tile.classList.contains("pn-album-tile")), "the album's tile");
+  // Rows of the list (366 px wide before it is placed): each row is a line that fills the width
+  const rows = root.byClass("pn-post-row");
+  assert.deepEqual(rows.map((row) => row.children.length), postGridRows(model.postItems.map(albumRatio), 366).map((row) => row.length));
+  assert.deepEqual(rows.flatMap((row) => row.children), tiles, "the order of the post is kept");
+  // Video: ▶ and the length; photos keep their own ratio (uncropped)
+  assert.ok(tiles[0].classList.contains("pn-album-video"));
+  assert.equal(tiles[0].byClass("pn-album-duration")[0].textContent, "1:23");
+  assert.equal(tiles[0].byClass("pn-album-play").length, 1);
+  assert.equal(tiles[1].style["--a"], String(Number((1200 / 900).toFixed(4))));
+  assert.equal(tiles[1].getAttribute("aria-label"), "写真 2 / 3 を大きく表示");
+  assert.match(tiles[0].byClass("pn-album-img")[0].src, /p\.jpg/, "a video shows its poster");
+  assert.match(tiles[2].byClass("pn-album-img")[0].src, /2\.jpg/, "no album thumb = the photo itself");
+  tiles[2].click();
+  assert.equal(opened.length, 1);
+  assert.equal(opened[0].index, 2);
+  assert.deepEqual(opened[0].items.map((item) => item.url), model.media.map((item) => item.url), "only this post's items");
+  assert.ok(opened[0].items.every((item) => item.key === MEMORY && item.title === "ついに倒した" && item.spoiler === false));
+  assert.equal(opened[0].options.appHref, MOMENT_VIEW.app_url);
+
+  // One photo: one big photo; it opens the same viewer with that 1 item
+  const one = [];
+  const single = buildShareView(fakeDocument(), shareModel(ok(REVIEW_VIEW)), { onOpenAlbum: (items, index) => one.push([items.length, index, items[0].key]) });
+  assert.equal(single.byClass("pn-post-tile").length, 0);
+  single.byClass("pn-slide-photo")[0].click();
+  assert.deepEqual(one, [[1, 0, "review"]]);
+});
+
+test("r13: postGridRows splits the list into rows that fill the width (few = big, many = more a row: 2 on a phone, 3-4 on PC; bigger rows first)", () => {
+  const L = 16 / 9;
+  const shape = (ratios, width, gap) => postGridRows(ratios, width, gap).map((row) => row.length);
+  // phone (390 - 24 = 366 px)
+  assert.deepEqual(shape([L, L], 366, 4), [2]);
+  assert.deepEqual(shape([L, L, L], 366, 4), [1, 2], "the first row is the bigger one");
+  assert.deepEqual(shape(Array(10).fill(L), 366, 4), [2, 2, 2, 2, 2]);
+  assert.deepEqual(shape(Array(10).fill(0.75), 366, 4), [5, 5]);
+  // PC (the left column at 1440 ≈ 669 px, 1920 ≈ 863 px): more a row
+  assert.deepEqual(shape(Array(10).fill(L), 669, 8), [2, 2, 3, 3]);
+  assert.deepEqual(shape(Array(10).fill(L), 863, 8), [3, 3, 4]);
+  assert.deepEqual(shape([L, L, L], 669, 8), [1, 2], "few items stay big on PC (one big, then two)");
+  assert.deepEqual(shape([L, L], 669, 8), [2]);
+  assert.deepEqual(shape(Array(12).fill(L), 669, 8), [3, 3, 3, 3]);
+  // a small change of one ratio (the size read after loading) does not reshuffle equal splits
+  assert.deepEqual(shape([1820 / 1024, L, 1820 / 1024, L, 1820 / 1024, L, 1820 / 1024, L, 1820 / 1024, L], 863, 8), [3, 3, 4]);
+  // every index once, in order; no row lower than the minimum unless one item a row
+  for (const width of [366, 669, 863, 1200]) {
+    for (let n = 1; n <= 12; n += 1) {
+      const ratios = Array.from({ length: n }, (_, i) => [L, 0.75, 4 / 3, 0.5, 2.4][i % 5]);
+      const rows = postGridRows(ratios, width, 4);
+      assert.deepEqual(rows.flat(), ratios.map((_, i) => i), `${width}/${n}`);
+      for (const row of rows) {
+        const h = (width - 4 * (row.length - 1)) / row.reduce((a, i) => a + ratios[i], 0);
+        assert.ok(row.length === 1 || h >= (width < 560 ? 80 : 110), `${width}/${n} row ${row} ${h}`);
+      }
+    }
+  }
+  assert.deepEqual(postGridRows([], 366), []);
+  assert.deepEqual(postGridRows([L, L], 0).flat(), [0, 1], "no width yet = a phone guess");
 });
 
 test("r7 P3: the end line has small store links on PC only; app links follow app.mjs's open button", () => {
@@ -503,7 +570,7 @@ test("r7 P2: 「このプレイの記録」 comes after the record: the review c
   assert.equal(root.byClass("pn-story-thumb-count")[0].textContent, "2");
   // Nothing is loaded for a moment until it is opened (no media nodes in the panel).
   assert.equal(root.byClass("pn-story-media").length, 0);
-  assert.equal(root.all((node) => node.tagName === "VIDEO").length, 1, "only the record's own video");
+  assert.equal(root.all((node) => node.tagName === "VIDEO").length, 0, "no video until opened (the record's own video is a tile of its list)");
 });
 
 test("r7 P2: tapping a moment opens it in place (full text, photos to the viewer, the video plays in place); tapping again closes it", () => {
@@ -632,18 +699,16 @@ test("r8: the album comes right after the record (before 「このプレイの�
   assert.ok(tiles[5].classList.contains("is-spoiler"));
   // 一覧の小さな絵は thumb_url
   assert.match(tiles[0].byClass("pn-album-img")[0].src, /r1-640\.webp/);
-  // 本文の近くの「全部見る（N）」
-  const jump = root.byClass("pn-album-jump")[0];
-  assert.equal(jump.href, "#pn-album");
-  assert.equal(jump.byClass("pn-album-jump-text")[0].textContent, ALBUM_JUMP);
-  assert.equal(jump.byClass("pn-album-jump-count")[0].textContent, "9");
+  // r13: 写真のすぐ下の「このプレイの写真・動画を全部見る（N）」は無い (アルバムの枠はページの下に残る)
+  assert.equal(root.byClass("pn-album-jump").length, 0);
+  assert.equal(root.text().includes("このプレイの写真・動画を全部見る"), false);
 });
 
 test("r8: tapping a tile opens the one viewer on that item; a spoiler tile is revealed first (all of the same record), the page's reveal also unblurs its album items", () => {
   const opened = [];
   const model = shareModel(ok({ ...ALBUM_VIEW, spoiler: true, canonical_path: `/game/42?logId=${UUID}&moment=${SPOIL}` }));
   const root = buildShareView(fakeDocument(), model, { onOpenAlbum: (items, index, options) => opened.push({ n: items.length, index, options }) });
-  const tiles = root.byClass("pn-album-tile");
+  const tiles = root.byClass("pn-album")[0].byClass("pn-album-tile");
   tiles[4].click();
   assert.equal(opened.length, 1);
   assert.equal(opened[0].n, 6);
@@ -659,26 +724,32 @@ test("r8: tapping a tile opens the one viewer on that item; a spoiler tile is re
   // ページの「ネタバレを表示」でも同じ記録のアルバムの物が見える
   const other = shareModel(ok({ ...ALBUM_VIEW, spoiler: true, canonical_path: `/game/42?logId=${UUID}&moment=${SPOIL}` }));
   const page = buildShareView(fakeDocument(), other, { onOpenAlbum: () => {} });
-  const spoilerTile = page.byClass("pn-album-tile")[5];
+  const spoilerTile = page.byClass("pn-album")[0].byClass("pn-album-tile")[5];
   assert.ok(spoilerTile.classList.contains("is-spoiler"));
   page.byClass("pn-spoiler-button")[0].click();
   assert.equal(spoilerTile.classList.contains("is-spoiler"), false);
 });
 
-test("r8: tapping a photo of the post opens the album viewer on the same item (falls back to the old viewer without an album)", () => {
+test("r13: with the play's album, the post's list still opens only the post's items (borrowing the album's small pictures); the album section stays below", () => {
   const opened = [];
-  const old = [];
-  const root = buildShareView(fakeDocument(), shareModel(ok(ALBUM_VIEW)), {
-    onOpen: (images, index) => old.push([images.length, index]),
-    onOpenAlbum: (items, index) => opened.push(index),
-  });
-  // 帯: 動画 → 写真 1 → 写真 2。写真 2 (帯の 3 番目) = アルバムの 4 番目 (レビューの写真の後のこのモーメントの 3 番目)
-  root.byClass("pn-slide-photo")[1].click();
-  assert.deepEqual(opened, [3]);
-  assert.deepEqual(old, []);
-  const plain = buildShareView(fakeDocument(), shareModel(ok(MOMENT_VIEW)), { onOpen: (images, index) => old.push([images.length, index]) });
-  plain.byClass("pn-slide-photo")[0].click();
-  assert.deepEqual(old, [[2, 0]]);
+  const root = buildShareView(fakeDocument(), shareModel(ok(ALBUM_VIEW)), { onOpenAlbum: (items, index) => opened.push([items.length, index]) });
+  const post = root.byClass("pn-hero")[0];
+  const tiles = post.byClass("pn-post-tile");
+  assert.equal(tiles.length, 3);
+  // the album has this moment's 3 items in the same order = their small pictures are used
+  assert.match(tiles[0].byClass("pn-album-img")[0].src, /p\.jpg/);
+  assert.match(tiles[2].byClass("pn-album-img")[0].src, /2-640\.webp/);
+  tiles[2].click();
+  assert.deepEqual(opened, [[3, 2]], "the viewer has the post's 3, not the album's 6");
+  // the album section is a separate part further down
+  const album = root.byClass("pn-album")[0];
+  assert.ok(album, "the album section is still there");
+  assert.equal(album.byClass("pn-post-tile").length, 0);
+  album.byClass("pn-album-tile")[4].click();
+  assert.deepEqual(opened[1], [6, 4]);
+  // the album's order differs from the post (fewer of this moment) = no borrowing
+  const mismatch = shareModel(ok({ ...MOMENT_VIEW, album: [ALBUM[0], ALBUM[2], ALBUM[4]], album_total: 3 }));
+  assert.equal(mismatch.postItems[2].thumbUrl, mismatch.media[2].url);
 });
 
 test("r8: a review shows play time and platforms (and so does the parent review card in the story)", () => {
