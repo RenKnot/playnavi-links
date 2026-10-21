@@ -461,7 +461,7 @@ test("an old links site shape (no moment layout) still gets a small card from a 
 
 // ---------------------------------------------------------------- TASK-20261017-002 r3 (V1/V2)
 
-const { authorName, chipText, collageSlots, drawsUserPhotos, formatDuration, hintText, isR3, kindSuffix, toJpeg, JPEG_MAX_BYTES, W: CARD_W, H: CARD_H } =
+const { authorName, collageSlots, drawsUserPhotos, formatDuration, isR3, toJpeg, JPEG_MAX_BYTES, W: CARD_W, H: CARD_H } =
   await import("../api/_lib/og-card.mjs");
 const signed = (name, token = "t") => `https://${STORAGE}/storage/v1/object/sign/game-log-media-private/u/memories/m/${name}?token=${token}`;
 const image = (name, token) => ({ kind: "image", url: signed(name, token) });
@@ -562,30 +562,18 @@ test("r7 P3/P4: the poster is the hero — author name / icon are validated, the
   assert.equal(moment.author_name, "Hinata");
   assert.equal(moment.author_avatar_url, avatar);
   assert.equal(authorName(moment), "Hinata");
-  assert.equal(kindSuffix(moment), "のモーメント");
   const review = validLarge({ ...R3_REVIEW, author_name: "Ao", author_avatar_url: "https://evil.example/a.png" });
   assert.equal(review.author_avatar_url, null, "a disallowed icon host is dropped, not fatal");
-  assert.equal(kindSuffix(review), "のレビュー");
   // Without author_name (older edge function) the keys stay out (same version hash) and the name comes from the heading.
   assert.equal("author_name" in validLarge(R3_MOMENT), false);
   assert.equal(largeVersion(validLarge({ ...R3_MOMENT, author_name: 7 })), largeVersion(validLarge(R3_MOMENT)));
   assert.equal(authorName(validLarge({ ...R3_MOMENT, heading: "ひなたさんのモーメント" })), "ひなた");
   assert.equal(authorName(validLarge({ ...R3_REVIEW, heading: "あおさんのプレイ記録" })), "あお");
   assert.equal(authorName(validLarge({ ...R3_REVIEW, heading: null })), "ユーザー");
-  // The hint is quiet text, not a chip.
-  assert.equal(hintText(validLarge(R3_MOMENT)), "タップして見る · 動画 1・写真 3・全文 ›");
-  for (const ch of "Hinataのモーメント満足度/10·›") assert.ok(cardText(moment).includes(ch), ch);
+  for (const ch of "Hinata満足度/10›") assert.ok(cardText(moment).includes(ch), ch);
 });
 
-test("r3: the chip says what is behind the tap", () => {
-  assert.equal(chipText(validLarge(R3_MOMENT)), "タップして見る｜動画 1・写真 3・全文");
-  assert.equal(chipText(validLarge({ ...R3_MOMENT, counts: { photos: 2, videos: 0, text: false } })), "タップして見る｜写真 2");
-  assert.equal(chipText(validLarge({ ...R3_MOMENT, media: [], counts: { photos: 0, videos: 0, text: false } })), "タップして見る");
-  assert.equal(chipText(validLarge({ ...R3_MOMENT, spoiler: true })), "タップして見る｜ネタバレを含むモーメント");
-  assert.equal(chipText(validLarge(R3_REVIEW)), "タップして見る｜満足度・感想の全文・写真 3");
-  assert.equal(chipText(validLarge({ ...R3_REVIEW, media: [], counts: { photos: 0, videos: 0, text: true } })), "タップして見る｜満足度・感想の全文");
-  assert.equal(chipText(validLarge({ ...R3_REVIEW, spoiler: true })), "タップして見る｜満足度・ネタバレを含む感想・写真 3");
-  for (const character of "タップして見る｜動画写真全文・›:") assert.ok(cardText(validLarge(R3_MOMENT)).includes(character), character);
+test("r3: the video duration is drawn as m:ss", () => {
   assert.equal(formatDuration(83_000), "1:23");
   assert.equal(formatDuration(5_000), "0:05");
   assert.equal(formatDuration(null), null);
@@ -597,6 +585,8 @@ test("r3: only cards that draw the poster's photos are JPEG", () => {
   assert.equal(drawsUserPhotos(validLarge({ ...R3_MOMENT, media: [], photo_url: null })), false);
   assert.equal(drawsUserPhotos(validLarge(R3_REVIEW)), true);
   assert.equal(drawsUserPhotos(validLarge({ ...R3_REVIEW, media: [] })), false);
+  // r9: a spoiler review draws no photo either
+  assert.equal(drawsUserPhotos(validLarge({ ...R3_REVIEW, spoiler: true })), false);
   for (const large of [GAME, PROFILE, GRID, DIAGNOSIS]) assert.equal(drawsUserPhotos(validLarge(large)), false);
 });
 
@@ -680,7 +670,7 @@ test("hyphens between letters/digits in card titles do not break (HD-2D)", async
 
 // ---------------------------------------------------------------- TASK-20261017-002 r8 (§12.2): 写真の無い記録 = このプレイの写真を切らずに
 
-const { PLAY_BOX, playHintText, playSlots } = await import("../api/_lib/og-card.mjs");
+const { PLAY_BOX, PLAY_TILES_MAX } = await import("../api/_lib/og-card.mjs");
 const playSigned = (name) => `https://${STORAGE}/storage/v1/object/sign/game-log-media-private/u/memories/p/${name}?token=t`;
 const PLAY_MEDIA = [
   { kind: "image", url: playSigned("1.jpg") }, { kind: "image", url: playSigned("2.jpg") }, { kind: "image", url: playSigned("3.jpg") },
@@ -707,30 +697,18 @@ test("r8: play_media is validated like media (signed private photos, at most 5),
   assert.ok(validLarge(NO_PHOTO_REVIEW).play_media.length === 3);
 });
 
-test("r8: the play hint says what the page holds; the card with the play's photos is a JPEG", () => {
-  assert.equal(playHintText(validLarge(TEXT_ONLY)), "このプレイの写真・動画 7 件 ›");
-  assert.equal(playHintText(validLarge(NO_PHOTO_REVIEW)), "このプレイの写真 3 枚 ›");
+test("r8: the card with the play's photos is a JPEG", () => {
   assert.equal(drawsUserPhotos(validLarge(TEXT_ONLY)), true);
   assert.equal(drawsUserPhotos(validLarge(NO_PHOTO_REVIEW)), true);
   assert.equal(drawsUserPhotos(validLarge({ ...TEXT_ONLY, spoiler: true })), false);
 });
 
-test("r8: playSlots keeps every photo's own ratio, fills the box width per row, fits the height and keeps the order", () => {
-  const box = { x: 36, y: 168, w: 1128, h: 440, gap: 12 };
-  for (const aspects of [[16 / 9], [16 / 9, 16 / 9], [16 / 9, 16 / 9, 16 / 9, 16 / 9, 16 / 9], [9 / 16, 9 / 16, 9 / 16], [1, 16 / 9, 0.75, 2.4, 0.5]]) {
-    const slots = playSlots(aspects, box);
-    assert.equal(slots.length, aspects.length);
-    slots.forEach((slot, i) => {
-      assert.ok(Math.abs(slot.w / slot.h - aspects[i]) / aspects[i] < 0.03, `ratio ${i} of ${aspects.length}`);
-      assert.ok(slot.x >= box.x - 1 && slot.x + slot.w <= box.x + box.w + 1 && slot.y >= box.y - 1 && slot.y + slot.h <= box.y + box.h + 1, `inside ${JSON.stringify(slot)}`);
-    });
-    // 読む順 (上の行 → 下の行、左 → 右)
-    for (let i = 1; i < slots.length; i += 1) assert.ok(slots[i].y > slots[i - 1].y + 1 || slots[i].x > slots[i - 1].x, `order ${i}`);
+test("r9: the play's photos fill the collage inside the box under the header, at most 4", () => {
+  assert.equal(PLAY_TILES_MAX, 4);
+  assert.ok(PLAY_BOX.y >= 96 && PLAY_BOX.x + PLAY_BOX.w <= CARD_W && PLAY_BOX.y + PLAY_BOX.h <= CARD_H);
+  for (const count of [1, 2, 3, 4]) {
+    for (const slot of collageSlots(count, PLAY_BOX)) assert.ok(slot.x + slot.w <= PLAY_BOX.w + 0.5 && slot.y + slot.h <= PLAY_BOX.h + 0.5);
   }
-  // 横長 5 枚は 2 行 (1 行だと小さすぎる)
-  assert.equal(new Set(playSlots(Array(5).fill(16 / 9), box).map((s) => s.y)).size, 2);
-  assert.deepEqual(playSlots([], box), []);
-  assert.deepEqual(PLAY_BOX.w, CARD_W - 72);
 });
 
 for (const [name, large] of [["text-only moment with the play's photos", TEXT_ONLY], ["review without photos with the play's photos", NO_PHOTO_REVIEW]]) {
@@ -756,3 +734,125 @@ test("r8: the version hash survives re-signing the play's photos", async () => {
   const old = await sharePage({ headers: { host: "playnavi.app" }, query: { code: CODE } }, { ...TEXT_ONLY, play_media: undefined, play_media_total: undefined, play_media_counts: undefined });
   assert.notEqual(tag(first.body, "og:image"), tag(old.body, "og:image"));
 });
+
+// ---------------------------------------------------------------- TASK-20261017-002 r9: 写真・動画が主役・印なし・右下の遷移文言
+
+const { CTA_LABELS, SPOILER_LABEL, cardElement, ctaText, headerWidths, loadCardImages, loadStaticAssets, recordMode, renderCardImage, titleText } =
+  await import("../api/_lib/og-card.mjs");
+const LANDSCAPE = await sharp({ create: { width: 320, height: 180, channels: 3, background: "#cc6633" } }).jpeg().toBuffer();
+const PORTRAIT = await sharp({ create: { width: 300, height: 400, channels: 3, background: "#3366cc" } }).jpeg().toBuffer();
+const imageFetch = (buffer) => async () => new Response(buffer);
+// 描く要素の木をたどって、字と画像の src を集める
+function collect(node, out = { texts: [], srcs: [] }) {
+  if (node === null || node === undefined || typeof node === "boolean") return out;
+  if (Array.isArray(node)) { for (const child of node) collect(child, out); return out; }
+  if (typeof node === "string" || typeof node === "number") { out.texts.push(String(node)); return out; }
+  if (node.type === "img") out.srcs.push(node.props.src);
+  collect(node.props?.children, out);
+  return out;
+}
+const R9_ASSETS = { logo: "data:image/png;base64,TE9HTw==", logoHeight: 40, badges: [] };
+const R9_PLAY = { play_media: PLAY_MEDIA, play_media_total: 7, play_media_counts: { photos: 6, videos: 1 } };
+const R9_CASES = [
+  ["moment with 3 photos", { ...R3_MOMENT, media: [image("a.jpg"), image("b.jpg"), image("c.jpg")], author_name: "ひなた" }, "own"],
+  ["moment with 1 video", { ...R3_MOMENT, media: [video("v.jpg", 9_000)], author_name: "ひなた" }, "own"],
+  ["review with photos", { ...R3_REVIEW, author_name: "ひなた" }, "own"],
+  ["text-only moment, the play has photos", { ...TEXT_ONLY }, "play"],
+  ["review without photos, the play has photos", { ...NO_PHOTO_REVIEW }, "play"],
+  ["text-only moment, nothing in the play", { ...R3_MOMENT, photo_url: null, media: [], author_name: "ひなた" }, "plain"],
+  ["review without photos, nothing in the play", { ...R3_REVIEW, media: [], author_name: "ひなた" }, "plain"],
+  ["spoiler moment", { ...R3_MOMENT, spoiler: true, author_name: "ひなた", ...R9_PLAY }, "spoiler"],
+  ["spoiler review", { ...R3_REVIEW, spoiler: true, author_name: "ひなた", ...R9_PLAY }, "spoiler"],
+];
+const R9_CTA = {
+  own: "写真・動画をすべて見る ›", play: "このプレイの写真・動画を見る ›", spoiler: "タップして見る ›",
+};
+
+test("r9: the CTA says where the tap goes, never counts, never the bare word 画像", async () => {
+  for (const [name, raw, mode] of R9_CASES) {
+    const large = validLarge(raw);
+    const images = await loadCardImages(large, imageFetch(LANDSCAPE));
+    assert.equal(recordMode(large, images), mode, name);
+    const expected = R9_CTA[mode] ?? (large.layout === "moment" ? "モーメントを見る ›" : "レビューを見る ›");
+    assert.equal(ctaText(large, mode), expected, name);
+    const { texts } = collect(cardElement(large, images, R9_ASSETS));
+    assert.ok(texts.includes(expected.replace(/ ›$/, "")), `${name}: CTA drawn`);
+    for (const text of texts) {
+      assert.doesNotMatch(text, /\d+\s*(枚|件|本)|写真 \d|動画 \d/, `${name}: no counts (${text})`);
+      assert.doesNotMatch(text.replace(/写真・動画/g, ""), /画像/, `${name}: no 画像`);
+    }
+    if (mode === "spoiler") assert.ok(texts.includes(SPOILER_LABEL), `${name}: spoiler label`);
+    else assert.ok(!texts.includes(SPOILER_LABEL), `${name}: no spoiler label`);
+  }
+  for (const label of Object.values(CTA_LABELS)) for (const ch of label) assert.ok(cardText(validLarge(R3_MOMENT)).includes(ch), ch);
+});
+
+test("r9: no PlayNavi logo or mark on the record cards (the static assets no longer carry the mark)", async () => {
+  for (const [name, raw] of R9_CASES) {
+    const large = validLarge(raw);
+    const { srcs } = collect(cardElement(large, await loadCardImages(large, imageFetch(LANDSCAPE)), R9_ASSETS));
+    assert.ok(!srcs.includes(R9_ASSETS.logo), `${name}: no logo`);
+  }
+  assert.equal("mark" in (await loadStaticAssets()), false);
+});
+
+test("r9: the small header carries the poster's name (left) and the game title (right); the two never overlap", async () => {
+  for (const [name, raw] of R9_CASES) {
+    const large = validLarge(raw);
+    const { texts } = collect(cardElement(large, await loadCardImages(large, imageFetch(LANDSCAPE)), R9_ASSETS));
+    assert.ok(texts.includes(authorName(large)), `${name}: author`);
+    assert.ok(texts.includes(titleText(large.title)), `${name}: title`);
+    if (large.layout === "game" && mode(raw) !== "spoiler") assert.ok(texts.includes("満足度") && texts.includes("8.5"), `${name}: score`);
+  }
+  const longName = "とても長い名前のゲーマー・ひなたのサブアカウント2号".repeat(2);
+  const longTitle = "ゼルダの伝説 ティアーズ オブ ザ キングダム Nintendo Switch 2 Edition + ゼルダノート 完全版";
+  for (const options of [{}, { thumb: true }, { thumb: true, score: 9.5 }]) {
+    const widths = headerWidths(longName, longTitle, options);
+    assert.ok(widths.name + widths.title <= widths.room, JSON.stringify(widths));
+    assert.ok(widths.name >= 200 && widths.title >= 200, JSON.stringify(widths));
+  }
+  const short = headerWidths("ひなた", "Elden Ring", { thumb: true });
+  assert.ok(short.name >= 3 * 24 && short.title >= 10 * 22 * 0.6, "short texts are not cut");
+});
+function mode(raw) { return raw.spoiler === true ? "spoiler" : "other"; }
+
+test("r9: a single portrait / near-square photo is drawn uncropped over a blurred copy; a landscape one fills the card", async () => {
+  const one = validLarge({ ...R3_MOMENT, media: [image("a.jpg")] });
+  const portrait = await loadCardImages(one, imageFetch(PORTRAIT));
+  assert.ok(portrait.contained, "contained");
+  assert.equal(portrait.contained.height, CARD_H);
+  assert.equal(portrait.contained.width, Math.round((CARD_H * 300) / 400));
+  assert.match(portrait.containedBackdrop ?? "", /^data:image\//);
+  assert.equal(portrait.tiles[0], null, "not cut to fill");
+  assert.equal(recordMode(one, portrait), "own");
+  const landscape = await loadCardImages(one, imageFetch(LANDSCAPE));
+  assert.equal(landscape.contained, null);
+  assert.match(landscape.tiles[0] ?? "", /^data:image\//);
+  // 2 枚以上は切り抜いて敷き詰める
+  const two = await loadCardImages(validLarge({ ...R3_MOMENT, media: [image("a.jpg"), image("b.jpg")] }), imageFetch(PORTRAIT));
+  assert.equal(two.contained, null);
+  assert.equal(two.tiles.filter(Boolean).length, 2);
+});
+
+const R9_PATTERNS = [
+  ...[1, 2, 3, 4].map((n) => [`moment ${n} photo(s)`, { ...R3_MOMENT, media: ["a", "b", "c", "d"].slice(0, n).map((x) => image(`${x}.jpg`)) }]),
+  ["moment portrait photo", { ...R3_MOMENT, media: [image("a.jpg")] }, PORTRAIT],
+  ["moment video", { ...R3_MOMENT, media: [video("v.jpg", 9_000)] }],
+  ...[1, 2, 3].map((n) => [`review ${n} photo(s)`, { ...R3_REVIEW, media: R3_REVIEW.media.slice(0, n) }]),
+  ...R9_CASES.slice(3).map(([name, raw]) => [name, raw]),
+  ["long name and title", { ...R3_MOMENT, author_name: "とても長い名前のゲーマー".repeat(4), title: "とても長いゲームの題名 ".repeat(8).trim() }],
+];
+for (const [name, raw, photo] of R9_PATTERNS) {
+  test(`r9: the ${name} card renders 1200x630 within the size bound`, async () => {
+    const fetchImpl = async (url) => new Response(String(url).includes("/object/sign/") ? (photo ?? NOISE) : IMAGE);
+    const { body, contentType } = await renderCardImage(raw, { fetchImpl, fontLoader });
+    if (contentType === "image/jpeg") {
+      assert.deepEqual(await jpegSize(body), [1200, 630]);
+      assert.ok(body.length <= JPEG_MAX_BYTES, `${body.length} bytes`);
+    } else {
+      assert.equal(contentType, "image/png");
+      assert.deepEqual(pngSize(body), [1200, 630]);
+    }
+    assert.equal(contentType === "image/jpeg", drawsUserPhotos(validLarge(raw)));
+  });
+}
