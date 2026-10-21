@@ -85,7 +85,8 @@ function photoUrl(value) {
 // and what the share page holds (C1 `counts`). Each media entry goes through
 // the same signed-path check as photo_url; a bad entry is dropped, never fatal.
 export const MOMENT_MEDIA_MAX = 4;
-export const REVIEW_MEDIA_MAX = 3;
+// r11: レビューは写真 10 枚まで付けられる (app ReviewMediaPicker MAX_REVIEW_MEDIA = 10)。カードに描くのは 8 枚まで (card-layout.mjs MAX_ITEMS)
+export const REVIEW_MEDIA_MAX = 8;
 function mediaItem(value, { imagesOnly }) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   if (value.kind !== "image" && value.kind !== "video") return null;
@@ -141,11 +142,12 @@ function authorFields(large) {
   };
 }
 
-// TASK-20261017-002 r8 (overview §12.2): a record without its own photos or videos (a text-only moment, a review
-// without photos) carries up to 5 photos / video posters of the same play and how many the play has in all
-// (= the album on the record page). Present only when the edge function sent them (older payloads keep their
-// shape and version hash). Bad entries are dropped; a spoiler moment never carries them.
-export const PLAY_MEDIA_MAX = 5;
+// TASK-20261017-002 r8 (overview §12.2): photos / video posters of the same play and how many the play has in all
+// (= the album on the record page). r8 sent them only for a record without its own photos (up to 5); r11 also sends
+// them next to the record's own media to fill the card up to 8 (play_media = the album minus the record's own items,
+// at most 8 - media.length). Present only when the edge function sent them (older payloads keep their shape and
+// version hash). Bad entries are dropped; a spoiler record never carries them.
+export const PLAY_MEDIA_MAX = 8;
 function playFields(large, { spoiler }) {
   if (large.play_media === undefined || large.play_media === null) return {};
   const total = large.play_media_total;
@@ -176,7 +178,7 @@ export function validLarge(large) {
           // log cards (TASK-20261017-002): satisfaction and the head of the review.
           ...optional(large, "score", score),
           ...optional(large, "excerpt", (value) => text(value)),
-          // r3: review photos (images only, at most 3), what the page holds, spoiler.
+          // r3: review photos (images only; r11: at most 8), what the page holds, spoiler.
           ...r3Fields(large, { spoiler: large.spoiler === true, max: REVIEW_MEDIA_MAX, imagesOnly: true }),
           ...(typeof large.spoiler === "boolean" ? { spoiler: large.spoiler } : {}),
           ...authorFields(large),

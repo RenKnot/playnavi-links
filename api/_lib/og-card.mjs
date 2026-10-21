@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { ImageResponse } from "@vercel/og";
 import { createElement as h } from "react";
 import sharp from "sharp";
-import { layoutCard } from "./card-layout.mjs";
+import { MAX_ITEMS, layoutCard } from "./card-layout.mjs";
 import { allowedImageUrl, validLarge } from "./og-large.mjs";
 
 export { ALLOWED_IMAGE_HOSTS, allowedImageUrl, validLarge } from "./og-large.mjs";
@@ -77,7 +77,7 @@ export function formatDuration(ms) {
 
 // Whether the card draws the poster's own photos (then it is sent as JPEG).
 export function drawsUserPhotos(large) {
-  // r8: a record without its own photos draws the play's photos (play_media)
+  // r8: a record without its own photos draws the play's photos (play_media)。r11: 自分の物があっても埋めに使う
   const play = (large.play_media?.length ?? 0) > 0;
   // r9: ネタバレの記録 (モーメントもレビューも) は写真を描かない
   if (large.spoiler === true) return false;
@@ -86,9 +86,19 @@ export function drawsUserPhotos(large) {
   return false;
 }
 
-// r10: 同じプレイの写真・動画も、投稿者の物と同じ決まり (card-layout.mjs) で 4 つまで切らずに並べる。
+// r11: カードに描く写真・動画は 8 つまで (card-layout.mjs MAX_ITEMS)。その記録の物 (media) が先、まだ 8 に届かなければ
+// 同じプレイのアルバムのほかの物 (play_media) で埋める。並べ方はどちらも同じ決まり (切らない)。
 // 全部を見せるのはリンクの先の「このプレイのアルバム」。
-export const PLAY_TILES_MAX = 4;
+export const CARD_TILES_MAX = MAX_ITEMS;
+
+// r11: カードに描く順の写真・動画 (own = その記録の物か)。ネタバレの記録は何も描かない
+export function cardItems(large) {
+  if (large.spoiler === true) return [];
+  return [
+    ...(large.media ?? []).map((item) => ({ item, own: true })),
+    ...(large.play_media ?? []).map((item) => ({ item, own: false })),
+  ].slice(0, CARD_TILES_MAX);
+}
 
 // ---------------------------------------------------------------- fonts
 
@@ -305,9 +315,9 @@ export async function loadCardImages(large, fetchImpl) {
     if (large.photo_url) urls.add(large.photo_url);
     if (large.cover_url) urls.add(large.cover_url);
   }
-  for (const item of large.media ?? []) urls.add(item.url);
-  // r9: ネタバレの記録は同じプレイの写真も読まない (描かない)
-  if (large.spoiler !== true) for (const item of large.play_media ?? []) urls.add(item.url);
+  // r11: 描く 8 つ (その記録の物 → 同じプレイの物) だけを読む。r9: ネタバレの記録は同じプレイの写真も読まない (描かない)
+  if (isR3(large)) for (const { item } of cardItems(large)) urls.add(item.url);
+  else for (const item of large.media ?? []) urls.add(item.url);
   if ((large.layout === "moment" || large.layout === "game") && large.author_avatar_url) urls.add(large.author_avatar_url);
   if (large.layout === "profile") {
     if (large.avatar_url) urls.add(large.avatar_url);
@@ -328,22 +338,21 @@ export async function loadCardImages(large, fetchImpl) {
 
   if (isR3(large)) {
     // r10: 投稿者の写真・動画を切らずに並べ (card-layout.mjs)、無ければ同じプレイの写真・動画を同じ決まりで、それも無ければ
-    // カバーを大きく。投稿者のアイコンとカバーの小さな絵は上の帯。背景は 1 枚目をぼかして暗くした物 (無い時はカバー)。
+    // カバーを大きく。r11: その記録の物のあとを同じプレイの物で 8 つまで埋める (cardItems)。
+    // 投稿者のアイコンとカバーの小さな絵は上の帯。背景は 1 枚目をぼかして暗くした物 (無い時はカバー)。
     const spoiler = large.spoiler === true;
     const media = spoiler ? [] : large.media ?? [];
     const coverBuffer = get(large.cover_url);
-    const [author, thumb, background, hero, own] = await Promise.all([
+    const [author, thumb, background, hero, laid] = await Promise.all([
       pngUri(get(large.author_avatar_url), HEAD_AVATAR * 2, HEAD_AVATAR * 2),
       coverUri(coverBuffer, THUMB[0] * 2, THUMB[1] * 2),
       blurUri(coverBuffer ?? get(large.photo_url)),
       media.length === 0 && !spoiler ? coverUri(coverBuffer, ...HERO_COVER) : null,
-      layoutTiles(media, get, media.length),
+      layoutTiles(cardItems(large), get),
     ]);
-    const play = media.length === 0 && !spoiler ? await layoutTiles(large.play_media ?? [], get, PLAY_TILES_MAX) : null;
     return {
       author, thumb, background, hero,
-      tiles: own?.tiles ?? [], group: own?.group ?? null, ownBackground: own?.backdrop ?? null,
-      ...(play ? { playTiles: play.tiles, playGroup: play.group, playBackground: play.backdrop } : {}),
+      tiles: laid?.tiles ?? [], group: laid?.group ?? null, tilesBackground: laid?.backdrop ?? null,
     };
   }
   if (large.layout === "game") {
@@ -404,16 +413,19 @@ async function imageAspect(buffer) {
 }
 // r10: 写真・動画 (動画は代表の絵) を、読めた物の縦横で card-layout.mjs に並べてもらい、各枠の大きさにちょうど縮める
 // (縦横が同じなので切れない)。読めない物は外す。並べ方が外した物 (短い辺が足りない) は描かない。
-// 背景は 1 枚目をぼかした物。返り値の tiles は表示する順 (外した物を除く)、group はまとまりの外枠
-async function layoutTiles(items, get, max) {
-  if (items.length === 0) return null;
-  const read = await Promise.all(items.map(async (item) => {
+// 背景は 1 枚目をぼかした物。返り値の tiles は表示する順 (外した物を除く。own = その記録の物か)、group はまとまりの外枠
+// r11: entries = cardItems の { item, own } (8 つまで)。読めた 1 枚目がその記録の物で、同じプレイの物も並ぶ時は heroFirst
+// (その記録の 1 枚目がいちばん大きい)。その記録の物だけ・同じプレイの物だけの時は r10 と同じ並べ方
+async function layoutTiles(entries, get) {
+  if (entries.length === 0) return null;
+  const read = await Promise.all(entries.map(async ({ item, own }) => {
     const buffer = get(item.url);
-    return { item, buffer, aspect: await imageAspect(buffer) };
+    return { item, own, buffer, aspect: await imageAspect(buffer) };
   }));
-  const usable = read.filter((entry) => entry.aspect !== null).slice(0, max);
+  const usable = read.filter((entry) => entry.aspect !== null).slice(0, CARD_TILES_MAX);
   if (usable.length === 0) return null;
-  const layout = layoutCard(usable.map((entry) => entry.aspect));
+  const heroFirst = usable[0].own && usable.some((entry) => !entry.own);
+  const layout = layoutCard(usable.map((entry) => entry.aspect), { heroFirst });
   const shown = usable.map((entry, i) => ({ ...entry, slot: layout.slots[i] })).filter((entry) => entry.slot);
   if (shown.length === 0) return null;
   const [backdropUri, ...cut] = await Promise.all([
@@ -421,8 +433,8 @@ async function layoutTiles(items, get, max) {
     ...shown.map((entry) => coverUri(entry.buffer, Math.max(1, Math.round(entry.slot.w)), Math.max(1, Math.round(entry.slot.h)))),
   ]);
   // 縮めるのに失敗した枠は空の枠 (並べ方は変えない)。1 つも描けなければ写真なしの形へ
-  const tiles = shown.map((entry, i) => ({ item: entry.item, slot: entry.slot, image: cut[i] }));
-  return tiles.some((tile) => tile.image) ? { tiles, group: layout.group, backdrop: backdropUri } : null;
+  const tiles = shown.map((entry, i) => ({ item: entry.item, own: entry.own, slot: entry.slot, image: cut[i] }));
+  return tiles.some((tile) => tile.image) ? { tiles, group: layout.group, backdrop: backdropUri, heroFirst } : null;
 }
 
 // ---------------------------------------------------------------- layouts
@@ -770,11 +782,13 @@ const TEXT_SHADOW = "0 1px 4px rgba(0,0,0,0.6)";
 // 字幅の見積もり (和文 1em・欧文と数字 0.6em)
 const ems = (value) => [...String(value)].reduce((w, ch) => w + (ch.charCodeAt(0) < 0x2e80 ? 0.6 : 1), 0);
 
-// どの形で描くか: own = 投稿者の写真・動画 / play = 同じプレイの写真・動画 / plain = カバー / spoiler = ネタバレ
+// どの形で描くか: own = その記録の写真・動画を描く (r11: 同じプレイの物で埋めていても) / play = 同じプレイの写真・動画だけ /
+// plain = カバー / spoiler = ネタバレ
 export function recordMode(large, images = {}) {
   if (large.spoiler === true) return "spoiler";
-  if ((large.media?.length ?? 0) > 0 && (images.tiles ?? []).some((tile) => tile?.image)) return "own";
-  if ((images.playTiles?.length ?? 0) > 0) return "play";
+  const tiles = (images.tiles ?? []).filter((tile) => tile?.image);
+  if (tiles.some((tile) => tile.own)) return "own";
+  if (tiles.length > 0) return "play";
   return "plain";
 }
 
@@ -966,17 +980,18 @@ function tilesCard(large, images, { tiles, group, background, dim, label }) {
   );
 }
 
-// 投稿者の写真・動画
+// 投稿者の写真・動画 (r11: 8 つに届かない分は同じプレイの写真・動画で埋め、その記録の 1 枚目がいちばん大きい)。
+// 札は「写真・動画をすべて見る」
 function photoCard(large, images) {
-  return tilesCard(large, images, { tiles: images.tiles, group: images.group, background: images.ownBackground ?? images.background,
+  return tilesCard(large, images, { tiles: images.tiles, group: images.group, background: images.tilesBackground ?? images.background,
     dim: 0.34, label: CTA_LABELS.own });
 }
 
-// r8〜r10: 自分の写真・動画が無い記録 (文だけのモーメント・写真の無いレビュー) で、同じプレイに写真・動画がある時。
-// そのプレイの写真・動画を 4 つまで、投稿者の物と同じ決まりで切らずに並べる (札は「このプレイの写真・動画を見る」)。
+// r8〜r11: 自分の写真・動画が無い記録 (文だけのモーメント・写真の無いレビュー) で、同じプレイに写真・動画がある時。
+// そのプレイの写真・動画を 8 つまで、投稿者の物と同じ決まりで切らずに並べる (札は「このプレイの写真・動画を見る」)。
 // この投稿の物ではないので、背景は少し暗く
 function playCard(large, images) {
-  return tilesCard(large, images, { tiles: images.playTiles, group: images.playGroup, background: images.playBackground,
+  return tilesCard(large, images, { tiles: images.tiles, group: images.group, background: images.tilesBackground ?? images.background,
     dim: 0.46, label: CTA_LABELS.play });
 }
 
