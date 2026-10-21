@@ -56,8 +56,6 @@ const HERO_COVER = [352, 470];
 // r9: 右下に重ねる遷移文言 (枚数は書かない)。X はカードの左下に住所を重ねるので右下に置く。
 export const CTA_LABELS = {
   own: "写真・動画をすべて見る",
-  // 同じプレイのほかの記録の写真・動画 (この投稿の物ではない) と分かる言い方
-  play: "このプレイの写真・動画を見る",
   moment: "モーメントを見る",
   review: "レビューを見る",
   spoiler: "タップして見る",
@@ -77,27 +75,23 @@ export function formatDuration(ms) {
 
 // Whether the card draws the poster's own photos (then it is sent as JPEG).
 export function drawsUserPhotos(large) {
-  // r8: a record without its own photos draws the play's photos (play_media)。r11: 自分の物があっても埋めに使う
-  const play = (large.play_media?.length ?? 0) > 0;
+  // r12: その投稿 (記録) の写真・動画だけを描く。同じプレイのほかの記録の物 (play_media) は描かない
   // r9: ネタバレの記録 (モーメントもレビューも) は写真を描かない
   if (large.spoiler === true) return false;
-  if (large.layout === "moment") return (large.media?.length ?? 0) > 0 || Boolean(large.photo_url) || play;
-  if (large.layout === "game") return (large.media?.length ?? 0) > 0 || play;
+  if (large.layout === "moment") return (large.media?.length ?? 0) > 0 || Boolean(large.photo_url);
+  if (large.layout === "game") return (large.media?.length ?? 0) > 0;
   return false;
 }
 
-// r11: カードに描く写真・動画は 8 つまで (card-layout.mjs MAX_ITEMS)。その記録の物 (media) が先、まだ 8 に届かなければ
-// 同じプレイのアルバムのほかの物 (play_media) で埋める。並べ方はどちらも同じ決まり (切らない)。
-// 全部を見せるのはリンクの先の「このプレイのアルバム」。
+// r11: カードに描く写真・動画は 8 つまで (card-layout.mjs MAX_ITEMS。モーメントは 4・レビューは 8 まで = og-large.mjs)。
+// r12 (Emiya 10/21「シェアは投稿単位」): 描くのはその投稿 (記録) の写真・動画 (media) だけ。同じプレイのほかの記録の物
+// (play_media) では埋めない (古い形の payload の鍵は og-large.mjs が受け取るが、カードには描かない)。
 export const CARD_TILES_MAX = MAX_ITEMS;
 
-// r11: カードに描く順の写真・動画 (own = その記録の物か)。ネタバレの記録は何も描かない
+// カードに描く順の写真・動画 = その記録の物だけ。ネタバレの記録は何も描かない
 export function cardItems(large) {
   if (large.spoiler === true) return [];
-  return [
-    ...(large.media ?? []).map((item) => ({ item, own: true })),
-    ...(large.play_media ?? []).map((item) => ({ item, own: false })),
-  ].slice(0, CARD_TILES_MAX);
+  return (large.media ?? []).slice(0, CARD_TILES_MAX);
 }
 
 // ---------------------------------------------------------------- fonts
@@ -315,8 +309,8 @@ export async function loadCardImages(large, fetchImpl) {
     if (large.photo_url) urls.add(large.photo_url);
     if (large.cover_url) urls.add(large.cover_url);
   }
-  // r11: 描く 8 つ (その記録の物 → 同じプレイの物) だけを読む。r9: ネタバレの記録は同じプレイの写真も読まない (描かない)
-  if (isR3(large)) for (const { item } of cardItems(large)) urls.add(item.url);
+  // r12: 描く物 (その記録の写真・動画) だけを読む。同じプレイの物 (play_media) は読まない。r9: ネタバレの記録は何も読まない
+  if (isR3(large)) for (const item of cardItems(large)) urls.add(item.url);
   else for (const item of large.media ?? []) urls.add(item.url);
   if ((large.layout === "moment" || large.layout === "game") && large.author_avatar_url) urls.add(large.author_avatar_url);
   if (large.layout === "profile") {
@@ -337,8 +331,8 @@ export async function loadCardImages(large, fetchImpl) {
   const get = (url) => (url ? raw.get(url) ?? null : null);
 
   if (isR3(large)) {
-    // r10: 投稿者の写真・動画を切らずに並べ (card-layout.mjs)、無ければ同じプレイの写真・動画を同じ決まりで、それも無ければ
-    // カバーを大きく。r11: その記録の物のあとを同じプレイの物で 8 つまで埋める (cardItems)。
+    // r10: 投稿者の写真・動画を切らずに並べ (card-layout.mjs)、無ければカバーを大きく。
+    // r12: 描くのはその記録の物だけ (cardItems。同じプレイの物では埋めない)。
     // 投稿者のアイコンとカバーの小さな絵は上の帯。背景は 1 枚目をぼかして暗くした物 (無い時はカバー)。
     const spoiler = large.spoiler === true;
     const media = spoiler ? [] : large.media ?? [];
@@ -413,19 +407,17 @@ async function imageAspect(buffer) {
 }
 // r10: 写真・動画 (動画は代表の絵) を、読めた物の縦横で card-layout.mjs に並べてもらい、各枠の大きさにちょうど縮める
 // (縦横が同じなので切れない)。読めない物は外す。並べ方が外した物 (短い辺が足りない) は描かない。
-// 背景は 1 枚目をぼかした物。返り値の tiles は表示する順 (外した物を除く。own = その記録の物か)、group はまとまりの外枠
-// r11: entries = cardItems の { item, own } (8 つまで)。読めた 1 枚目がその記録の物で、同じプレイの物も並ぶ時は heroFirst
-// (その記録の 1 枚目がいちばん大きい)。その記録の物だけ・同じプレイの物だけの時は r10 と同じ並べ方
-async function layoutTiles(entries, get) {
-  if (entries.length === 0) return null;
-  const read = await Promise.all(entries.map(async ({ item, own }) => {
+// 背景は 1 枚目をぼかした物。返り値の tiles は表示する順 (外した物を除く)、group はまとまりの外枠
+// r12: items = cardItems (その記録の物だけ・8 つまで)。heroFirst は使わない (r10 と同じ並べ方)
+async function layoutTiles(items, get) {
+  if (items.length === 0) return null;
+  const read = await Promise.all(items.map(async (item) => {
     const buffer = get(item.url);
-    return { item, own, buffer, aspect: await imageAspect(buffer) };
+    return { item, buffer, aspect: await imageAspect(buffer) };
   }));
   const usable = read.filter((entry) => entry.aspect !== null).slice(0, CARD_TILES_MAX);
   if (usable.length === 0) return null;
-  const heroFirst = usable[0].own && usable.some((entry) => !entry.own);
-  const layout = layoutCard(usable.map((entry) => entry.aspect), { heroFirst });
+  const layout = layoutCard(usable.map((entry) => entry.aspect));
   const shown = usable.map((entry, i) => ({ ...entry, slot: layout.slots[i] })).filter((entry) => entry.slot);
   if (shown.length === 0) return null;
   const [backdropUri, ...cut] = await Promise.all([
@@ -433,8 +425,8 @@ async function layoutTiles(entries, get) {
     ...shown.map((entry) => coverUri(entry.buffer, Math.max(1, Math.round(entry.slot.w)), Math.max(1, Math.round(entry.slot.h)))),
   ]);
   // 縮めるのに失敗した枠は空の枠 (並べ方は変えない)。1 つも描けなければ写真なしの形へ
-  const tiles = shown.map((entry, i) => ({ item: entry.item, own: entry.own, slot: entry.slot, image: cut[i] }));
-  return tiles.some((tile) => tile.image) ? { tiles, group: layout.group, backdrop: backdropUri, heroFirst } : null;
+  const tiles = shown.map((entry, i) => ({ item: entry.item, slot: entry.slot, image: cut[i] }));
+  return tiles.some((tile) => tile.image) ? { tiles, group: layout.group, backdrop: backdropUri } : null;
 }
 
 // ---------------------------------------------------------------- layouts
@@ -766,8 +758,8 @@ const PLAY_ICON = `data:image/svg+xml;base64,${Buffer.from(
 // (並べ方は card-layout.mjs。Emiya 10/21「パターンの洗い出しもせずにとりあえずで作ってない？」)、
 // 上の細い帯の左に投稿者の小さなアイコンと名前、右にゲーム (小さなカバー・題名、レビューは満足度) を置く。PlayNavi の印は描かない。
 // 枚数も書かない。右下に重ねた札「写真・動画をすべて見る ›」で先へ誘う (X はカードの左下に住所を重ねるので、札は右下)。
-// 自分の写真・動画が無い記録は、同じプレイの写真・動画を切らずに並べ (札は「このプレイの写真・動画を見る ›」)、それも無ければ
-// ゲームのカバーを大きく真ん中に。ネタバレはぼかしたカバーに「ネタバレを含みます」だけ (写真は読まない・描かない)。
+// 自分の写真・動画が無い記録は、ゲームのカバーを大きく真ん中に (札は「モーメントを見る ›」/「レビューを見る ›」。
+// r12: 同じプレイのほかの記録の写真・動画は描かない = シェアは投稿単位)。ネタバレはぼかしたカバーに「ネタバレを含みます」だけ (写真は読まない・描かない)。
 
 // The poster's name: the new author_name, else the old heading "<name>さんのモーメント / プレイ記録".
 export function authorName(large) {
@@ -782,19 +774,17 @@ const TEXT_SHADOW = "0 1px 4px rgba(0,0,0,0.6)";
 // 字幅の見積もり (和文 1em・欧文と数字 0.6em)
 const ems = (value) => [...String(value)].reduce((w, ch) => w + (ch.charCodeAt(0) < 0x2e80 ? 0.6 : 1), 0);
 
-// どの形で描くか: own = その記録の写真・動画を描く (r11: 同じプレイの物で埋めていても) / play = 同じプレイの写真・動画だけ /
-// plain = カバー / spoiler = ネタバレ
+// どの形で描くか: own = その記録の写真・動画を描く / plain = カバー / spoiler = ネタバレ
+// (r12: r8〜r11 の play = 同じプレイの写真・動画だけ、は無くした)
 export function recordMode(large, images = {}) {
   if (large.spoiler === true) return "spoiler";
-  const tiles = (images.tiles ?? []).filter((tile) => tile?.image);
-  if (tiles.some((tile) => tile.own)) return "own";
-  if (tiles.length > 0) return "play";
+  if ((images.tiles ?? []).some((tile) => tile?.image)) return "own";
   return "plain";
 }
 
 // 右下の遷移文言 (枚数は書かない)。「画像」は PlayNavi が作る絵と紛れるので使わず「写真・動画」と言う
 export function ctaText(large, mode) {
-  if (mode === "own" || mode === "play" || mode === "spoiler") return `${CTA_LABELS[mode]} ›`;
+  if (mode === "own" || mode === "spoiler") return `${CTA_LABELS[mode]} ›`;
   return `${large.layout === "moment" ? CTA_LABELS.moment : CTA_LABELS.review} ›`;
 }
 
@@ -965,12 +955,15 @@ function mediaTile({ item, image, slot }, { headerOverlay }) {
   );
 }
 
-// 写真・動画を並べたカード (投稿者の物 = own、同じプレイの物 = play)。ぼかした 1 枚目の上に、切らずに並べる
-function tilesCard(large, images, { tiles, group, background, dim, label }) {
+// 投稿者の写真・動画を並べたカード。ぼかした 1 枚目の上に、切らずに並べる。札は「写真・動画をすべて見る」
+function photoCard(large, images) {
+  const { tiles, group } = images;
+  const background = images.tilesBackground ?? images.background;
+  const label = CTA_LABELS.own;
   const place = chromePlacement(group);
   const headerOverlay = place.headerTop === null;
   return shell(
-    backdrop(background, dim),
+    backdrop(background, 0.34),
     tiles.map((tile) => mediaTile(tile, { headerOverlay })),
     place.ctaBottom === null ? bottomShade() : null,
     header(large, images, { thumb: true, top: place.headerTop ?? place.overlayTop, shade: headerOverlay, inset: place.inset }),
@@ -978,21 +971,6 @@ function tilesCard(large, images, { tiles, group, background, dim, label }) {
       ? ctaOverTile(tiles, group, label) ?? { right: place.ctaRight }
       : { bottom: place.ctaBottom, compact: place.compact }),
   );
-}
-
-// 投稿者の写真・動画 (r11: 8 つに届かない分は同じプレイの写真・動画で埋め、その記録の 1 枚目がいちばん大きい)。
-// 札は「写真・動画をすべて見る」
-function photoCard(large, images) {
-  return tilesCard(large, images, { tiles: images.tiles, group: images.group, background: images.tilesBackground ?? images.background,
-    dim: 0.34, label: CTA_LABELS.own });
-}
-
-// r8〜r11: 自分の写真・動画が無い記録 (文だけのモーメント・写真の無いレビュー) で、同じプレイに写真・動画がある時。
-// そのプレイの写真・動画を 8 つまで、投稿者の物と同じ決まりで切らずに並べる (札は「このプレイの写真・動画を見る」)。
-// この投稿の物ではないので、背景は少し暗く
-function playCard(large, images) {
-  return tilesCard(large, images, { tiles: images.tiles, group: images.group, background: images.tilesBackground ?? images.background,
-    dim: 0.46, label: CTA_LABELS.play });
 }
 
 // 描く写真・動画が何も無い: ぼかしたカバーの上に、ゲームのカバーを大きく真ん中に (感想の文は描かない)。
@@ -1048,7 +1026,6 @@ function recordCard(large, images) {
   const mode = recordMode(large, images);
   if (mode === "spoiler") return spoilerCard(large, images);
   if (mode === "own") return photoCard(large, images);
-  if (mode === "play") return playCard(large, images);
   return plainCard(large, images);
 }
 

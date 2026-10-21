@@ -648,7 +648,8 @@ test("hyphens between letters/digits in card titles do not break (HD-2D)", async
   assert.equal(titleText("ー - ー"), "ー - ー");
 });
 
-// ---------------------------------------------------------------- TASK-20261017-002 r8 (§12.2): 写真の無い記録 = このプレイの写真を切らずに
+// ---------------------------------------------------------------- TASK-20261017-002 r8 (§12.2) の play_media
+// r12 (Emiya 10/21「シェアは投稿単位」): 古い形の payload の play_media は受け取るが、カードには一切描かない
 
 const { CARD_TILES_MAX, cardItems } = await import("../api/_lib/og-card.mjs");
 const playSigned = (name) => `https://${STORAGE}/storage/v1/object/sign/game-log-media-private/u/memories/p/${name}?token=t`;
@@ -682,14 +683,17 @@ test("r8/r11: play_media is validated like media (signed private photos, r11: at
   assert.ok(validLarge(NO_PHOTO_REVIEW).play_media.length === 3);
 });
 
-test("r8: the card with the play's photos is a JPEG", () => {
-  assert.equal(drawsUserPhotos(validLarge(TEXT_ONLY)), true);
-  assert.equal(drawsUserPhotos(validLarge(NO_PHOTO_REVIEW)), true);
+test("r12: the play's photos never count as drawn photos; the record card stays a JPEG (cover card)", () => {
+  assert.equal(drawsUserPhotos(validLarge(TEXT_ONLY)), false);
+  assert.equal(drawsUserPhotos(validLarge(NO_PHOTO_REVIEW)), false);
   assert.equal(drawsUserPhotos(validLarge({ ...TEXT_ONLY, spoiler: true })), false);
+  assert.equal(drawsUserPhotos(validLarge({ ...R3_MOMENT, ...TEXT_ONLY, media: [image("a.jpg")] })), true);
+  assert.equal(servesJpeg(validLarge(TEXT_ONLY)), true);
+  assert.equal(servesJpeg(validLarge(NO_PHOTO_REVIEW)), true);
 });
 
 for (const [name, large] of [["text-only moment with the play's photos", TEXT_ONLY], ["review without photos with the play's photos", NO_PHOTO_REVIEW]]) {
-  test(`r8: a ${name} renders a 1200x630 JPEG and fetches the play's photos`, async () => {
+  test(`r12: a ${name} renders a 1200x630 JPEG and never fetches the play's photos`, async () => {
     const { fetchImpl, seen } = r3Upstream(large);
     await withServer(createOgHandler({ fetchImpl, fontLoader }), async (origin) => {
       const response = await fetch(`${origin}/api/og?code=${CODE}&v=abc`, { redirect: "manual" });
@@ -699,7 +703,7 @@ for (const [name, large] of [["text-only moment with the play's photos", TEXT_ON
       assert.deepEqual(await jpegSize(body), [1200, 630]);
       assert.ok(body.length <= JPEG_MAX_BYTES, `${body.length} bytes`);
     });
-    for (const item of validLarge(large).play_media) assert.ok(seen.includes(item.url), `fetched ${item.url}`);
+    for (const item of validLarge(large).play_media) assert.ok(!seen.includes(item.url), `not fetched ${item.url}`);
   });
 }
 
@@ -736,15 +740,17 @@ const R9_CASES = [
   ["moment with 3 photos", { ...R3_MOMENT, media: [image("a.jpg"), image("b.jpg"), image("c.jpg")], author_name: "ひなた" }, "own"],
   ["moment with 1 video", { ...R3_MOMENT, media: [video("v.jpg", 9_000)], author_name: "ひなた" }, "own"],
   ["review with photos", { ...R3_REVIEW, author_name: "ひなた" }, "own"],
-  ["text-only moment, the play has photos", { ...TEXT_ONLY }, "play"],
-  ["review without photos, the play has photos", { ...NO_PHOTO_REVIEW }, "play"],
+  // r12: 同じプレイに写真があっても、その記録に無ければ表紙のカード
+  ["text-only moment, the play has photos", { ...TEXT_ONLY }, "plain"],
+  ["review without photos, the play has photos", { ...NO_PHOTO_REVIEW }, "plain"],
+  ["moment with 1 photo, the play has photos", { ...TEXT_ONLY, media: [image("a.jpg")] }, "own"],
   ["text-only moment, nothing in the play", { ...R3_MOMENT, photo_url: null, media: [], author_name: "ひなた" }, "plain"],
   ["review without photos, nothing in the play", { ...R3_REVIEW, media: [], author_name: "ひなた" }, "plain"],
   ["spoiler moment", { ...R3_MOMENT, spoiler: true, author_name: "ひなた", ...R9_PLAY }, "spoiler"],
   ["spoiler review", { ...R3_REVIEW, spoiler: true, author_name: "ひなた", ...R9_PLAY }, "spoiler"],
 ];
 const R9_CTA = {
-  own: "写真・動画をすべて見る ›", play: "このプレイの写真・動画を見る ›", spoiler: "タップして見る ›",
+  own: "写真・動画をすべて見る ›", spoiler: "タップして見る ›",
 };
 
 test("r9: the CTA says where the tap goes, never counts, never the bare word 画像", async () => {
@@ -760,10 +766,12 @@ test("r9: the CTA says where the tap goes, never counts, never the bare word 画
       assert.doesNotMatch(text, /\d+\s*(枚|件|本)|写真 \d|動画 \d/, `${name}: no counts (${text})`);
       assert.doesNotMatch(text.replace(/写真・動画/g, ""), /画像/, `${name}: no 画像`);
     }
+    assert.ok(!texts.includes("このプレイの写真・動画を見る"), `${name}: r12 no play CTA`);
     if (mode === "spoiler") assert.ok(texts.includes(SPOILER_LABEL), `${name}: spoiler label`);
     else assert.ok(!texts.includes(SPOILER_LABEL), `${name}: no spoiler label`);
   }
   for (const label of Object.values(CTA_LABELS)) for (const ch of label) assert.ok(cardText(validLarge(R3_MOMENT)).includes(ch), ch);
+  assert.deepEqual(Object.keys(CTA_LABELS).sort(), ["moment", "own", "review", "spoiler"], "r12: no play CTA");
 });
 
 test("r9: no PlayNavi logo or mark on the record cards (the static assets no longer carry the mark)", async () => {
@@ -848,17 +856,22 @@ test("r10: the header and the CTA sit in the room above / below the photos when 
   }
 });
 
-test("r10/r11: the play's photos are laid out like the poster's own (r11: at most 8, never cropped)", async () => {
+test("r12: no own photo + the play's photos -> the cover card (the game cover large, モーメントを見る / レビューを見る), the play's photos are not drawn", async () => {
   assert.equal(CARD_TILES_MAX, 8);
-  const large = validLarge(TEXT_ONLY);
-  const images = await loadCardImages(large, imageFetch(LANDSCAPE));
-  assert.equal(images.tiles.length, 5, "all 5");
-  assert.deepEqual(images.tiles.map((tile) => tile.item), large.play_media);
-  assert.ok(images.tiles.every((tile) => tile.own === false));
-  for (const { slot } of images.tiles) assert.ok(Math.abs(slot.w / slot.h - 320 / 180) < 0.01, JSON.stringify(slot));
-  // 同じプレイの物だけの時は heroFirst にしない (r10 と同じ並べ方)
-  assert.deepEqual(images.tiles.map((tile) => tile.slot), layoutCard(Array(5).fill(16 / 9)).slots);
-  assert.equal(recordMode(large, images), "play");
+  for (const [raw, cta] of [[TEXT_ONLY, "モーメントを見る"], [NO_PHOTO_REVIEW, "レビューを見る"]]) {
+    const large = validLarge(raw);
+    assert.ok(large.play_media.length > 0, "the old key is still accepted");
+    const seen = [];
+    const images = await loadCardImages(large, async (url) => { seen.push(String(url)); return new Response(LANDSCAPE); });
+    assert.deepEqual(images.tiles, [], cta);
+    assert.match(images.hero ?? "", /^data:image\//, `${cta}: the cover is drawn large`);
+    assert.equal(recordMode(large, images), "plain");
+    for (const item of large.play_media) assert.ok(!seen.includes(item.url), `${cta}: not fetched`);
+    const { texts, srcs } = collect(cardElement(large, images, R9_ASSETS));
+    assert.ok(texts.includes(cta), cta);
+    assert.ok(!texts.includes(CTA_LABELS.own), cta);
+    assert.ok(srcs.includes(images.hero), cta);
+  }
 });
 
 const R9_PATTERNS = [
@@ -909,7 +922,7 @@ const R10_PATTERNS = [
   ...["T", "TT", "TL", "W", "WW"].map((keys) => [`moment ${keys}`, { ...R3_MOMENT, media: shaped(keys) }]),
   ["moment video L", { ...R3_MOMENT, media: [video("L-v.jpg", 9_000)] }],
   ["moment video P", { ...R3_MOMENT, media: [video("P-v.jpg", 83_000)] }],
-  ["text-only moment, the play has L P S + video", { ...TEXT_ONLY, play_media: [...shaped("LPS", "-play"), video("L-play-v.jpg", 9_000)] }],
+  ["text-only moment, the play has L P S + video (r12: not drawn)", { ...TEXT_ONLY, play_media: [...shaped("LPS", "-play"), video("L-play-v.jpg", 9_000)] }],
   ["text-only moment, nothing in the play", { ...R3_MOMENT, photo_url: null, media: [], author_name: "ひなた" }],
   ["spoiler moment", { ...R3_MOMENT, spoiler: true, author_name: "ひなた" }],
   ...["L", "LS", "LLP"].map((keys) => [`review ${keys}`, { ...R3_REVIEW, author_name: "ひなた", media: shaped(keys, "-r") }]),
@@ -947,48 +960,47 @@ const playShaped = (keys) => [...keys].map((key, i) => ({ kind: "image", url: pl
 const fill = (keys) => ({ play_media: playShaped(keys), play_media_total: 30, play_media_counts: { photos: 29, videos: 1 } });
 const aspectsOf = (tiles) => tiles.map(({ slot }) => slot.w / slot.h);
 
-test("r11: the card draws the record's own items first, then fills up to 8 with the play's; a spoiler draws none", () => {
+test("r12: the card draws only the record's own items (moment <= 4, review <= 8), never the play's; a spoiler draws none", () => {
   const large = validLarge({ ...R3_MOMENT, media: shaped("LP"), ...fill("SSSSSSSS") });
-  const items = cardItems(large);
-  assert.equal(items.length, 8);
-  assert.deepEqual(items.map((entry) => entry.own), [true, true, false, false, false, false, false, false]);
-  assert.deepEqual(items.map((entry) => entry.item), [...large.media, ...large.play_media].slice(0, 8));
+  assert.deepEqual(cardItems(large), large.media);
+  assert.equal(cardItems(validLarge({ ...R3_MOMENT, media: shaped("LPSLPS") })).length, 4);
+  assert.equal(cardItems(validLarge({ ...R3_REVIEW, media: shaped("LPSLPSLPSL", "-r"), ...fill("SS") })).length, 8);
   assert.deepEqual(cardItems(validLarge({ ...R3_MOMENT, spoiler: true, ...fill("SSS") })), []);
   assert.deepEqual(cardItems(validLarge({ ...R3_REVIEW, spoiler: true, ...fill("SSS") })), []);
 });
 
-test("r11: only the 8 drawn items are fetched (own first, then the play's), in parallel with the rest", async () => {
+test("r12: play_media present + own media -> only the own items are fetched and drawn", async () => {
   // photo_url (古い形の 1 枚目) はその記録の 1 枚目と同じ物
   const large = validLarge({ ...R3_MOMENT, author_name: "ひなた", photo_url: shaped("LLLL")[0].url, media: shaped("LLLL"), ...fill("PPPPPPPP") });
-  assert.equal(large.play_media.length, 8, "even if the edge function sent more than 8 - media.length");
+  assert.equal(large.play_media.length, 8, "the old key is still accepted");
   const seen = [];
   await loadCardImages(large, async (url) => { seen.push(String(url)); return shapeFetch(url); });
   const signedSeen = seen.filter((url) => url.includes("/object/sign/"));
-  assert.deepEqual(new Set(signedSeen), new Set(cardItems(large).map(({ item }) => item.url)));
-  assert.equal(signedSeen.length, 8);
+  assert.deepEqual(new Set(signedSeen), new Set(large.media.map((item) => item.url)));
+  for (const item of large.play_media) assert.ok(!signedSeen.includes(item.url), `not fetched ${item.url}`);
 });
 
-test("r11: own 1 + the play's 7 — the record's photo is top-left and the largest (heroFirst), the CTA says 写真・動画をすべて見る", async () => {
-  for (const [own, keys] of [["L", "LPSLPSL"], ["P", "LPSLPSL"], ["S", "LLLLLLL"], ["P", "PPPPPPP"]]) {
-    const large = validLarge({ ...R3_MOMENT, author_name: "ひなた", media: shaped(own), ...fill(keys) });
+test("r12: own 1 + the play's 7 -> the card shows that one photo only (the r10 layout, no heroFirst), the CTA says 写真・動画をすべて見る", async () => {
+  for (const own of ["L", "P", "S"]) {
+    const large = validLarge({ ...R3_MOMENT, author_name: "ひなた", media: shaped(own), ...fill("LPSLPSL") });
     const images = await loadCardImages(large, shapeFetch);
-    const name = `${own}+${keys}`;
-    assert.equal(images.tiles[0].own, true, name);
-    assert.ok(images.tiles.slice(1).every((tile) => tile.own === false), name);
-    const want = layoutCard([ASPECT[own], ...[...keys].map((k) => ASPECT[k])], { heroFirst: true });
-    assert.equal(images.tiles.length, want.shown, name);
-    assert.deepEqual(images.tiles.map((tile) => tile.slot), want.slots.filter(Boolean), name);
-    const [first, ...rest] = images.tiles.map(({ slot }) => slot.w * slot.h);
-    for (const area of rest) assert.ok(area <= first + 1, `${name}: the record's photo is the largest`);
-    assert.ok(images.tiles.length >= 5, `${name}: ${images.tiles.length} drawn`);
+    assert.equal(images.tiles.length, 1, own);
+    assert.deepEqual(images.tiles.map((tile) => tile.item), large.media, own);
+    assert.deepEqual(images.tiles.map((tile) => tile.slot), layoutCard([ASPECT[own]]).slots, own);
     assert.equal(recordMode(large, images), "own");
-    const { texts } = collect(cardElement(large, images, R9_ASSETS));
-    assert.ok(texts.includes(CTA_LABELS.own), name);
-    assert.ok(!texts.includes(CTA_LABELS.play), name);
+    const { texts, srcs } = collect(cardElement(large, images, R9_ASSETS));
+    assert.ok(texts.includes(CTA_LABELS.own), own);
+    assert.ok(!texts.includes("このプレイの写真・動画を見る"), own);
+    assert.equal(srcs.filter((src) => images.tiles.some((tile) => tile.image === src)).length, 1, own);
   }
+  // own 2 + play: 2 枚だけ、r10 と同じ並べ方
+  const two = validLarge({ ...R3_REVIEW, author_name: "ひなた", media: shaped("LP", "-r"), ...fill("SSSSSS") });
+  const twoImages = await loadCardImages(two, shapeFetch);
+  assert.deepEqual(twoImages.tiles.map((tile) => tile.item), two.media);
+  assert.deepEqual(twoImages.tiles.map((tile) => tile.slot), layoutCard([ASPECT.L, ASPECT.P]).slots);
 });
 
-test("r11: a review with 10 photos draws up to 8 (no fill, the r10 layout); a record with no own photo and 8 of the play's says このプレイの写真・動画を見る", async () => {
+test("r11: a review with 10 photos draws up to 8 (the r10 layout)", async () => {
   const review = validLarge({ ...R3_REVIEW, author_name: "ひなた", media: shaped("LLLLLLLLLL", "-r") });
   assert.equal(review.media.length, 8);
   const reviewImages = await loadCardImages(review, shapeFetch);
@@ -997,25 +1009,16 @@ test("r11: a review with 10 photos draws up to 8 (no fill, the r10 layout); a re
   assert.ok(want.shown >= 5 && want.shown <= 8, `${want.shown}`);
   assert.deepEqual(reviewImages.tiles.map((tile) => tile.slot), want.slots.filter(Boolean));
   assert.equal(recordMode(review, reviewImages), "own");
-
-  const playOnly = validLarge({ ...TEXT_ONLY, ...fill("LPSLPSLP") });
-  const playImages = await loadCardImages(playOnly, shapeFetch);
-  assert.ok(playImages.tiles.every((tile) => tile.own === false));
-  assert.deepEqual(playImages.tiles.map((tile) => tile.slot), layoutCard([..."LPSLPSLP"].map((k) => ASPECT[k])).slots.filter(Boolean));
-  assert.equal(recordMode(playOnly, playImages), "play");
-  const { texts } = collect(cardElement(playOnly, playImages, R9_ASSETS));
-  assert.ok(texts.includes(CTA_LABELS.play));
-  assert.ok(!texts.includes(CTA_LABELS.own));
-  assert.deepEqual(aspectsOf(playImages.tiles).map((a) => Math.round(a * 100)), [..."LPSLPSLP"].slice(0, playImages.tiles.length).map((k) => Math.round(ASPECT[k] * 100)));
+  assert.deepEqual(aspectsOf(reviewImages.tiles).map((a) => Math.round(a * 100)), Array(reviewImages.tiles.length).fill(Math.round(ASPECT.L * 100)));
 });
 
-test("r11: when the record's own photo cannot be read, the play's photos are drawn with the play CTA (not heroFirst)", async () => {
+test("r12: when the record's own photo cannot be read, the cover card is drawn (the play's photos are not used)", async () => {
   const large = validLarge({ ...R3_MOMENT, author_name: "ひなた", media: [image("x-broken.jpg")], ...fill("LLL") });
   const images = await loadCardImages(large, async (url) => (String(url).includes("x-broken") ? new Response("nope") : shapeFetch(url)));
-  assert.equal(images.tiles.length, 3);
-  assert.ok(images.tiles.every((tile) => tile.own === false));
-  assert.deepEqual(images.tiles.map((tile) => tile.slot), layoutCard([ASPECT.L, ASPECT.L, ASPECT.L]).slots);
-  assert.equal(recordMode(large, images), "play");
+  assert.deepEqual(images.tiles, []);
+  assert.equal(recordMode(large, images), "plain");
+  const { texts } = collect(cardElement(large, images, R9_ASSETS));
+  assert.ok(texts.includes("モーメントを見る"));
 });
 
 const R11_PATTERNS = [
@@ -1026,10 +1029,10 @@ const R11_PATTERNS = [
   ["moment own 2 + 6 of the play", { ...R3_MOMENT, author_name: "ひなた", media: shaped("LP"), ...fill("SLPSLP") }],
   ["moment own 4 + 4 of the play", { ...R3_MOMENT, author_name: "ひなた", media: shaped("LLPS"), ...fill("PLSL") }],
   ["review own 3 + 5 of the play", { ...R3_REVIEW, author_name: "ひなた", media: shaped("LLL", "-r"), ...fill("PPPPP") }],
-  ["text-only moment + 8 of the play", { ...TEXT_ONLY, ...fill("LPSLPSLP") }],
+  ["text-only moment + 8 of the play (r12: cover card)", { ...TEXT_ONLY, ...fill("LPSLPSLP") }],
 ];
 for (const [name, raw] of R11_PATTERNS) {
-  test(`r11: the ${name} card renders 1200x630 JPEG within the size bound`, async () => {
+  test(`r11/r12: the ${name} card renders 1200x630 JPEG within the size bound`, async () => {
     const { body, contentType } = await renderCardImage(raw, { fetchImpl: shapeFetch, fontLoader });
     assert.equal(contentType, "image/jpeg");
     assert.deepEqual(await jpegSize(body), [1200, 630]);
