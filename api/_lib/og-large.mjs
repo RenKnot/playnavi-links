@@ -141,6 +141,24 @@ function authorFields(large) {
   };
 }
 
+// TASK-20261017-002 r8 (overview §12.2): a record without its own photos or videos (a text-only moment, a review
+// without photos) carries up to 5 photos / video posters of the same play and how many the play has in all
+// (= the album on the record page). Present only when the edge function sent them (older payloads keep their
+// shape and version hash). Bad entries are dropped; a spoiler moment never carries them.
+export const PLAY_MEDIA_MAX = 5;
+function playFields(large, { spoiler }) {
+  if (large.play_media === undefined || large.play_media === null) return {};
+  const total = large.play_media_total;
+  if (!Number.isSafeInteger(total) || total < 0) return {};
+  const media = spoiler ? [] : mediaList(large.play_media, PLAY_MEDIA_MAX);
+  const c = large.play_media_counts;
+  const counts = c && typeof c === "object" && !Array.isArray(c) && Number.isSafeInteger(c.photos) && c.photos >= 0 &&
+      Number.isSafeInteger(c.videos) && c.videos >= 0
+    ? { photos: c.photos, videos: c.videos }
+    : { photos: media.filter((m) => m.kind === "image").length, videos: media.filter((m) => m.kind === "video").length };
+  return { play_media: media, play_media_total: Math.max(total, media.length), play_media_counts: counts };
+}
+
 // Returns a normalized copy (fixed key order) or null.
 export function validLarge(large) {
   try {
@@ -162,6 +180,7 @@ export function validLarge(large) {
           ...r3Fields(large, { spoiler: large.spoiler === true, max: REVIEW_MEDIA_MAX, imagesOnly: true }),
           ...(typeof large.spoiler === "boolean" ? { spoiler: large.spoiler } : {}),
           ...authorFields(large),
+          ...playFields(large, { spoiler: false }),
         };
       case "moment":
         onlyKeys(large);
@@ -178,6 +197,7 @@ export function validLarge(large) {
           // r3: up to 4 photos / video posters in the record's order. A spoiler never carries them.
           ...r3Fields(large, { spoiler: large.spoiler, max: MOMENT_MEDIA_MAX, imagesOnly: false }),
           ...authorFields(large),
+          ...playFields(large, { spoiler: large.spoiler }),
         };
       case "profile": {
         onlyKeys(large);
@@ -254,6 +274,10 @@ function versionSource(large) {
   // r3: the media URLs are signed too; hash only the stored objects.
   if (Array.isArray(large.media) && large.media.length > 0) {
     source = { ...source, media: large.media.map((item) => ({ ...item, url: unsigned(item.url) })) };
+  }
+  // r8: the play's photos are signed too
+  if (Array.isArray(large.play_media) && large.play_media.length > 0) {
+    source = { ...source, play_media: large.play_media.map((item) => ({ ...item, url: unsigned(item.url) })) };
   }
   return source;
 }

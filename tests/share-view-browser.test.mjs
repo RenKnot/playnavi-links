@@ -53,6 +53,15 @@ const VIEWS = {
   [PATHS.review]: {
     ...base(PATHS.review), kind: "review", spoiler: false, status: "completed", score: 8.5, comment: "最高", moments_count: 2,
     media: [{ kind: "image", url: `${F}/1.png`, width: 40, height: 30 }],
+    // r8: このプレイのアルバム (レビューの写真 1 + ほかのモーメントの縦長の写真・動画・ネタバレの写真) とプレイ時間・機種
+    play_time: 50, platforms_played: ["Nintendo Switch 2"],
+    album: [
+      { kind: "image", url: `${F}/1.png`, thumb_url: `${F}/1t.png`, poster_url: null, width: 40, height: 30, duration_ms: null, memory_id: null, spoiler: false, date: "2026-10-01T00:00:00Z", title: null },
+      { kind: "image", url: `${F}/tall.png`, thumb_url: `${F}/tall.png`, poster_url: null, width: null, height: null, duration_ms: null, memory_id: "abcdefab-cdef-cdef-cdef-abcdefab0003", spoiler: false, date: "2026-10-05T00:00:00Z", title: "ほかの日" },
+      { kind: "video", url: `${F}/clip.mp4`, thumb_url: `${F}/p.png`, poster_url: `${F}/p.png`, width: null, height: null, duration_ms: 9_000, memory_id: "abcdefab-cdef-cdef-cdef-abcdefab0004", spoiler: false, date: "2026-10-06T00:00:00Z", title: "動画の日" },
+      { kind: "image", url: `${F}/s.png`, thumb_url: `${F}/s.png`, poster_url: null, width: 40, height: 30, duration_ms: null, memory_id: "abcdefab-cdef-cdef-cdef-abcdefab0002", spoiler: true, date: "2026-10-07T00:00:00Z", title: "正体" },
+    ],
+    album_total: 4,
   },
 };
 const META = "https://meta.fixture/share-preview-meta";
@@ -108,13 +117,14 @@ test("record page: the server embeds the content, Chrome shows it at once, masks
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const origin = `http://127.0.0.1:${server.address().port}`;
   const png = await sharp({ create: { width: 40, height: 30, channels: 3, background: "#3366cc" } }).png().toBuffer();
+  const tall = await sharp({ create: { width: 30, height: 60, channels: 3, background: "#cc6633" } }).png().toBuffer();
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || "/usr/bin/google-chrome", headless: true });
   const errors = [];
   const checks = [];
   const check = (name, value) => { assert.ok(value, name); checks.push(name); };
   const context = async (options = {}) => {
     const ctx = await browser.newContext(options);
-    await ctx.route(`${F}/**`, (route) => route.fulfill({ contentType: "image/png", body: png }));
+    await ctx.route(`${F}/**`, (route) => route.fulfill({ contentType: "image/png", body: route.request().url().endsWith("/tall.png") ? tall : png }));
     // 書体 (Google Fonts) はここでは読まない (無くても端末の書体で描ける = display=swap)
     await ctx.route(/^https:\/\/fonts\.(?:googleapis|gstatic)\.com\//, (route) => route.abort());
     // 本物のホスト名を手元の HTTP へ (Host は見本のヘッダで渡す)
@@ -197,6 +207,43 @@ test("record page: the server embeds the content, Chrome shows it at once, masks
     const reviewText = await page.locator("#share-view").innerText();
     check("review status, satisfaction, comment, moments line", ["さんのレビュー", "クリア", "8.5", "/ 10", "最高", "このプレイのモーメント 2 件はアプリで"].every((s) => reviewText.includes(s)));
     check("satisfaction bar is 85%", Math.round((await page.locator(".pn-score-fill").boundingBox()).width / (await page.locator(".pn-score-bar").boundingBox()).width * 100) === 85);
+    // r8: プレイ時間・機種、「このプレイのアルバム（4）」(切らずに並べる)、全画面で全部を送る
+    check("r8: review play time and platform", reviewText.includes("30〜50時間") && reviewText.includes("Nintendo Switch 2"));
+    check("r8: the album heading carries the count and the jump link sits next to the text", (await page.locator(".pn-album-title").innerText()).replace(/\s/g, "") === "このプレイのアルバム（4）" && (await page.locator(".pn-album-jump").getAttribute("href")) === "#pn-album" && (await page.locator(".pn-album-jump").boundingBox()).x > 700);
+    await page.evaluate(() => Promise.all([...document.querySelectorAll(".pn-album img")].map((img) => { img.loading = "eager"; return img.complete ? null : new Promise((r) => { img.onload = img.onerror = r; }); })));
+    await page.waitForTimeout(300);
+    const tiles = await page.evaluate(() => [...document.querySelectorAll(".pn-album-tile")].map((tile) => {
+      const r = tile.getBoundingClientRect(); const img = tile.querySelector("img");
+      return { ratio: r.width / r.height, natural: img.naturalWidth / img.naturalHeight, fit: getComputedStyle(img).objectFit, top: Math.round(r.top) };
+    }));
+    check("r8: every album tile has its photo's own ratio (the 30x60 one fixed after loading) and is drawn uncropped (contain)", tiles.length === 4 && tiles.every((t) => Math.abs(t.ratio - t.natural) / t.natural < 0.03 && t.fit === "contain"));
+    check("r8: tiles in one row share the height (justified rows)", new Set(tiles.map((t) => t.top)).size <= 2);
+    check("r8: the spoiler tile is blurred until revealed", (await page.locator(".pn-album-tile.is-spoiler .pn-album-img").evaluate((node) => getComputedStyle(node).filter)).includes("blur"));
+    await page.locator(".pn-album-tile").nth(1).click();
+    await page.locator(".pn-av").waitFor();
+    check("r8: a tile opens the one viewer on that item", (await page.locator(".pn-av-counter").innerText()) === "2 / 4" && (await page.locator(".pn-av-caption-title").innerText()) === "ほかの日" && await page.locator(".pn-av-thumb").count() === 4);
+    await page.keyboard.press("ArrowRight");
+    await page.waitForFunction(() => document.querySelector(".pn-av-counter")?.textContent === "3 / 4");
+    // 前後の 1 枚は先に読み込む (preload=metadata) ので、見本の「動画」(中身は PNG) は押す前に再生できないと分かる
+    check("r8: the video next to the current item is preloaded (metadata only)", await page.locator(".pn-av-slide").nth(2).locator("video[src][playsinline]").count() === 1);
+    await page.locator(".pn-av-slide.is-unplayable").waitFor({ timeout: 5000 });
+    check("r8: a video the browser cannot play shows the message and the app link in the viewer", (await page.locator(".pn-av-slide").nth(2).innerText()).includes("このブラウザでは再生できません"));
+    await page.keyboard.press("ArrowRight");
+    await page.waitForFunction(() => document.querySelector(".pn-av-counter")?.textContent === "4 / 4");
+    check("r8: a spoiler item in the viewer is covered until 「ネタバレを表示」", await page.locator(".pn-av-slide.is-spoiler").count() === 1 && await page.locator(".pn-av-slide").nth(3).locator(".pn-spoiler-button").isVisible());
+    await page.locator(".pn-av-slide").nth(3).locator(".pn-spoiler-button").click();
+    check("r8: revealing in the viewer also unblurs the album tile", await page.locator(".pn-av-slide.is-spoiler").count() === 0 && await page.locator(".pn-album-tile.is-spoiler").count() === 0);
+    await page.locator(".pn-av-thumb").nth(0).click();
+    await page.waitForFunction(() => document.querySelector(".pn-av-counter")?.textContent === "1 / 4" && document.querySelector(".pn-av-track").scrollLeft === 0);
+    const zoomBox = await page.locator(".pn-av-slide").nth(0).locator(".pn-av-zoom").boundingBox();
+    await page.mouse.dblclick(zoomBox.x + zoomBox.width / 2, zoomBox.y + zoomBox.height / 2);
+    check("r8: double click zooms the photo in the viewer", (await page.locator(".pn-av-slide").nth(0).locator(".pn-av-img").evaluate((node) => node.style.transform)).includes("scale(2.5)"));
+    await page.keyboard.press("Escape");
+    check("r8: Escape closes the album viewer", await page.locator(".pn-av").count() === 0);
+    await page.locator(".pn-slide-photo").first().click();
+    await page.locator(".pn-av").waitFor();
+    check("r8: the post's photo opens the album viewer on the same photo", (await page.locator(".pn-av-counter").innerText()) === "1 / 4");
+    await page.keyboard.press("Escape");
     await page.close();
 
     page = await open(pc, `${L}/game/42?logId=${LOG.replace("abc", "000")}`);

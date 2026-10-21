@@ -677,3 +677,82 @@ test("hyphens between letters/digits in card titles do not break (HD-2D)", async
   assert.equal(titleText("(HD-2D版)"), "(HD‑2D版)");
   assert.equal(titleText("ー - ー"), "ー - ー");
 });
+
+// ---------------------------------------------------------------- TASK-20261017-002 r8 (§12.2): 写真の無い記録 = このプレイの写真を切らずに
+
+const { PLAY_BOX, playHintText, playSlots } = await import("../api/_lib/og-card.mjs");
+const playSigned = (name) => `https://${STORAGE}/storage/v1/object/sign/game-log-media-private/u/memories/p/${name}?token=t`;
+const PLAY_MEDIA = [
+  { kind: "image", url: playSigned("1.jpg") }, { kind: "image", url: playSigned("2.jpg") }, { kind: "image", url: playSigned("3.jpg") },
+  { kind: "video", url: playSigned("p.jpg"), duration_ms: 9_000 }, { kind: "image", url: playSigned("4.jpg") },
+];
+const TEXT_ONLY = { ...R3_MOMENT, photo_url: null, media: [], counts: { photos: 0, videos: 0, text: true }, author_name: "ひなた", author_avatar_url: AVATAR,
+  play_media: PLAY_MEDIA, play_media_total: 7, play_media_counts: { photos: 6, videos: 1 } };
+const NO_PHOTO_REVIEW = { ...R3_REVIEW, media: [], counts: { photos: 0, videos: 0, text: true }, author_name: "ひなた", author_avatar_url: AVATAR,
+  play_media: PLAY_MEDIA.slice(0, 3), play_media_total: 3, play_media_counts: { photos: 3, videos: 0 } };
+
+test("r8: play_media is validated like media (signed private photos, at most 5), the total never below the drawn count; absent keys keep the old shape", () => {
+  const large = validLarge({ ...TEXT_ONLY, play_media: [...PLAY_MEDIA, { kind: "image", url: COVER }, { kind: "image", url: playSigned("5.jpg") }] });
+  assert.deepEqual(large.play_media, PLAY_MEDIA);
+  assert.equal(large.play_media_total, 7);
+  assert.deepEqual(large.play_media_counts, { photos: 6, videos: 1 });
+  assert.equal(validLarge({ ...TEXT_ONLY, play_media_total: 2 }).play_media_total, 5);
+  assert.deepEqual(validLarge({ ...TEXT_ONLY, play_media_counts: "x" }).play_media_counts, { photos: 4, videos: 1 });
+  assert.equal(validLarge({ ...TEXT_ONLY, play_media_total: -1 }).play_media, undefined);
+  // ネタバレのモーメントは持たない
+  assert.deepEqual(validLarge({ ...TEXT_ONLY, spoiler: true }).play_media, []);
+  // 鍵が無い古い形はそのまま (版の hash も変わらない)
+  assert.equal("play_media" in validLarge(R3_MOMENT), false);
+  assert.equal("play_media" in validLarge(R3_REVIEW), false);
+  assert.ok(validLarge(NO_PHOTO_REVIEW).play_media.length === 3);
+});
+
+test("r8: the play hint says what the page holds; the card with the play's photos is a JPEG", () => {
+  assert.equal(playHintText(validLarge(TEXT_ONLY)), "このプレイの写真・動画 7 件 ›");
+  assert.equal(playHintText(validLarge(NO_PHOTO_REVIEW)), "このプレイの写真 3 枚 ›");
+  assert.equal(drawsUserPhotos(validLarge(TEXT_ONLY)), true);
+  assert.equal(drawsUserPhotos(validLarge(NO_PHOTO_REVIEW)), true);
+  assert.equal(drawsUserPhotos(validLarge({ ...TEXT_ONLY, spoiler: true })), false);
+});
+
+test("r8: playSlots keeps every photo's own ratio, fills the box width per row, fits the height and keeps the order", () => {
+  const box = { x: 36, y: 168, w: 1128, h: 440, gap: 12 };
+  for (const aspects of [[16 / 9], [16 / 9, 16 / 9], [16 / 9, 16 / 9, 16 / 9, 16 / 9, 16 / 9], [9 / 16, 9 / 16, 9 / 16], [1, 16 / 9, 0.75, 2.4, 0.5]]) {
+    const slots = playSlots(aspects, box);
+    assert.equal(slots.length, aspects.length);
+    slots.forEach((slot, i) => {
+      assert.ok(Math.abs(slot.w / slot.h - aspects[i]) / aspects[i] < 0.03, `ratio ${i} of ${aspects.length}`);
+      assert.ok(slot.x >= box.x - 1 && slot.x + slot.w <= box.x + box.w + 1 && slot.y >= box.y - 1 && slot.y + slot.h <= box.y + box.h + 1, `inside ${JSON.stringify(slot)}`);
+    });
+    // 読む順 (上の行 → 下の行、左 → 右)
+    for (let i = 1; i < slots.length; i += 1) assert.ok(slots[i].y > slots[i - 1].y + 1 || slots[i].x > slots[i - 1].x, `order ${i}`);
+  }
+  // 横長 5 枚は 2 行 (1 行だと小さすぎる)
+  assert.equal(new Set(playSlots(Array(5).fill(16 / 9), box).map((s) => s.y)).size, 2);
+  assert.deepEqual(playSlots([], box), []);
+  assert.deepEqual(PLAY_BOX.w, CARD_W - 72);
+});
+
+for (const [name, large] of [["text-only moment with the play's photos", TEXT_ONLY], ["review without photos with the play's photos", NO_PHOTO_REVIEW]]) {
+  test(`r8: a ${name} renders a 1200x630 JPEG and fetches the play's photos`, async () => {
+    const { fetchImpl, seen } = r3Upstream(large);
+    await withServer(createOgHandler({ fetchImpl, fontLoader }), async (origin) => {
+      const response = await fetch(`${origin}/api/og?code=${CODE}&v=abc`, { redirect: "manual" });
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("content-type"), "image/jpeg");
+      const body = Buffer.from(await response.arrayBuffer());
+      assert.deepEqual(await jpegSize(body), [1200, 630]);
+      assert.ok(body.length <= JPEG_MAX_BYTES, `${body.length} bytes`);
+    });
+    for (const item of validLarge(large).play_media) assert.ok(seen.includes(item.url), `fetched ${item.url}`);
+  });
+}
+
+test("r8: the version hash survives re-signing the play's photos", async () => {
+  const first = await sharePage({ headers: { host: "playnavi.app" }, query: { code: CODE } }, TEXT_ONLY);
+  const second = await sharePage({ headers: { host: "playnavi.app" }, query: { code: CODE } },
+    { ...TEXT_ONLY, play_media: TEXT_ONLY.play_media.map((item) => ({ ...item, url: item.url.replace("token=t", "token=new") })) });
+  assert.equal(tag(first.body, "og:image"), tag(second.body, "og:image"));
+  const old = await sharePage({ headers: { host: "playnavi.app" }, query: { code: CODE } }, { ...TEXT_ONLY, play_media: undefined, play_media_total: undefined, play_media_counts: undefined });
+  assert.notEqual(tag(first.body, "og:image"), tag(old.body, "og:image"));
+});

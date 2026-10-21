@@ -3,6 +3,11 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
+  ALBUM_JUMP,
+  ALBUM_TITLE,
+  albumModel,
+  albumRatio,
+  albumSubText,
   APP_STORE_URL,
   buildShareView,
   detectPlatform,
@@ -14,6 +19,7 @@ import {
   OPEN_IN_APP,
   PAGE_CLASS,
   PLAY_STORE_URL,
+  playTimeText,
   safeUrl,
   scoreText,
   readEmbeddedShareView,
@@ -557,4 +563,140 @@ test("r7 P2: a long review comment is folded with 「続きを読む」", () => 
   root.byClass("pn-story-more-button")[0].click();
   assert.equal(comment.classList.contains("is-folded"), false);
   assert.equal(root.byClass("pn-story-more-button").length, 0);
+});
+
+// ---- r8 (overview §12.2): このプレイのアルバム・レビューのプレイ時間と機種 ----
+
+const OTHER = "abcdefab-cdef-cdef-cdef-abcdefab0009";
+const SPOIL = "abcdefab-cdef-cdef-cdef-abcdefab0010";
+const sign = (name) => `${STORAGE}/game-log-media-private/${name}?token=t`;
+const ALBUM = [
+  { kind: "image", url: sign("r1.jpg"), thumb_url: sign("r1-640.webp"), poster_url: null, width: 1820, height: 1024, duration_ms: null, memory_id: null, spoiler: false, date: "2026-10-01T00:00:00Z", title: null },
+  { kind: "video", url: `${STORAGE}/game-log-video-private/v.mp4?token=a`, thumb_url: sign("p.jpg"), poster_url: sign("p.jpg"), width: null, height: null, duration_ms: 83_000, memory_id: MEMORY, spoiler: false, date: "2026-10-05T00:00:00Z", title: "ついに倒した" },
+  { kind: "image", url: sign("1.jpg"), thumb_url: null, poster_url: null, width: 1200, height: 900, duration_ms: null, memory_id: MEMORY, spoiler: false, date: "2026-10-05T00:00:00Z", title: "ついに倒した" },
+  { kind: "image", url: sign("2.jpg"), thumb_url: sign("2-640.webp"), poster_url: null, width: null, height: null, duration_ms: null, memory_id: MEMORY, spoiler: false, date: "2026-10-05T00:00:00Z", title: "ついに倒した" },
+  { kind: "image", url: sign("o.jpg"), thumb_url: sign("o-640.webp"), poster_url: null, width: 900, height: 1600, duration_ms: null, memory_id: OTHER, spoiler: false, date: "2026-10-07T00:00:00Z", title: "ほかの日" },
+  { kind: "image", url: sign("s.jpg"), thumb_url: sign("s-640.webp"), poster_url: null, width: 1600, height: 900, duration_ms: null, memory_id: SPOIL, spoiler: true, date: "2026-10-09T00:00:00Z", title: "正体" },
+  { kind: "image", url: "http://evil.example/x.jpg", thumb_url: null, width: 1, height: 1, memory_id: null, spoiler: false },
+];
+const ALBUM_VIEW = { ...MOMENT_VIEW, album: ALBUM, album_total: 9 };
+
+test("r8: the album model keeps https items in order, the record key, the counts and the total; it is dropped when it only repeats the post", () => {
+  const model = shareModel(ok(ALBUM_VIEW));
+  assert.equal(model.recordKey, MEMORY);
+  assert.equal(model.album.items.length, 6, "http item dropped");
+  assert.equal(model.album.total, 9);
+  assert.deepEqual(model.album.items.map((item) => item.key), ["review", MEMORY, MEMORY, MEMORY, OTHER, SPOIL]);
+  assert.equal(model.album.items[1].kind, "video");
+  assert.equal(model.album.items[1].durationText, "1:23");
+  assert.equal(model.album.items[1].thumbUrl, sign("p.jpg"));
+  assert.equal(model.album.items[2].thumbUrl, sign("1.jpg"), "no thumb → the photo itself");
+  assert.equal(model.album.items[5].spoiler, true);
+  assert.deepEqual([model.album.photos, model.album.videos], [5, 1]);
+  // 投稿と同じ物 (このモーメントの 3 件) しか無い時は出さない
+  const same = shareModel(ok({ ...MOMENT_VIEW, album: ALBUM.slice(1, 4), album_total: 3 }));
+  assert.equal(same.album, null);
+  // 古い EF (album が無い) は今まで通り
+  assert.equal(shareModel(ok(MOMENT_VIEW)).album, null);
+  assert.equal(albumModel({ album: "x" }), null);
+  // レビューの鍵は "review"
+  assert.equal(shareModel(ok({ ...REVIEW_VIEW, album: ALBUM })).recordKey, "review");
+});
+
+test("r8: album ratios follow each photo (video 16:9 and photo 4:3 until loaded, clamped) and the sub line says what is there", () => {
+  assert.equal(albumRatio({ kind: "image", width: 1600, height: 900 }), 1600 / 900);
+  assert.equal(albumRatio({ kind: "video", width: null, height: null }), 16 / 9);
+  assert.equal(albumRatio({ kind: "image", width: null, height: null }), 4 / 3);
+  assert.equal(albumRatio({ kind: "image", width: 100, height: 1000 }), 0.5);
+  assert.equal(albumRatio({ kind: "image", width: 4000, height: 100 }), 2.4);
+  assert.equal(albumSubText({ items: [1, 2], total: 2, photos: 1, videos: 1 }), "写真 1 枚・動画 1 本。ほかの日の記録の分も、切らずに全部見られます");
+  assert.equal(albumSubText({ items: [1], total: 70, photos: 1, videos: 0 }), "ほかの日の記録の分も、切らずに全部見られます");
+});
+
+test("r8: the album comes right after the record (before 「このプレイの記録」) with the count in the heading; tiles keep their ratio and are uncropped", () => {
+  const root = buildShareView(fakeDocument(), shareModel(ok({ ...ALBUM_VIEW, story: STORY })));
+  const order = root.children.map((node) => node.className.split(" ")[0]);
+  assert.deepEqual(order, ["pn-top", "pn-layout", "pn-album", "pn-story", "pn-end"]);
+  const album = root.byClass("pn-album")[0];
+  assert.equal(album.id, "pn-album");
+  assert.equal(album.byClass("pn-album-title")[0].text(), `${ALBUM_TITLE}\n（9）`);
+  assert.equal(album.byClass("pn-album-rest")[0].textContent, "ほか 3 件はアプリで");
+  const tiles = album.byClass("pn-album-tile");
+  assert.equal(tiles.length, 6);
+  assert.ok(tiles.every((tile) => tile.tagName === "BUTTON"));
+  assert.equal(tiles[0].style["--a"], String(Number((1820 / 1024).toFixed(4))));
+  assert.equal(tiles[4].style["--a"], String(Number((900 / 1600).toFixed(4))));
+  assert.ok(tiles[1].classList.contains("pn-album-video"));
+  assert.equal(tiles[1].byClass("pn-album-duration")[0].textContent, "1:23");
+  assert.equal(tiles[1].getAttribute("aria-label"), "動画 (1:23) 2 / 6 を開く");
+  assert.ok(tiles[5].classList.contains("is-spoiler"));
+  // 一覧の小さな絵は thumb_url
+  assert.match(tiles[0].byClass("pn-album-img")[0].src, /r1-640\.webp/);
+  // 本文の近くの「全部見る（N）」
+  const jump = root.byClass("pn-album-jump")[0];
+  assert.equal(jump.href, "#pn-album");
+  assert.equal(jump.byClass("pn-album-jump-text")[0].textContent, ALBUM_JUMP);
+  assert.equal(jump.byClass("pn-album-jump-count")[0].textContent, "9");
+});
+
+test("r8: tapping a tile opens the one viewer on that item; a spoiler tile is revealed first (all of the same record), the page's reveal also unblurs its album items", () => {
+  const opened = [];
+  const model = shareModel(ok({ ...ALBUM_VIEW, spoiler: true, canonical_path: `/game/42?logId=${UUID}&moment=${SPOIL}` }));
+  const root = buildShareView(fakeDocument(), model, { onOpenAlbum: (items, index, options) => opened.push({ n: items.length, index, options }) });
+  const tiles = root.byClass("pn-album-tile");
+  tiles[4].click();
+  assert.equal(opened.length, 1);
+  assert.equal(opened[0].n, 6);
+  assert.equal(opened[0].index, 4);
+  assert.equal(opened[0].options.isRevealed(SPOIL), false);
+  // ネタバレの 1 枚: 1 回目は見せるだけ
+  tiles[5].click();
+  assert.equal(opened.length, 1);
+  assert.equal(tiles[5].classList.contains("is-spoiler"), false);
+  assert.equal(opened[0].options.isRevealed(SPOIL), true);
+  tiles[5].click();
+  assert.equal(opened[1].index, 5);
+  // ページの「ネタバレを表示」でも同じ記録のアルバムの物が見える
+  const other = shareModel(ok({ ...ALBUM_VIEW, spoiler: true, canonical_path: `/game/42?logId=${UUID}&moment=${SPOIL}` }));
+  const page = buildShareView(fakeDocument(), other, { onOpenAlbum: () => {} });
+  const spoilerTile = page.byClass("pn-album-tile")[5];
+  assert.ok(spoilerTile.classList.contains("is-spoiler"));
+  page.byClass("pn-spoiler-button")[0].click();
+  assert.equal(spoilerTile.classList.contains("is-spoiler"), false);
+});
+
+test("r8: tapping a photo of the post opens the album viewer on the same item (falls back to the old viewer without an album)", () => {
+  const opened = [];
+  const old = [];
+  const root = buildShareView(fakeDocument(), shareModel(ok(ALBUM_VIEW)), {
+    onOpen: (images, index) => old.push([images.length, index]),
+    onOpenAlbum: (items, index) => opened.push(index),
+  });
+  // 帯: 動画 → 写真 1 → 写真 2。写真 2 (帯の 3 番目) = アルバムの 4 番目 (レビューの写真の後のこのモーメントの 3 番目)
+  root.byClass("pn-slide-photo")[1].click();
+  assert.deepEqual(opened, [3]);
+  assert.deepEqual(old, []);
+  const plain = buildShareView(fakeDocument(), shareModel(ok(MOMENT_VIEW)), { onOpen: (images, index) => old.push([images.length, index]) });
+  plain.byClass("pn-slide-photo")[0].click();
+  assert.deepEqual(old, [[2, 0]]);
+});
+
+test("r8: a review shows play time and platforms (and so does the parent review card in the story)", () => {
+  assert.equal(playTimeText(50), "30〜50時間");
+  assert.equal(playTimeText(10), "0〜10時間");
+  assert.equal(playTimeText(1000), "500時間以上");
+  assert.equal(playTimeText(0), null);
+  assert.equal(playTimeText(42), "約42時間");
+  assert.equal(playTimeText(null), null);
+  const model = shareModel(ok({ ...REVIEW_VIEW, play_time: 50, platforms_played: ["Nintendo Switch 2", "", "PlayStation 5", "Nintendo Switch 2"] }));
+  assert.equal(model.playTimeText, "30〜50時間");
+  assert.deepEqual(model.platforms, ["Nintendo Switch 2", "PlayStation 5"]);
+  const root = buildShareView(fakeDocument(), model);
+  const facts = root.byClass("pn-facts")[0];
+  assert.equal(facts.text(), "プレイ時間\n30〜50時間\n遊んだ機種\nNintendo Switch 2、PlayStation 5");
+  const story = shareModel(ok({ ...MOMENT_VIEW, story: { ...STORY, review: { ...STORY.review, play_time: 200, platforms_played: ["PC"] } } }));
+  const card = buildShareView(fakeDocument(), story).byClass("pn-story-review")[0];
+  assert.match(card.text(), /100〜200時間\n遊んだ機種\nPC/);
+  // 無い時は出さない
+  assert.equal(buildShareView(fakeDocument(), shareModel(ok(REVIEW_VIEW))).byClass("pn-facts").length, 0);
 });

@@ -16,6 +16,15 @@
 //   #primary-btn、PC = ストアの小さな文字のリンク) だけ。頭の「アプリで開く」・下の固定の帯・ストアの印・宣伝の一言は出さない。
 //   並び: 名前・日付 → 写真・動画 → (レビュー: 満足度) → 文 → ゲーム。その下に加点の「このプレイの記録」
 //   (EF share-view の story = 親のレビューと同じプレイのほかの公開のモーメント。押すとその場で開く)。
+//
+// r8 (overview §12.2、10/21 Emiya「閲覧側のメリットが少なすぎる。明らかな上位互換にならないと使われない」):
+//   リンクを押した人が得をする所を、ページを開いてすぐ分かるようにする。
+//   - 「このプレイのアルバム（N）」: 同じプレイの公開の写真・動画の全部 (EF share-view の album、最大 60)。
+//     写真の上 (スマホ = 本文の下・PC = 2 列の下) に、切らずに (それぞれの縦横比のまま) 行ごとに幅をそろえて並べる。
+//     動画は ▶ と長さ、ネタバレは押すまでぼかす。押すと全画面で全部を左右に送って見られる (写真は 2 本指・2 回押しで拡大、
+//     動画はその場で再生)。本文の近くに「このプレイの写真・動画を全部見る（N）」の印
+//   - 投稿の写真 (帯) を押した時も、同じ全画面でアルバム全部を送れる
+//   - レビュー: プレイ時間・遊んだ機種 (EF share-view の play_time / platforms_played)
 
 // サーバが中身を埋め込む要素の id (api/_lib/share-preview.mjs)
 export const EMBED_ID = "pn-share-view";
@@ -31,6 +40,17 @@ export const OPEN_IN_APP = "アプリで見る";
 export const STORY_TITLE = "このプレイの記録";
 export const STORY_SPOILER = "ネタバレを含むモーメント";
 export const READ_MORE = "続きを読む";
+export const ALBUM_TITLE = "このプレイのアルバム";
+export const ALBUM_JUMP = "このプレイの写真・動画を全部見る";
+export const ALBUM_SPOILER = "ネタバレ";
+export const VIEWER_SPOILER_NOTE = "ネタバレを含む写真・動画です";
+// EF share-view の album の上限 (supabase _shared/sharePlayAlbum.ts PLAY_ALBUM_LIMIT)
+export const ALBUM_MAX = 60;
+// アルバムの 1 枚の縦横比 (幅 / 高さ) の範囲。外れる物は枠の中に切らずに収める (余白が付く)
+export const ALBUM_RATIO_MIN = 1 / 2;
+export const ALBUM_RATIO_MAX = 2.4;
+// game_logs.play_time の段階 (アプリ lib/webCreateLogForm.ts PLAY_TIME_BUCKETS)
+const PLAY_TIME_BUCKETS = [0, 10, 30, 50, 70, 100, 200, 500, 1000];
 // ストア (assets/app.mjs の APP_STORE_URL / PLAY_STORE_URL と同じ)
 export const APP_STORE_URL = "https://apps.apple.com/jp/app/playnavi/id6756201875";
 export const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=com.playnavilab.playnavi.app";
@@ -168,6 +188,9 @@ export function shareModel(payload) {
     media,
   };
   const story = storyModel(view.story);
+  // r8: このプレイのアルバム
+  model.album = albumModel(view, media);
+  model.recordKey = recordKeyOf(view);
   if (view.kind === "moment") {
     return { ...model, story, title: text(view.title, 200), body: text(view.body) };
   }
@@ -181,6 +204,25 @@ export function shareModel(payload) {
   };
 }
 
+// プレイ時間の段階 → 言葉 (アプリ lib/webCreateLogForm.ts playTimeBucketLabel と同じ言い方。0 = 未プレイは出さない)
+export function playTimeText(hours) {
+  if (!Number.isSafeInteger(hours) || hours <= 0) return null;
+  if (hours === 1000) return "500時間以上";
+  const index = PLAY_TIME_BUCKETS.indexOf(hours);
+  return index > 0 ? `${PLAY_TIME_BUCKETS[index - 1]}〜${hours}時間` : `約${hours}時間`;
+}
+
+function platformList(value) {
+  if (!Array.isArray(value)) return [];
+  const out = [];
+  for (const item of value) {
+    const name = text(item, 60);
+    if (name && !out.includes(name)) out.push(name);
+    if (out.length === 8) break;
+  }
+  return out;
+}
+
 function reviewFields(view) {
   return {
     statusLabel: STATUS_LABELS[view.status] ?? null,
@@ -188,7 +230,69 @@ function reviewFields(view) {
     score: typeof view.score === "number" && scoreText(view.score) ? view.score : null,
     scoreText: scoreText(view.score),
     comment: text(view.comment),
+    // r8: プレイ時間・遊んだ機種
+    playTimeText: playTimeText(view.play_time),
+    platforms: platformList(view.platforms_played),
   };
+}
+
+// ---------------------------------------------------------------- r8: このプレイのアルバム
+
+// 開いている記録の鍵 (アルバムの 1 件の key と同じ形: モーメント = memory_id、レビュー = "review")
+function recordKeyOf(view) {
+  if (view.kind === "review") return "review";
+  const match = /[?&]moment=([0-9a-f-]{36})(?:&|$)/i.exec(typeof view.canonical_path === "string" ? view.canonical_path : "");
+  return match ? match[1].toLowerCase() : null;
+}
+
+// 1 枚の縦横比。分からない時は動画 = 16:9、写真 = 4:3 (読み込んだら本当の値に直す)
+export function albumRatio(item) {
+  const raw = item.width && item.height ? item.width / item.height : item.kind === "video" ? 16 / 9 : 4 / 3;
+  return Math.min(ALBUM_RATIO_MAX, Math.max(ALBUM_RATIO_MIN, raw));
+}
+
+function albumItem(value) {
+  const base = mediaItem(value);
+  if (!base) return null;
+  const key = typeof value.memory_id === "string" && /^[0-9a-f-]{36}$/i.test(value.memory_id) ? value.memory_id.toLowerCase() : "review";
+  return {
+    ...base,
+    posterUrl: base.kind === "video" ? base.posterUrl : null,
+    thumbUrl: safeUrl(value.thumb_url) ?? (base.kind === "image" ? base.url : base.posterUrl),
+    key,
+    spoiler: value.spoiler === true,
+    title: text(value.title, 200),
+    dateIso: typeof value.date === "string" ? value.date : null,
+    dateText: formatJstDate(value.date),
+  };
+}
+
+// EF share-view の album → 描く物。投稿と同じ物しか無い (加点にならない) 時・無い時は null (= 出さない)
+export function albumModel(view, media = []) {
+  if (!Array.isArray(view?.album)) return null;
+  const items = view.album.slice(0, ALBUM_MAX).map(albumItem).filter(Boolean);
+  if (items.length === 0) return null;
+  const total = Number.isSafeInteger(view.album_total) && view.album_total >= items.length ? view.album_total : items.length;
+  const recordKey = recordKeyOf(view);
+  if (total <= media.length && items.every((item) => item.key === recordKey)) return null;
+  return {
+    items,
+    total,
+    recordKey,
+    photos: items.filter((item) => item.kind === "image").length,
+    videos: items.filter((item) => item.kind === "video").length,
+  };
+}
+
+// 見出しの下の一言 (何がいくつあるか + 得な所)
+export function albumSubText(album) {
+  const parts = [];
+  if (album.total === album.items.length) {
+    if (album.photos > 0) parts.push(`写真 ${album.photos} 枚`);
+    if (album.videos > 0) parts.push(`動画 ${album.videos} 本`);
+  }
+  const counts = parts.length > 0 ? `${parts.join("・")}。` : "";
+  return `${counts}ほかの日の記録の分も、切らずに全部見られます`;
 }
 
 function storyThumb(value) {
@@ -407,7 +511,7 @@ function hero(doc, model, { onOpen, appHref }) {
     const photo = image(doc, "pn-photo", item.url, `${model.author.name}さんの写真 ${imageIndex + 1}`);
     if (index === 0) photo.loading = "eager";
     slide.append(photo);
-    slide.addEventListener("click", () => onOpen(images, imageIndex));
+    slide.addEventListener("click", () => onOpen(images, imageIndex, item));
     track.append(slide);
   });
   frame.append(track);
@@ -532,6 +636,21 @@ function scoreBlock(doc, model) {
   return box;
 }
 
+// r8: レビューのプレイ時間・遊んだ機種 (無ければ null)
+function factsBlock(doc, review) {
+  const rows = [];
+  if (review.playTimeText) rows.push(["プレイ時間", review.playTimeText]);
+  if (review.platforms?.length) rows.push(["遊んだ機種", review.platforms.join("、")]);
+  if (rows.length === 0) return null;
+  const list = el(doc, "dl", "pn-facts");
+  for (const [label, value] of rows) {
+    const row = el(doc, "div", "pn-fact");
+    row.append(el(doc, "dt", "pn-fact-label", label), el(doc, "dd", "pn-fact-value", value));
+    list.append(row);
+  }
+  return list;
+}
+
 // ネタバレの時に隠す文
 function textNodes(doc, model) {
   const nodes = [];
@@ -560,6 +679,8 @@ function storyReviewCard(doc, review) {
       el(doc, "span", "pn-story-score-max", " / 10"));
     card.append(score);
   }
+  const facts = factsBlock(doc, review);
+  if (facts) card.append(facts);
   if (review.comment) {
     const body = el(doc, "div", "pn-story-review-body");
     const comment = el(doc, "p", "pn-story-comment", review.comment);
@@ -615,7 +736,7 @@ function storyMedia(doc, moment, { onOpen }) {
     const index = images.indexOf(item);
     const open = button(doc, "pn-story-photo", null, `写真 ${index + 1} / ${images.length} を大きく表示`);
     open.append(image(doc, "", item.url, ""));
-    open.addEventListener("click", () => onOpen(images, index));
+    open.addEventListener("click", () => onOpen(images, index, item, moment.id));
     row.append(open);
   });
   return row;
@@ -632,7 +753,7 @@ function storyThumbNode(doc, thumb, count) {
 }
 
 // 同じプレイのほかのモーメント 1 件。押すとその場で開く (全文と写真・動画)。ネタバレは押すまで写真をぼかし、文を出さない
-function storyMomentItem(doc, moment, { onOpen }) {
+function storyMomentItem(doc, moment, { onOpen, onReveal = () => {} }) {
   const item = el(doc, "article", moment.spoiler ? "pn-story-item is-spoiler" : "pn-story-item");
   const panelId = `pn-story-${moment.id}`;
   const toggle = button(doc, "pn-story-toggle");
@@ -667,6 +788,7 @@ function storyMomentItem(doc, moment, { onOpen }) {
       // ふだんは見出しの文が全文になる (CSS の is-open で行の上限を外す)。ネタバレは押した時に初めて文を入れる
       if (moment.spoiler) {
         item.classList.remove("is-spoiler");
+        onReveal(moment.id);
         if (moment.title) panel.append(el(doc, "h3", "pn-story-panel-title", moment.title));
         if (moment.body) panel.append(el(doc, "p", "pn-story-panel-body", moment.body));
       }
@@ -679,7 +801,7 @@ function storyMomentItem(doc, moment, { onOpen }) {
   return item;
 }
 
-export function storySection(doc, model, { onOpen = () => {} } = {}) {
+export function storySection(doc, model, { onOpen = () => {}, onReveal = () => {} } = {}) {
   const story = model.story;
   if (!story) return null;
   const section = el(doc, "section", "pn-story");
@@ -695,7 +817,7 @@ export function storySection(doc, model, { onOpen = () => {} } = {}) {
     const list = el(doc, "div", "pn-story-list");
     list.setAttribute("role", "list");
     for (const moment of story.moments) {
-      const node = storyMomentItem(doc, moment, { onOpen });
+      const node = storyMomentItem(doc, moment, { onOpen, onReveal });
       node.setAttribute("role", "listitem");
       list.append(node);
     }
@@ -705,6 +827,455 @@ export function storySection(doc, model, { onOpen = () => {} } = {}) {
   const rest = story.total - story.moments.length;
   if (rest > 0) section.append(el(doc, "p", "pn-story-rest", `ほか ${rest} 件のモーメントはアプリで`));
   return section;
+}
+
+// ---------------------------------------------------------------- r8: このプレイのアルバム (DOM)
+
+// 「このプレイの写真・動画を全部見る（N）」= 本文の近くの印 (押すとアルバムへ)
+function albumJump(doc, album) {
+  const jump = link(doc, "pn-album-jump", "#pn-album");
+  jump.append(el(doc, "span", "pn-album-jump-icon"), el(doc, "span", "pn-album-jump-text", ALBUM_JUMP),
+    el(doc, "span", "pn-album-jump-count", String(album.total)));
+  jump.addEventListener("click", (event) => {
+    const target = doc.getElementById?.("pn-album");
+    if (!target || typeof target.scrollIntoView !== "function") return;
+    event.preventDefault?.();
+    target.scrollIntoView({ behavior: prefersReducedMotion(doc) ? "auto" : "smooth", block: "start" });
+  });
+  return jump;
+}
+
+function albumLabel(item, index, total) {
+  if (item.kind === "video") return `動画${item.durationText ? ` (${item.durationText})` : ""} ${index + 1} / ${total} を開く`;
+  return `写真 ${index + 1} / ${total} を大きく表示`;
+}
+
+// アルバムの 1 枚。縦横比のまま (切らない) 並べるため、枠の比を --a に入れる (CSS が行ごとに幅をそろえる)
+function albumTile(doc, item, index, total, { revealed, onPress }) {
+  const hidden = item.spoiler && !revealed.has(item.key);
+  const tile = button(doc, `pn-album-tile pn-album-${item.kind}${hidden ? " is-spoiler" : ""}`, null,
+    hidden ? `${ALBUM_SPOILER}: ${index + 1} / ${total} を表示` : albumLabel(item, index, total));
+  tile.dataset.key = item.key;
+  tile.dataset.index = String(index);
+  const setRatio = (ratio) => tile.style.setProperty?.("--a", String(Number(ratio.toFixed(4))));
+  setRatio(albumRatio(item));
+  if (item.thumbUrl) {
+    const thumb = image(doc, "pn-album-img", item.thumbUrl, "");
+    // 大きさの分からなかった物は、読み込んだ本当の縦横比に直す
+    if (!(item.width && item.height)) {
+      thumb.addEventListener("load", () => {
+        if (thumb.naturalWidth > 0 && thumb.naturalHeight > 0) {
+          setRatio(Math.min(ALBUM_RATIO_MAX, Math.max(ALBUM_RATIO_MIN, thumb.naturalWidth / thumb.naturalHeight)));
+        }
+      });
+    }
+    tile.append(thumb);
+  } else {
+    tile.append(el(doc, "span", "pn-album-img pn-album-empty"));
+  }
+  if (item.kind === "video") {
+    tile.append(el(doc, "span", "pn-album-play"));
+    if (item.durationText) tile.append(el(doc, "span", "pn-album-duration", item.durationText));
+  }
+  tile.append(el(doc, "span", "pn-album-spoiler", ALBUM_SPOILER));
+  tile.addEventListener("click", () => onPress(item, index, tile));
+  return tile;
+}
+
+export function albumSection(doc, model, { revealed = new Set(), onOpen = () => {}, onReveal = () => {} } = {}) {
+  const album = model.album;
+  if (!album) return null;
+  const section = el(doc, "section", "pn-album");
+  section.id = "pn-album";
+  section.setAttribute("aria-labelledby", "pn-album-heading");
+  const head = el(doc, "header", "pn-album-head");
+  const title = el(doc, "h2", "pn-album-title");
+  title.id = "pn-album-heading";
+  title.append(el(doc, "span", "pn-album-title-text", ALBUM_TITLE), el(doc, "span", "pn-album-count", `（${album.total}）`));
+  head.append(title, el(doc, "p", "pn-album-sub", albumSubText(album)));
+  section.append(head);
+  const grid = el(doc, "div", "pn-album-grid");
+  grid.setAttribute("role", "list");
+  const tiles = [];
+  album.items.forEach((item, index) => {
+    const tile = albumTile(doc, item, index, album.items.length, {
+      revealed,
+      onPress: (pressed, at, node) => {
+        // ネタバレは 1 回目で見せるだけ (同じ記録の物を全部)。2 回目から全画面で開く
+        if (node.classList.contains("is-spoiler")) {
+          onReveal(pressed.key);
+          return;
+        }
+        onOpen(at);
+      },
+    });
+    tile.setAttribute("role", "listitem");
+    tiles.push(tile);
+    grid.append(tile);
+  });
+  section.append(grid);
+  const rest = album.total - album.items.length;
+  if (rest > 0) section.append(el(doc, "p", "pn-album-rest", `ほか ${rest} 件はアプリで`));
+  const reveal = (key) => {
+    tiles.forEach((tile, index) => {
+      if (tile.dataset.key !== key || !tile.classList.contains("is-spoiler")) return;
+      tile.classList.remove("is-spoiler");
+      tile.setAttribute("aria-label", albumLabel(album.items[index], index, album.items.length));
+    });
+  };
+  return { section, reveal };
+}
+
+// 全画面でアルバムの全部を左右に送って見る。写真は 2 本指で広げる・2 回押す (PC はダブルクリック) で拡大、
+// 拡大中は指 (PC はつまんで) で動かす。動画はその場で再生。ネタバレはその 1 枚の上の「ネタバレを表示」で出す。
+// Esc で閉じる・左右の矢印キーで送る・Tab は中だけを回る。閉じたら元の場所へ焦点を戻す
+export function openAlbumViewer(doc, items, start, { touch = false, isRevealed = () => true, reveal = () => {}, appHref = null } = {}) {
+  // 開いている間にもう一度押されても 2 枚目は重ねない
+  if (typeof doc.querySelector === "function" && doc.querySelector(".pn-av")) return null;
+  if (!Array.isArray(items) || items.length === 0) return null;
+  const win = doc.defaultView ?? globalThis;
+  const opener = doc.activeElement ?? null;
+  const total = items.length;
+  let current = Math.max(0, Math.min(total - 1, start));
+  const overlay = el(doc, "div", touch ? "pn-av is-touch" : "pn-av");
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.setAttribute("aria-label", ALBUM_TITLE);
+  const track = el(doc, "div", "pn-av-track");
+  const slides = [];
+
+  const zoomOf = (slide) => slide.zoom;
+  const resetZoom = (slide) => slide?.resetZoom?.();
+
+  const buildPhoto = (item, index) => {
+    const node = el(doc, "div", "pn-av-slide pn-av-photo");
+    const box = el(doc, "div", "pn-av-zoom");
+    const pic = doc.createElement("img");
+    pic.className = "pn-av-img";
+    pic.alt = `写真 ${index + 1} / ${total}`;
+    pic.decoding = "async";
+    pic.referrerPolicy = "no-referrer";
+    pic.draggable = false;
+    box.append(pic);
+    node.append(box);
+    const z = { s: 1, x: 0, y: 0 };
+    const apply = () => {
+      pic.style.transform = z.s === 1 ? "" : `translate(${z.x}px, ${z.y}px) scale(${z.s})`;
+      node.classList[z.s > 1 ? "add" : "remove"]("is-zoomed");
+      overlay.classList[z.s > 1 ? "add" : "remove"]("is-zoomed");
+    };
+    const clamp = () => {
+      const r = box.getBoundingClientRect();
+      const mx = (r.width * (z.s - 1)) / 2;
+      const my = (r.height * (z.s - 1)) / 2;
+      z.x = Math.max(-mx, Math.min(mx, z.x));
+      z.y = Math.max(-my, Math.min(my, z.y));
+    };
+    // (cx, cy) = 枠の真ん中からの指の位置。そこを動かさずに倍率を変える
+    const zoomTo = (scale, cx = 0, cy = 0) => {
+      const next = Math.max(1, Math.min(4, scale));
+      z.x = cx - ((cx - z.x) * next) / z.s;
+      z.y = cy - ((cy - z.y) * next) / z.s;
+      z.s = next;
+      if (z.s === 1) { z.x = 0; z.y = 0; }
+      clamp();
+      apply();
+    };
+    const fromCenter = (clientX, clientY) => {
+      const r = box.getBoundingClientRect();
+      return [clientX - (r.left + r.width / 2), clientY - (r.top + r.height / 2)];
+    };
+    const toggle = (clientX, clientY) => {
+      if (z.s > 1) zoomTo(1);
+      else zoomTo(2.5, ...fromCenter(clientX, clientY));
+    };
+    let pinch = null;
+    let pan = null;
+    let lastTap = { t: 0, x: 0, y: 0 };
+    let lastTouchAt = 0;
+    box.addEventListener("touchstart", (event) => {
+      lastTouchAt = Date.now();
+      if (event.touches.length === 2) {
+        const [a, b] = [event.touches[0], event.touches[1]];
+        pinch = { d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) || 1, s: z.s,
+          c: fromCenter((a.clientX + b.clientX) / 2, (a.clientY + b.clientY) / 2) };
+        pan = null;
+        event.preventDefault();
+      } else if (event.touches.length === 1 && z.s > 1) {
+        pan = { x: event.touches[0].clientX, y: event.touches[0].clientY };
+      }
+    }, { passive: false });
+    box.addEventListener("touchmove", (event) => {
+      if (pinch && event.touches.length === 2) {
+        const [a, b] = [event.touches[0], event.touches[1]];
+        const d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+        zoomTo((pinch.s * d) / pinch.d, ...pinch.c);
+        event.preventDefault();
+      } else if (pan && event.touches.length === 1 && z.s > 1) {
+        const t = event.touches[0];
+        z.x += t.clientX - pan.x;
+        z.y += t.clientY - pan.y;
+        pan = { x: t.clientX, y: t.clientY };
+        clamp();
+        apply();
+        event.preventDefault();
+      }
+    }, { passive: false });
+    box.addEventListener("touchend", (event) => {
+      if (event.touches.length < 2) pinch = null;
+      if (event.touches.length === 0) pan = null;
+      if (event.touches.length > 0 || event.changedTouches.length !== 1) return;
+      const t = event.changedTouches[0];
+      const now = Date.now();
+      if (now - lastTap.t < 300 && Math.hypot(t.clientX - lastTap.x, t.clientY - lastTap.y) < 30) {
+        toggle(t.clientX, t.clientY);
+        lastTap = { t: 0, x: 0, y: 0 };
+        event.preventDefault();
+      } else {
+        lastTap = { t: now, x: t.clientX, y: t.clientY };
+      }
+    });
+    box.addEventListener("dblclick", (event) => {
+      if (Date.now() - lastTouchAt < 800) return;
+      toggle(event.clientX, event.clientY);
+    });
+    // PC: 拡大中はつまんで動かす
+    let drag = null;
+    box.addEventListener("mousedown", (event) => {
+      if (z.s <= 1 || event.button !== 0) return;
+      drag = { x: event.clientX, y: event.clientY };
+      event.preventDefault();
+    });
+    const onMove = (event) => {
+      if (!drag) return;
+      z.x += event.clientX - drag.x;
+      z.y += event.clientY - drag.y;
+      drag = { x: event.clientX, y: event.clientY };
+      clamp();
+      apply();
+    };
+    const onUp = () => { drag = null; };
+    doc.addEventListener("mousemove", onMove);
+    doc.addEventListener("mouseup", onUp);
+    return {
+      node,
+      load: () => { if (!pic.getAttribute("src")) pic.src = item.url; },
+      resetZoom: () => { if (z.s !== 1) zoomTo(1); },
+      zoom: z,
+      cleanup: () => { doc.removeEventListener("mousemove", onMove); doc.removeEventListener("mouseup", onUp); },
+    };
+  };
+
+  const buildVideo = (item) => {
+    const node = el(doc, "div", "pn-av-slide pn-av-video-slide");
+    const video = doc.createElement("video");
+    video.className = "pn-av-video";
+    video.playsInline = true;
+    video.setAttribute("playsinline", "");
+    video.setAttribute("webkit-playsinline", "");
+    video.preload = "none";
+    if (item.posterUrl) video.poster = item.posterUrl;
+    node.append(video);
+    const play = button(doc, "pn-av-play", null, `動画を再生${item.durationText ? ` (${item.durationText})` : ""}`);
+    play.append(el(doc, "span", "pn-play-icon"));
+    node.append(play);
+    if (item.durationText) node.append(el(doc, "span", "pn-av-duration", item.durationText));
+    const playable = typeof video.canPlayType !== "function" || video.canPlayType(item.mime) !== "";
+    const fail = () => {
+      if (node.classList.contains("is-unplayable")) return;
+      node.classList.add("is-unplayable");
+      play.hidden = true;
+      video.controls = false;
+      const box = el(doc, "div", "pn-video-fail");
+      box.setAttribute("role", "status");
+      box.append(el(doc, "p", "pn-video-fail-text", UNPLAYABLE_TEXT), link(doc, "pn-video-fail-link pn-app-link", appHref ?? "#", OPEN_IN_APP));
+      node.append(box);
+    };
+    if (!playable) fail();
+    video.addEventListener("error", () => { if (video.getAttribute("src")) fail(); });
+    const load = () => {
+      if (!playable || video.getAttribute("src")) return;
+      video.src = item.url;
+      video.preload = "metadata";
+    };
+    play.addEventListener("click", () => {
+      load();
+      play.hidden = true;
+      node.classList.add("is-started");
+      video.controls = true;
+      const started = video.play?.();
+      if (started && typeof started.catch === "function") {
+        started.catch((error) => {
+          if (error?.name === "NotAllowedError" || error?.name === "AbortError") {
+            play.hidden = false;
+            video.controls = false;
+            node.classList.remove("is-started");
+          } else {
+            fail();
+          }
+        });
+      }
+    });
+    return { node, video, load, pause: () => { if (!video.paused) video.pause?.(); } };
+  };
+
+  items.forEach((item, index) => {
+    const made = item.kind === "video" ? buildVideo(item) : buildPhoto(item, index);
+    made.item = item;
+    made.node.setAttribute("role", "group");
+    made.node.setAttribute("aria-roledescription", "スライド");
+    made.node.setAttribute("aria-label", `${index + 1} / ${total} ${item.kind === "video" ? "動画" : "写真"}`);
+    if (item.spoiler && !isRevealed(item.key)) {
+      made.node.classList.add("is-spoiler");
+      const cover = el(doc, "div", "pn-av-spoiler");
+      const show = button(doc, "pn-spoiler-button", SPOILER_BUTTON);
+      cover.append(el(doc, "p", "pn-spoiler-note", VIEWER_SPOILER_NOTE), show);
+      show.addEventListener("click", () => {
+        reveal(item.key);
+        for (const other of slides) {
+          if (other.item.key !== item.key) continue;
+          other.node.classList.remove("is-spoiler");
+          other.cover?.remove();
+          other.cover = null;
+        }
+        for (const thumb of rail?.children ?? []) if (thumb.dataset?.key === item.key) thumb.classList.remove("is-spoiler");
+      });
+      made.node.append(cover);
+      made.cover = cover;
+    }
+    slides.push(made);
+    track.append(made.node);
+  });
+
+  const head = el(doc, "div", "pn-av-head");
+  const counter = el(doc, "p", "pn-av-counter");
+  counter.setAttribute("aria-live", "polite");
+  const close = button(doc, "pn-av-close", null, "閉じる");
+  close.append(el(doc, "span", "share-viewer-x"));
+  head.append(counter, close);
+  const prev = button(doc, "pn-av-nav prev", null, "前の写真・動画");
+  const next = button(doc, "pn-av-nav next", null, "次の写真・動画");
+  const caption = el(doc, "div", "pn-av-caption");
+  const captionTitle = el(doc, "p", "pn-av-caption-title");
+  const captionDate = el(doc, "p", "pn-av-caption-date");
+  caption.append(captionTitle, captionDate);
+  // PC: 下に小さな絵の列 (押すとその 1 枚へ)
+  const rail = total > 1 ? el(doc, "div", "pn-av-rail") : null;
+  if (rail) {
+    items.forEach((item, index) => {
+      const thumb = button(doc, `pn-av-thumb${item.spoiler && !isRevealed(item.key) ? " is-spoiler" : ""}`, null, `${index + 1} / ${total} を表示`);
+      thumb.dataset.key = item.key;
+      if (item.thumbUrl) thumb.append(image(doc, "", item.thumbUrl, ""));
+      if (item.kind === "video") thumb.append(el(doc, "span", "pn-av-thumb-play"));
+      thumb.addEventListener("click", () => goTo(index));
+      rail.append(thumb);
+    });
+  }
+
+  const update = () => {
+    const item = items[current];
+    counter.textContent = `${current + 1} / ${total}`;
+    captionTitle.textContent = item.title ?? (item.key === "review" ? "レビューの写真" : "");
+    captionDate.textContent = item.dateText ?? "";
+    caption.hidden = !captionTitle.textContent && !captionDate.textContent;
+    prev.disabled = current === 0;
+    next.disabled = current === total - 1;
+    if (rail) {
+      [...rail.children].forEach((thumb, index) => {
+        thumb.classList[index === current ? "add" : "remove"]("is-current");
+        if (index === current) thumb.setAttribute("aria-current", "true");
+        else thumb.removeAttribute("aria-current");
+      });
+      rail.children[current]?.scrollIntoView?.({ block: "nearest", inline: "center" });
+    }
+    // 今の 1 枚と前後だけ読み込む。見えなくなった動画は止め、拡大は戻す
+    slides.forEach((slide, index) => {
+      if (Math.abs(index - current) <= 1) slide.load();
+      if (index !== current) {
+        slide.pause?.();
+        resetZoom(slide);
+      }
+    });
+  };
+  const mark = (index) => {
+    if (index === current || index < 0 || index >= total) return;
+    current = index;
+    update();
+  };
+  // ボタン・矢印キーで動かしている間は、途中の位置で番号を戻さない (着いたら、または 1 秒で解除)
+  let target = null;
+  let targetTimer = null;
+  const goTo = (index, smooth = true) => {
+    const to = Math.max(0, Math.min(total - 1, index));
+    const width = track.clientWidth || 0;
+    target = to;
+    clearTimeout(targetTimer);
+    targetTimer = setTimeout(() => { target = null; }, 1000);
+    track.scrollTo?.({ left: to * width, behavior: smooth && !prefersReducedMotion(doc) ? "smooth" : "auto" });
+    mark(to);
+  };
+  let pending = null;
+  track.addEventListener("scroll", () => {
+    if (pending !== null) return;
+    const raf = win.requestAnimationFrame?.bind(win) ?? ((fn) => setTimeout(fn, 16));
+    pending = raf(() => {
+      pending = null;
+      const width = track.clientWidth || 1;
+      if (target !== null) {
+        if (Math.abs(track.scrollLeft - target * width) < 2) target = null;
+        return;
+      }
+      mark(Math.round(track.scrollLeft / width));
+    });
+  }, { passive: true });
+  const onResize = () => { track.scrollLeft = current * (track.clientWidth || 0); };
+  win.addEventListener?.("resize", onResize);
+
+  const focusables = () => [...overlay.querySelectorAll("button, a[href], video[controls]")]
+    .filter((node) => !node.hidden && !node.disabled && node.offsetParent !== null);
+  const onKey = (event) => {
+    if (event.key === "Escape") finish();
+    else if (event.key === "ArrowLeft") { event.preventDefault(); goTo(current - 1); }
+    else if (event.key === "ArrowRight") { event.preventDefault(); goTo(current + 1); }
+    else if (event.key === "Tab") {
+      const order = focusables();
+      if (order.length === 0) return;
+      const at = order.indexOf(doc.activeElement);
+      event.preventDefault();
+      order[(at + (event.shiftKey ? order.length - 1 : 1) + order.length) % order.length]?.focus();
+    }
+  };
+  const finish = () => {
+    clearTimeout(targetTimer);
+    doc.removeEventListener("keydown", onKey);
+    win.removeEventListener?.("resize", onResize);
+    for (const slide of slides) { slide.pause?.(); slide.cleanup?.(); }
+    overlay.remove();
+    doc.body.classList.remove("share-viewer-open");
+    if (opener && typeof opener.focus === "function") opener.focus({ preventScroll: true });
+  };
+  // 黒地 (写真の外) を押したら閉じる。拡大中・動画は閉じない
+  overlay.addEventListener("click", (event) => {
+    const target = event.target;
+    if (overlay.classList.contains("is-zoomed")) return;
+    if (target === overlay || target?.classList?.contains("pn-av-slide") || target?.classList?.contains("pn-av-zoom")) {
+      if (!touch) finish();
+    }
+  });
+  close.addEventListener("click", finish);
+  prev.addEventListener("click", () => goTo(current - 1));
+  next.addEventListener("click", () => goTo(current + 1));
+  doc.addEventListener("keydown", onKey);
+  overlay.append(track, prev, next, head, caption);
+  if (rail) overlay.append(rail);
+  prev.hidden = total < 2;
+  next.hidden = total < 2;
+  doc.body.classList.add("share-viewer-open");
+  doc.body.append(overlay);
+  track.scrollLeft = current * (track.clientWidth || 0);
+  update();
+  close.focus?.(touch ? { focusVisible: false } : undefined);
+  return { goTo, close: finish, get index() { return current; }, overlay, zoom: (index) => zoomOf(slides[index]) };
 }
 
 // ---------------------------------------------------------------- ページ全体
@@ -723,8 +1294,39 @@ function endLine(doc, platform) {
   return end;
 }
 
-export function buildShareView(doc, model, { onOpen = () => {}, platform = "other" } = {}) {
+export function buildShareView(doc, model, { onOpen = () => {}, onOpenAlbum = null, platform = "other" } = {}) {
   const root = el(doc, "div", "pn-rec");
+  // r8: ネタバレを見せた記録 (アルバム・全画面で同じ扱いにする)
+  const revealed = new Set();
+  let albumParts = null;
+  const revealKey = (key) => {
+    if (!key) return;
+    revealed.add(key);
+    albumParts?.reveal(key);
+  };
+  const openAlbum = (index) => {
+    const album = model.album;
+    if (!album) return false;
+    const open = onOpenAlbum ?? ((items, at, options) => openAlbumViewer(doc, items, at, options));
+    open(album.items, index, { touch: platform !== "other", isRevealed: (key) => revealed.has(key), reveal: revealKey, appHref: model.appUrl });
+    return true;
+  };
+  // 投稿の写真 (帯)・「このプレイの記録」の写真を押した時も、アルバムの同じ 1 枚から全部を送れるようにする
+  const openFromRecord = (key, list, item) => {
+    const album = model.album;
+    if (!album || !key || !item) return false;
+    const own = album.items.map((entry, index) => ({ entry, index })).filter(({ entry }) => entry.key === key);
+    const position = list.indexOf(item);
+    const hit = position >= 0 ? own[position] : null;
+    return hit ? openAlbum(hit.index) : false;
+  };
+  const openHero = (images, index, item) => {
+    if (!openFromRecord(model.recordKey, model.media, item)) onOpen(images, index);
+  };
+  const openStory = (images, index, item, key) => {
+    const moment = model.story?.moments.find((m) => m.id === key);
+    if (!moment || !openFromRecord(key, moment.media, item)) onOpen(images, index);
+  };
   root.dataset.kind = model.kind;
   root.dataset.platform = platform;
   root.dataset.app = "off";
@@ -743,12 +1345,18 @@ export function buildShareView(doc, model, { onOpen = () => {}, platform = "othe
   layout.append(author(doc, model));
   let heroParts = null;
   if (model.media.length > 0) {
-    heroParts = hero(doc, model, { onOpen, appHref: model.appUrl });
+    heroParts = hero(doc, model, { onOpen: openHero, appHref: model.appUrl });
     layout.append(heroParts.box);
   }
 
   const details = el(doc, "div", "pn-details");
   if (model.kind === "review" && model.scoreText) details.append(scoreBlock(doc, model));
+  if (model.kind === "review") {
+    const facts = factsBlock(doc, model);
+    if (facts) details.append(facts);
+  }
+  // r8: 得な所を開いてすぐ分かるように (押すとアルバムへ)
+  if (model.album) details.append(albumJump(doc, model.album));
   const textBox = el(doc, "div", "pn-text");
   details.append(textBox);
   details.append(gameChip(doc, model));
@@ -770,6 +1378,7 @@ export function buildShareView(doc, model, { onOpen = () => {}, platform = "othe
       textBox.append(note);
     }
     reveal.addEventListener("click", () => {
+      revealKey(model.recordKey);
       root.classList.remove("is-spoiler");
       cover?.remove();
       note?.remove();
@@ -783,7 +1392,9 @@ export function buildShareView(doc, model, { onOpen = () => {}, platform = "othe
   layout.append(details);
   root.append(layout);
 
-  const story = storySection(doc, model, { onOpen });
+  albumParts = albumSection(doc, model, { revealed, onOpen: openAlbum, onReveal: revealKey });
+  if (albumParts) root.append(albumParts.section);
+  const story = storySection(doc, model, { onOpen: openStory, onReveal: revealKey });
   if (story) root.append(story);
   root.append(endLine(doc, platform));
   return root;

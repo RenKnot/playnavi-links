@@ -115,10 +115,63 @@ export function formatDuration(ms) {
 
 // Whether the card draws the poster's own photos (then it is sent as JPEG).
 export function drawsUserPhotos(large) {
-  if (large.layout === "moment") return !large.spoiler && ((large.media?.length ?? 0) > 0 || Boolean(large.photo_url));
-  if (large.layout === "game") return (large.media?.length ?? 0) > 0;
+  // r8: a record without its own photos draws the play's photos (play_media)
+  const play = (large.play_media?.length ?? 0) > 0;
+  if (large.layout === "moment") return !large.spoiler && ((large.media?.length ?? 0) > 0 || Boolean(large.photo_url) || play);
+  if (large.layout === "game") return (large.media?.length ?? 0) > 0 || play;
   return false;
 }
+
+// r8 (overview §12.2): the quiet hint on the card of a record without its own photos.
+export function playHintText(large) {
+  const total = large.play_media_total ?? 0;
+  const videos = large.play_media_counts?.videos ?? 0;
+  const photos = large.play_media_counts?.photos ?? total;
+  return videos > 0 ? `このプレイの写真・動画 ${total} 件 ›` : `このプレイの写真 ${photos} 枚 ›`;
+}
+
+// r8: lays the play's photos out uncropped, each at its own aspect, in 1 or 2 justified rows inside the box
+// (every row fills the width; when the rows are too tall together they shrink and stay centered). The partition
+// with the largest drawn area wins. aspects = width / height. Returns one slot per aspect, in order.
+export function playSlots(aspects, { x, y, w, h, gap }) {
+  const n = aspects.length;
+  if (n === 0) return [];
+  const rowsOf = (cuts) => {
+    const rows = [];
+    let start = 0;
+    for (const cut of [...cuts, n]) { rows.push(aspects.slice(start, cut).map((a, i) => ({ a, i: start + i }))); start = cut; }
+    return rows;
+  };
+  const candidates = [[]];
+  for (let cut = 1; cut < n; cut += 1) candidates.push([cut]);
+  let best = null;
+  for (const cuts of candidates) {
+    const rows = rowsOf(cuts);
+    const heights = rows.map((row) => (w - gap * (row.length - 1)) / row.reduce((sum, item) => sum + item.a, 0));
+    const natural = heights.reduce((sum, value) => sum + value, 0) + gap * (rows.length - 1);
+    const scale = Math.min(1, (h - gap * (rows.length - 1)) / (natural - gap * (rows.length - 1)));
+    const area = rows.reduce((sum, row, r) => sum + row.reduce((s2, item) => s2 + item.a * (heights[r] * scale) ** 2, 0), 0);
+    if (!best || area > best.area) best = { rows, heights, scale, area };
+  }
+  const slots = new Array(n);
+  const total = best.heights.reduce((sum, value) => sum + value * best.scale, 0) + gap * (best.rows.length - 1);
+  let top = y + (h - total) / 2;
+  best.rows.forEach((row, r) => {
+    const rowH = best.heights[r] * best.scale;
+    const rowW = row.reduce((sum, item) => sum + item.a * rowH, 0) + gap * (row.length - 1);
+    let left = x + (w - rowW) / 2;
+    for (const item of row) {
+      const tileW = item.a * rowH;
+      slots[item.i] = { x: Math.round(left), y: Math.round(top), w: Math.max(1, Math.round(tileW)), h: Math.max(1, Math.round(rowH)) };
+      left += tileW + gap;
+    }
+    top += rowH + gap;
+  });
+  return slots;
+}
+
+// r8: the box the play's photos are laid out in (under the header; X's title band may overlap the photos only)
+export const PLAY_BOX = { x: 36, y: 168, w: W - 72, h: H - 168 - 22, gap: 12 };
 
 // ---------------------------------------------------------------- fonts
 
@@ -184,6 +237,7 @@ export function cardText(large) {
   if (large.layout === "moment") parts.push(large.heading, large.title, "『』", large.excerpt ?? "", MOMENT_SPOILER);
   // \u2011 = 題名の折れないハイフン (titleText)
   if (isR3(large)) parts.push(chipText(large), hintText(large), authorName(large), kindSuffix(large), "満足度/10", "›:·", "\u2011");
+  if (isR3(large) && large.play_media) parts.push(playHintText(large));
   if (large.layout === "profile") parts.push(large.name);
   if (large.layout === "grid") parts.push(large.title, large.subtitle, large.description ?? "");
   if (large.layout === "diagnosis") {
@@ -339,6 +393,7 @@ export async function loadCardImages(large, fetchImpl) {
     if (large.cover_url) urls.add(large.cover_url);
   }
   for (const item of large.media ?? []) urls.add(item.url);
+  for (const item of large.play_media ?? []) urls.add(item.url);
   if ((large.layout === "moment" || large.layout === "game") && large.author_avatar_url) urls.add(large.author_avatar_url);
   if (large.layout === "profile") {
     if (large.avatar_url) urls.add(large.avatar_url);
@@ -369,7 +424,8 @@ export async function loadCardImages(large, fetchImpl) {
       blurUri(coverBuffer ?? get(large.photo_url)),
       ...media.map((item, i) => coverUri(get(item.url), slots[i].w, slots[i].h)),
     ]);
-    return { author, cover, background, tiles };
+    const play = media.length === 0 ? await playTiles(large.play_media ?? [], get) : null;
+    return { author, cover, background, tiles, ...(play ?? {}) };
   }
   if (large.layout === "game") {
     const buffer = get(large.cover_url);
@@ -412,6 +468,37 @@ export async function loadCardImages(large, fetchImpl) {
     ...buffers.map((buffer) => coverUri(buffer, ...coverSize)),
   ]);
   return { background, owner, covers };
+}
+
+// r8: the play's photos (a record without its own photos). Reads each photo's size (EXIF rotation applied),
+// lays them out uncropped (playSlots) and fits each inside its slot (never cropped). A photo that cannot be read
+// is left out; the blurred backdrop is made from the first one.
+async function imageAspect(buffer) {
+  if (!buffer) return null;
+  try {
+    const meta = await pipeline(buffer).metadata();
+    const swap = (meta.orientation ?? 1) >= 5;
+    const width = swap ? meta.height : meta.width;
+    const height = swap ? meta.width : meta.height;
+    return width > 0 && height > 0 ? width / height : null;
+  } catch {
+    return null;
+  }
+}
+async function playTiles(items, get) {
+  if (items.length === 0) return null;
+  const read = await Promise.all(items.map(async (item) => ({ item, buffer: get(item.url), aspect: await imageAspect(get(item.url)) })));
+  const usable = read.filter((entry) => entry.aspect !== null)
+    // keep extreme panoramas / strips drawable (they are letterboxed inside the clamped slot)
+    .map((entry) => ({ ...entry, aspect: Math.min(3, Math.max(0.4, entry.aspect)) }));
+  if (usable.length === 0) return null;
+  const slots = playSlots(usable.map((entry) => entry.aspect), PLAY_BOX);
+  const [playBackground, ...fitted] = await Promise.all([
+    blurUri(usable[0].buffer),
+    ...usable.map((entry, i) => fittedUri(entry.buffer, slots[i].w, slots[i].h)),
+  ]);
+  const playTilesOut = usable.map((entry, i) => ({ item: entry.item, slot: slots[i], image: fitted[i] })).filter((t) => t.image);
+  return playTilesOut.length > 0 ? { playBackground, playTiles: playTilesOut } : null;
 }
 
 // ---------------------------------------------------------------- layouts
@@ -907,9 +994,59 @@ export function titleText(text) {
   return String(text).replace(/([0-9A-Za-z])-(?=[0-9A-Za-z])/g, "$1‑");
 }
 
+// r8 (overview §12.2): a record without its own photos (text-only moment, review without photos) whose play has
+// photos. The poster and the game on top (as on the photo card), then up to 5 of the play's photos, uncropped
+// (each at its own aspect, letterboxed on the blurred backdrop), and the quiet hint "このプレイの写真 N 枚 ›".
+function playCard(large, images, assets) {
+  const name = authorName(large);
+  const score = large.layout === "game" && large.score !== undefined && large.score !== null ? large.score : null;
+  const textWidth = score === null ? 1000 : 780;
+  return div(
+    { width: W, height: H, position: "relative", backgroundColor: "#0B1524", fontFamily: "Noto Sans JP" },
+    images.playBackground ? img(images.playBackground, FULL) : div({ ...FULL, backgroundImage: DARK_GRADIENT }),
+    div({ ...FULL, backgroundImage: "linear-gradient(180deg, rgba(6,10,18,0.70) 0%, rgba(6,10,18,0.50) 40%, rgba(6,10,18,0.58) 100%)" }),
+    ...images.playTiles.map(({ item, slot, image }) => {
+      const iconSize = Math.round(Math.min(84, Math.min(slot.w, slot.h) * 0.32));
+      const duration = item.kind === "video" ? formatDuration(item.duration_ms) : null;
+      return div(
+        { position: "absolute", left: slot.x, top: slot.y, width: slot.w, height: slot.h, alignItems: "center",
+          justifyContent: "center", borderRadius: 14, overflow: "hidden", backgroundColor: "rgba(8,12,20,0.55)",
+          boxShadow: "0 10px 30px rgba(0,0,0,0.45)" },
+        img(image.uri, { width: image.width, height: image.height }),
+        item.kind === "video" ? img(PLAY_ICON, { position: "absolute", left: (slot.w - iconSize) / 2, top: (slot.h - iconSize) / 2, width: iconSize, height: iconSize }) : null,
+        duration
+          ? div({ position: "absolute", right: 10, top: 10, fontSize: 20, fontWeight: 700, color: "#FFFFFF",
+            backgroundColor: "rgba(8,12,20,0.66)", borderRadius: 999, padding: "1px 12px" }, duration)
+          : null,
+      );
+    }),
+    div(
+      { position: "absolute", left: 36, top: 30, alignItems: "center", maxWidth: textWidth + 120 },
+      avatarCircle(images.author, name, 92, 3),
+      div(
+        { flexDirection: "column", marginLeft: 22, minWidth: 0, maxWidth: textWidth },
+        div(
+          { alignItems: "flex-end", maxWidth: textWidth },
+          div({ fontSize: 46, color: "#FFFFFF", fontWeight: 900, lineHeight: 1.2, flexShrink: 1, ...ELLIPSIS }, name),
+          div({ fontSize: 26, color: "rgba(255,255,255,0.86)", fontWeight: 700, marginLeft: 6, marginBottom: 5,
+            flexShrink: 0 }, kindSuffix(large)),
+        ),
+        div({ fontSize: 25, color: "rgba(255,255,255,0.84)", fontWeight: 700, marginTop: 6, maxWidth: textWidth,
+          ...ELLIPSIS }, titleText(large.title)),
+        div({ fontSize: 21, color: "rgba(255,255,255,0.74)", fontWeight: 700, marginTop: 6, maxWidth: textWidth,
+          ...ELLIPSIS }, playHintText(large)),
+      ),
+    ),
+    score === null ? null : scorePill(score),
+    mark(assets),
+  );
+}
+
 function recordCard(large, images, assets) {
   const loaded = (images.tiles ?? []).some(Boolean);
-  return (large.media?.length ?? 0) > 0 && loaded ? photoCard(large, images, assets) : plainCard(large, images, assets);
+  if ((large.media?.length ?? 0) > 0 && loaded) return photoCard(large, images, assets);
+  if ((images.playTiles?.length ?? 0) > 0) return playCard(large, images, assets);
+  return plainCard(large, images, assets);
 }
 
 export function cardElement(large, images, assets) {
