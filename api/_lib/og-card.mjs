@@ -921,9 +921,10 @@ export function chromePlacement(group) {
 }
 
 // r10: 札を写真に重ねる時の置き場所。まとまりの下の縁に接する枠のうち、札が丸ごと収まる (左右上下に 16px の余白) いちばん右の枠の
-// 右下に置く (小さな枠を札で隠さない・枠の縁をまたがない)。札の左端は X の住所の札 (左下) と重ならない所まで。
+// 右下に置く (小さな枠を札で隠さない・枠の縁をまたがない)。札の左端はカードの真ん中 (600) より右 (r12: X の住所の札 (左下) は
+// 見本で幅 300px 近くあり、260 では「写」が隠れた。どの縦横の並びでも重ならないよう真ん中より右に限る)。
 // 収まる枠が無ければ null (カードの右下の角に置く)
-const CTA_SAFE_LEFT = 260;
+export const CTA_SAFE_LEFT = 600;
 export function ctaWidth(label, compact = false) {
   // 字 + 左右の余白 + › + 縁
   return Math.ceil(ems(label) * (compact ? 24 : 27)) + (compact ? 48 + 24 : 56 + 27) + 4;

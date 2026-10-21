@@ -721,7 +721,7 @@ test("r8: the version hash survives re-signing the play's photos", async () => {
 const { CTA_LABELS, SPOILER_LABEL, cardElement, ctaText, headerWidths, loadCardImages, loadStaticAssets, recordMode, renderCardImage, titleText } =
   await import("../api/_lib/og-card.mjs");
 const { layoutCard, BOX } = await import("../api/_lib/card-layout.mjs");
-const { chromePlacement, ctaOverTile, ctaWidth } = await import("../api/_lib/og-card.mjs");
+const { chromePlacement, ctaOverTile, ctaWidth, CTA_SAFE_LEFT } = await import("../api/_lib/og-card.mjs");
 const LANDSCAPE = await sharp({ create: { width: 320, height: 180, channels: 3, background: "#cc6633" } }).jpeg().toBuffer();
 const PORTRAIT = await sharp({ create: { width: 300, height: 400, channels: 3, background: "#3366cc" } }).jpeg().toBuffer();
 const imageFetch = (buffer) => async () => new Response(buffer);
@@ -826,17 +826,23 @@ test("r10: the poster's photos are drawn uncropped in the shared layout, a portr
   assert.equal(broken.tiles[0].item.url, signed("a.jpg"));
 });
 
-test("r10: over the photos, the CTA sits inside the right-most bottom tile it fits in (never hides a small tile), else in the card corner", () => {
+test("r10/r12: over the photos, the CTA sits inside the right-most bottom tile it fits in (never hides a small tile), right of the card's middle, else in the card corner", async () => {
   const label = CTA_LABELS.own;
-  // 横長 1 枚 + 正方形 3 枚: 右の小さな正方形でなく、横長の右下
-  const lsss = layoutCard([16 / 9, 1, 1, 1]);
-  const big = lsss.slots[0];
-  const place = ctaOverTile(lsss.slots.map((slot) => ({ slot })), lsss.group, label);
-  assert.ok(place, "placed over a tile");
-  const left = CARD_W - place.right - ctaWidth(label);
-  assert.ok(left >= big.x + 16 && CARD_W - place.right <= big.x + big.w - 16 + 0.5, JSON.stringify(place));
-  assert.ok(left >= 260, "clear of X's address label (bottom-left)");
-  assert.ok(CARD_H - place.bottom <= CARD_H - 15, "inside X's 2:1 crop");
+  const fixture = JSON.parse(await readFile(new URL("./fixtures/card-layout-cases.json", import.meta.url), "utf8"));
+  let placed = 0;
+  for (const c of fixture.cases) {
+    const r = layoutCard(c.aspects, { heroFirst: c.heroFirst === true });
+    const tiles = r.slots.filter(Boolean).map((slot) => ({ slot }));
+    const place = ctaOverTile(tiles, r.group, label);
+    if (!place) continue;
+    placed += 1;
+    const left = CARD_W - place.right - ctaWidth(label);
+    // 札は丸ごと 1 つの枠の中 (下の縁に接する枠)
+    assert.ok(tiles.some(({ slot }) => left >= slot.x + 16 - 0.5 && CARD_W - place.right <= slot.x + slot.w - 16 + 0.5), `${c.key}: inside a tile`);
+    assert.ok(left >= CTA_SAFE_LEFT, `${c.key}: clear of X's address label (bottom-left)`);
+    assert.ok(CARD_H - place.bottom <= CARD_H - 15, `${c.key}: inside X's 2:1 crop`);
+  }
+  assert.ok(placed > 0, "some layouts place the CTA over a tile");
   // スマホの画面 1 枚 (幅が足りない): カードの角
   const t = layoutCard([9 / 19.5]);
   assert.equal(ctaOverTile(t.slots.map((slot) => ({ slot })), t.group, label), null);
