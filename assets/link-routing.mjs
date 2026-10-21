@@ -9,11 +9,23 @@ const UUID_PATTERN =
   "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
 const GAME_ID_PATTERN = "[1-9][0-9]{0,18}";
 const PG_BIGINT_MAX = "9223372036854775807";
-const AI_RETURN_ACTIONS = new Set(["log", "wishlist", "moment"]);
+// game = the app's current "back to the game page" link (playnavi-app lib/aiLaunch.ts buildAiReturnUrl).
+// log / wishlist are older links already handed out. All three keep the exact five-key contract.
+const AI_RETURN_ACTIONS = new Set(["game", "log", "wishlist", "moment", "review"]);
 // act=moment (V5 group 7): today's session id (play_sessions.id alphabet) and the
 // AI-written moment text. The app only uses them as editable initial values.
 const AI_RETURN_SESSION_PATTERN = /^[0-9A-HJKMNP-TV-Z]{8}$/;
 const AI_RETURN_TEXT_MAX = 2000;
+// Keys an action may add to act / g / src / at (missing = none; then i is required too).
+// moment: f=1 only together with s (the app's buildAiMomentReturnUrl sets f only when s is set).
+// review (TASK-20261020-004): only t, the AI-written review comment (buildAiReviewReturnUrl).
+const AI_RETURN_OPTIONAL_KEYS = new Map([
+  ["moment", ["i", "s", "f", "t"]],
+  ["review", ["t"]],
+]);
+// t upper bound, kept at twice the app's own cut (moment 1,000 / review 2,000 in lib/aiLaunch.ts):
+// the app trims the text, this page only refuses absurd lengths.
+const AI_RETURN_TEXT_MAX_BY_ACTION = new Map([["review", 4000]]);
 const AI_RETURN_PROVIDERS = new Set(["chatgpt", "perplexity", "claude", "gemini"]);
 const AI_RETURN_INTENTS = new Set([
   "reviews_no_spoiler", "fit_for_me", "similar", "which_platform", "stuck", "series_order",
@@ -98,8 +110,9 @@ export function aiReturnTargetFromPath(path) {
   const params = url.searchParams;
   const action = params.get("act");
   // log / wishlist keep the exact five-key contract. moment may omit i and may add s / t.
-  const required = action === "moment" ? ["act", "g", "src", "at"] : ["act", "g", "src", "i", "at"];
-  const optional = action === "moment" ? ["i", "s", "t"] : [];
+  // review (and f on moment) are listed in AI_RETURN_OPTIONAL_KEYS.
+  const optional = AI_RETURN_OPTIONAL_KEYS.get(action) ?? [];
+  const required = AI_RETURN_OPTIONAL_KEYS.has(action) ? ["act", "g", "src", "at"] : ["act", "g", "src", "i", "at"];
   const allowed = new Set([...required, ...optional]);
   const present = [...new Set(params.keys())];
   if (present.some((key) => !allowed.has(key)) ||
@@ -116,13 +129,16 @@ export function aiReturnTargetFromPath(path) {
       !/^[0-9]{13}$/.test(createdAtText)) return null;
   const session = params.get("s");
   const text = params.get("t");
+  const finish = params.get("f");
   if (session !== null && !AI_RETURN_SESSION_PATTERN.test(session)) return null;
-  if (text !== null && Array.from(text).length > AI_RETURN_TEXT_MAX) return null;
+  if (finish !== null && (finish !== "1" || session === null)) return null;
+  if (text !== null && Array.from(text).length > (AI_RETURN_TEXT_MAX_BY_ACTION.get(action) ?? AI_RETURN_TEXT_MAX)) return null;
 
   const rebuilt = new URLSearchParams({ act: action, g: gameIdText, src: provider });
   if (intent !== null) rebuilt.set("i", intent);
   rebuilt.set("at", createdAtText);
   if (session !== null) rebuilt.set("s", session);
+  if (finish !== null) rebuilt.set("f", finish);
   if (text !== null) rebuilt.set("t", text);
   const canonicalPath = `/a?${rebuilt}`;
   return {
