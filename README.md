@@ -40,9 +40,11 @@ An absolute URL from the API is never used for navigation.
 
 ## AI return link
 
-`https://playnavi.app/a?act=log|wishlist&g={game_id}&src={provider}&i={intent}&at={epoch_ms}`
+`https://playnavi.app/a?act=game|log|wishlist&g={game_id}&src={provider}&i={intent}&at={epoch_ms}` (`game` is what the app builds today; `log` / `wishlist` are older links)
 
-`https://playnavi.app/a?act=moment&g={game_id}&src={provider}&at={epoch_ms}[&s={session_id}][&t={text}]` (V5: moment text is only an editable initial value in the app)
+`https://playnavi.app/a?act=moment&g={game_id}&src={provider}&at={epoch_ms}[&s={session_id}[&f=1]][&t={text}]` (V5: moment text is only an editable initial value in the app; `f=1` = the play ends here, only with `s`)
+
+`https://playnavi.app/a?act=review&g={game_id}&src={provider}&at={epoch_ms}[&t={text}]` (the AI-written review comment, only an editable initial value; `t` up to 4,000 characters, the app cuts at 2,000)
 is reserved for returning from an AI answer to the app. The association file
 matches exactly `/a`; `vercel.json` also routes that path to the browser
 fallback. The fallback accepts only the reviewed action, provider, intent,
