@@ -96,6 +96,11 @@ export function webTargetFromPath(path, origin) {
   return `${origin}${target.canonicalPath}`;
 }
 
+/** PC で確認箱 (= Web の下書き画面) を開く先。知らない origin なら null */
+export function webInboxUrl(origin) {
+  return WEB_ORIGINS.includes(origin) ? `${origin}/drafts` : null;
+}
+
 export function aiReturnTargetFromPath(path) {
   // This route is a separate app-return contract, never a short-link resolver
   // target. Rebuild the URL from known values before presenting a browser link.
@@ -109,6 +114,18 @@ export function aiReturnTargetFromPath(path) {
   if (url.origin !== AI_RETURN_ORIGIN || url.pathname !== "/a" || url.hash) return null;
   const params = url.searchParams;
   const action = params.get("act");
+  // act=inbox (TASK-20260930-006): the AI connection's "open the 確認箱" link. No other key is allowed.
+  if (action === "inbox") {
+    const keys = [...params.keys()];
+    if (keys.length !== 1) return null;
+    const canonicalPath = "/a?act=inbox";
+    return {
+      canonicalPath,
+      canonicalUrl: `${AI_RETURN_ORIGIN}${canonicalPath}`,
+      schemeUrl: `playnavi:/${canonicalPath}`,
+      inbox: true,
+    };
+  }
   // log / wishlist keep the exact five-key contract. moment may omit i and may add s / t.
   // review (and f on moment) are listed in AI_RETURN_OPTIONAL_KEYS.
   const optional = AI_RETURN_OPTIONAL_KEYS.get(action) ?? [];

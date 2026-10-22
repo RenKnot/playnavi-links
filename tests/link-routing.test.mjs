@@ -6,6 +6,7 @@ import {
   AI_RETURN_ORIGIN,
   ResolveError,
   aiReturnTargetFromPath,
+  webInboxUrl,
   canonicalTargetFromPath,
   isValidShortCode,
   resolveShortLink,
@@ -48,6 +49,22 @@ test("AI return link for a moment keeps session and text as data only", () => {
   assert.equal(new URL(target.canonicalUrl).searchParams.get("t"), "やっと倒せた & 次は港町");
   assert.equal(aiReturnTargetFromPath("/a?act=moment&g=42&src=claude&at=1790645000000")?.canonicalPath,
     "/a?act=moment&g=42&src=claude&at=1790645000000");
+});
+
+test("AI return link to the inbox accepts only act=inbox and maps PC to the Web drafts page", () => {
+  assert.deepEqual(aiReturnTargetFromPath("/a?act=inbox"), {
+    canonicalPath: "/a?act=inbox",
+    canonicalUrl: `${AI_RETURN_ORIGIN}/a?act=inbox`,
+    schemeUrl: "playnavi://a?act=inbox",
+    inbox: true,
+  });
+  for (const path of ["/a?act=inbox&g=42", "/a?act=inbox&act=inbox", "/a?act=inbox#x", "/a?act=inbox&next=https://evil.example"]) {
+    assert.equal(aiReturnTargetFromPath(path), null, path);
+  }
+  assert.equal(webInboxUrl("https://playnavi.app"), "https://playnavi.app/drafts");
+  assert.equal(webInboxUrl("https://playnavi-web-v2-stg.vercel.app"), "https://playnavi-web-v2-stg.vercel.app/drafts");
+  assert.equal(webInboxUrl("https://evil.example"), null);
+  assert.equal(webInboxUrl(""), null);
 });
 
 test("AI return link rejects unsupported actions and query injection", () => {

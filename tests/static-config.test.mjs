@@ -84,6 +84,7 @@ test("production-only legacy routes and share preview stay ahead of safe fallbac
     "/catalogs/:id",
     "/surveys/:surveySlug",
     "/privacy",
+    "/help/claude",
     "/(.*)",
   ]);
 
@@ -349,4 +350,16 @@ test("OpenAI domain verification token is served byte-exact as plain text (ChatG
   const rule = config.headers.find(({ source }) => source === "/.well-known/openai-apps-challenge");
   assert.equal(rule?.headers.find(({ key }) => key === "Content-Type")?.value, "text/plain; charset=utf-8");
   assert.equal(config.rewrites.some(({ source }) => source.startsWith("/.well-known/")), false, "no rewrite under /.well-known");
+});
+
+test("playnavi.app/help/claude serves the Claude connection guide with the real MCP address (TASK-20260930-006)", async () => {
+  const config = JSON.parse(await readFile(new URL("../vercel.json", import.meta.url), "utf8"));
+  const help = config.rewrites.findIndex((r) => r.source === "/help/claude");
+  const fallback = config.rewrites.findIndex((r) => r.source === "/(.*)");
+  assert.equal(config.rewrites[help]?.destination, "/help-claude.html");
+  assert.ok(help >= 0 && help < fallback, "help rewrite must come before the catch-all");
+  const html = await readFile(new URL("../help-claude.html", import.meta.url), "utf8");
+  assert.match(html, /https:\/\/playnavi\.app\/mcp/);
+  assert.match(html, /カスタムコネクタを追加/);
+  assert.match(html, /\/privacy/);
 });
