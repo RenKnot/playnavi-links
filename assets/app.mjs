@@ -125,7 +125,24 @@ function manualHrefForCanonical(target) {
   return target.schemeUrl;
 }
 
+// TASK-20261017-002 r3 (V3)・r5: モーメント・レビューのリンクは、サーバが HTML に埋め込んだ記録の中身を
+// 画面の主役にする。アプリを開きに行く今の流れ (下の openCanonicalTarget / openShortLink) はそのまま。
+// 埋め込みが無い時は部品を読み込まない。部品が読めない・中身が壊れている時は今の画面のまま
+async function showShareView(target) {
+  if (!document.getElementById("pn-share-view")) return;
+  let drawn = false;
+  try {
+    const { startShareView } = await import("./share-view.mjs");
+    drawn = startShareView(target);
+  } catch {
+    // 記録の中身は付け足し。失敗してもリンクを開く画面は変えない
+  }
+  // r6: サーバが付けた記録のページの印 (色・並び) は、描けなかった時に外して今の画面に戻す
+  if (!drawn) document.documentElement.classList.remove("pn-rec-page");
+}
+
 function openCanonicalTarget(target) {
+  void showShareView(target);
   hideActions();
   setContent({
     heading: "PlayNaviを起動しています…",
@@ -284,6 +301,8 @@ function start() {
       showFailure("unavailable");
       return;
     }
+    // 短縮リンクの種類はサーバが決めて埋め込む (モーメント・レビューの時だけ中身がある)
+    void showShareView(null);
     openShortLink(code);
     return;
   }

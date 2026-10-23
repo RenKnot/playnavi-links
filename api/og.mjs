@@ -1,8 +1,11 @@
 import { canonicalTargetFromPath, isValidShortCode } from "../assets/link-routing.mjs";
-import { renderCard, validLarge } from "./_lib/og-card.mjs";
+import { renderCardImage, validLarge } from "./_lib/og-card.mjs";
 import { PREVIEW_META_URL } from "./_lib/share-preview.mjs";
 
 export const OG_CACHE_CONTROL = "public, max-age=0, s-maxage=86400, stale-while-revalidate=604800";
+// A moment card draws the owner's private photo (TASK-20261017-002). Keep the
+// CDN copy for an hour so a moment made private stops being served soon.
+export const OG_MOMENT_CACHE_CONTROL = "public, max-age=0, s-maxage=3600, stale-while-revalidate=600";
 export const FALLBACK_URL = "https://playnavi.app/og-fallback.png";
 export const FALLBACK_CACHE_CONTROL = "public, max-age=0, s-maxage=60";
 export const META_TIMEOUT_MS = 2500;
@@ -70,15 +73,16 @@ export function createOgHandler({
     if (!target) return fallback(response);
     try {
       const large = await fetchLarge(target, fetchImpl, metaUrl);
-      const png = await renderCard(large, {
+      // TASK-20261017-002 r3: a card with the poster's photos is JPEG (<= 900KB, Bluesky thumb limit).
+      const { body, contentType } = await renderCardImage(large, {
         fetchImpl,
         ...(fontLoader ? { fontLoader } : {}),
         ...(assetsLoader ? { assetsLoader } : {}),
       });
       response.statusCode = 200;
-      response.setHeader("Content-Type", "image/png");
-      response.setHeader("Cache-Control", OG_CACHE_CONTROL);
-      return response.end(png);
+      response.setHeader("Content-Type", contentType);
+      response.setHeader("Cache-Control", large.layout === "moment" ? OG_MOMENT_CACHE_CONTROL : OG_CACHE_CONTROL);
+      return response.end(body);
     } catch (error) {
       console.error("OG card render failed:", error?.message ?? error);
       return fallback(response);

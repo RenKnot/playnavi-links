@@ -72,12 +72,13 @@ test("AI return link rejects unsupported actions and query injection", () => {
   ]) assert.equal(aiReturnTargetFromPath(path), null, path);
 });
 
-test("allowlists the eight canonical target shapes", () => {
+test("allowlists the nine canonical target shapes", () => {
   const cases = [
     [`/users/${UUID_A}/best-games`, "best_games"],
     [`/users/${UUID_A}/diagnosis`, "diagnosis"],
     ["/game/42", "game"],
     [`/game/42?logId=${UUID_A}`, "log"],
+    [`/game/42?logId=${UUID_A}&moment=${UUID_B}`, "moment"],
     [`/users/${UUID_A}`, "user"],
     [`/users/${UUID_A}/custom-rankings/${UUID_B}`, "ranking"],
     [`/users/${UUID_A}/tier-lists/${UUID_B}`, "tier_list"],
@@ -123,6 +124,14 @@ test("rejects arbitrary URLs, schemes, queries, fragments, and short paths", () 
     `/users/${UUID_A}/tier-lists/${UUID_B}?remix=1&next=https://evil.example`,
     `/users/${UUID_A}/tier-lists/${UUID_B}?share=1`,
     `/users/${UUID_A}/tier-lists/${UUID_B}#remix`,
+    // moment (TASK-20261017-002): only ?logId=&moment= in this order, two uuids, nothing else.
+    `/game/42?moment=${UUID_B}&logId=${UUID_A}`,
+    `/game/42?moment=${UUID_B}`,
+    `/game/42?logId=${UUID_A}&moment=not-a-uuid`,
+    `/game/42?logId=${UUID_A}&moment=${UUID_B}&next=https://evil.example`,
+    `/game/42?logId=${UUID_A}&moment=${UUID_B}#x`,
+    `/game/42?logId=${UUID_A}&moment=${UUID_B}&moment=${UUID_B}`,
+    `/game/9223372036854775808?logId=${UUID_A}&moment=${UUID_B}`,
     `/s/${CODE}`,
   ]) {
     assert.equal(canonicalTargetFromPath(value), null, value);

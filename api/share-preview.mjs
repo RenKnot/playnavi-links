@@ -6,7 +6,10 @@ import {
   PREVIEW_META_URL,
   previewTarget,
   renderPreviewHtml,
+  SHARE_VIEW_URL,
+  shareViewParam,
   validCard,
+  validShareView,
 } from "./_lib/share-preview.mjs";
 
 const TEMPLATE_PATH = join(process.cwd(), "index.html");
@@ -39,10 +42,30 @@ async function fetchCard(target, fetchImpl, metaUrl) {
   }
 }
 
+// TASK-20261017-002 r5: 記録のページの中身 (EF share-view)。リンクカードと同時に聞き、同じ 3 秒で打ち切る。
+// 失敗 (404・5xx・時間切れ・形が違う) はすべて null = 埋め込まない (カード・応答の頭・状態は今のまま)
+async function fetchShareView(param, fetchImpl, viewUrl) {
+  try {
+    const url = new URL(viewUrl);
+    url.searchParams.set(param.name, param.value);
+    const response = await fetchImpl(url, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+    });
+    if (response.status !== 200) return null;
+    return validShareView(await response.json(), param);
+  } catch {
+    return null;
+  }
+}
+
 export function createSharePreviewHandler({
   fetchImpl = globalThis.fetch,
   readTemplate = () => readFile(TEMPLATE_PATH, "utf8"),
   metaUrl = PREVIEW_META_URL,
+  viewUrl = SHARE_VIEW_URL,
 } = {}) {
   return async function handler(request, response) {
     if (request.method !== "GET") {
@@ -58,12 +81,17 @@ export function createSharePreviewHandler({
     }
 
     const target = previewTarget(request);
-    const card = target?.upstreamParam ? await fetchCard(target, fetchImpl, metaUrl) : null;
+    const viewParam = shareViewParam(target);
+    const [card, shareView] = await Promise.all([
+      target?.upstreamParam ? fetchCard(target, fetchImpl, metaUrl) : null,
+      viewParam ? fetchShareView(viewParam, fetchImpl, viewUrl) : null,
+    ]);
     const html = renderPreviewHtml(
       template,
       card ?? GENERIC_CARD,
       target?.url ?? "https://playnavi.app/",
       largeCardImageUrl(card, target),
+      shareView,
     );
     for (const [name, value] of Object.entries(DOCUMENT_HEADERS)) {
       response.setHeader(name, value);

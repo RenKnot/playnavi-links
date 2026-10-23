@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { ImageResponse } from "@vercel/og";
 import { createElement as h } from "react";
 import sharp from "sharp";
+import { MAX_ITEMS, layoutCard } from "./card-layout.mjs";
 import { allowedImageUrl, validLarge } from "./og-large.mjs";
 
 export { ALLOWED_IMAGE_HOSTS, allowedImageUrl, validLarge } from "./og-large.mjs";
@@ -15,13 +16,83 @@ export const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const FONT_TIMEOUT_MS = 2200;
 const MAX_INPUT_PIXELS = 40_000_000;
 
-const COVER = { game: [330, 440], grid: [240, 320], gridCompact: [204, 272] };
+const COVER = { game: [330, 440], grid: [240, 320], gridCompact: [204, 272], moment: [300, 400] };
+// Moment photo (TASK-20261017-002): fitted inside this box, aspect kept.
+const PHOTO_BOX = [640, 520];
+const MOMENT_SPOILER = "ネタバレを含むモーメント";
 const OWNER_AVATAR = 44;
 const AVATAR = 200;
 const ILLUSTRATION = 300;
 const DIAGNOSIS_ACCENT = "#70D5E2";
 const LOGO_W = 160;
 const BADGE = [64, 100];
+
+// ---------------------------------------------------------------- r3 (TASK-20261017-002 V1/V2)
+// X draws its own label (the site address / post title) over the bottom-left of the card, so the r3 layouts
+// keep the bottom-left SAFE_BOTTOM px free of anything that must be read (r9: the CTA sits bottom-right).
+export const SAFE_BOTTOM = 90;
+// Cards that carry the poster's photos are JPEG (Bluesky thumb limit 1MB).
+export const JPEG_MAX_BYTES = 900_000;
+const JPEG_QUALITIES = [86, 78, 70, 60, 50, 40];
+// r10: 写真・動画は切らずに並べる (並べ方は card-layout.mjs。アプリのプレビューと同じ答え)。枠の角の丸み
+const TILE_RADIUS = 14;
+// r10: まとまりの上下の空き (上下は同じ高さ) がこれ以上あれば、上の帯と右下の札をその空きに置く (影は描かない)。
+// 足りなければ写真の上に重ね、r9 と同じ薄い影を敷く。並べ方 (写真の位置と大きさ) は札のために変えない
+// 64px では X の上下の切れ目 (上下 15px) を避けると帯が窮屈になるので 80px
+export const ROOM_MIN = 80;
+// X の公式の枠は 2:1 (1200x600) で、1200x630 の絵は上下 15px ずつ切られうる。上の帯の字・アイコンと右下の札はこの内側
+export const X_SAFE = { top: 15, bottom: H - 15 };
+// r9: 上の帯 (投稿者は左、ゲームは右)。どちらも小さく、主役は写真。
+const HEADER = { x: 32, top: 22, h: 56, w: W - 64, gap: 40, shade: 200 };
+// 上の帯の影より下 (動画の長さの札をここより下に置き、帯とぶつけない)
+const HEADER_CLEAR = 104;
+const HEAD_AVATAR = 44;
+const HEAD_NAME = 24;
+const HEAD_TITLE = 22;
+const HEAD_TITLE_MAX = 620;
+const THUMB = [40, 53];
+// 写真の無い記録: ゲームのカバーを大きく真ん中に。
+const HERO_COVER = [352, 470];
+// r9: 右下に重ねる遷移文言 (枚数は書かない)。X はカードの左下に住所を重ねるので右下に置く。
+export const CTA_LABELS = {
+  own: "写真・動画をすべて見る",
+  moment: "モーメントを見る",
+  review: "レビューを見る",
+  spoiler: "タップして見る",
+};
+export const SPOILER_LABEL = "ネタバレを含みます";
+
+// r3 layouts apply only when the edge function sent the r3 keys.
+export const isR3 = (large) =>
+  (large.layout === "moment" || large.layout === "game") && (large.media !== undefined || large.counts !== undefined);
+
+// 61_000 -> "1:01"
+export function formatDuration(ms) {
+  if (typeof ms !== "number" || !Number.isFinite(ms) || ms < 0) return null;
+  const total = Math.round(ms / 1000);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
+
+// Whether the card draws the poster's own photos (then it is sent as JPEG).
+export function drawsUserPhotos(large) {
+  // r12: その投稿 (記録) の写真・動画だけを描く。同じプレイのほかの記録の物 (play_media) は描かない
+  // r9: ネタバレの記録 (モーメントもレビューも) は写真を描かない
+  if (large.spoiler === true) return false;
+  if (large.layout === "moment") return (large.media?.length ?? 0) > 0 || Boolean(large.photo_url);
+  if (large.layout === "game") return (large.media?.length ?? 0) > 0;
+  return false;
+}
+
+// r11: カードに描く写真・動画は 8 つまで (card-layout.mjs MAX_ITEMS。モーメントは 4・レビューは 8 まで = og-large.mjs)。
+// r12 (Emiya 10/21「シェアは投稿単位」): 描くのはその投稿 (記録) の写真・動画 (media) だけ。同じプレイのほかの記録の物
+// (play_media) では埋めない (古い形の payload の鍵は og-large.mjs が受け取るが、カードには描かない)。
+export const CARD_TILES_MAX = MAX_ITEMS;
+
+// カードに描く順の写真・動画 = その記録の物だけ。ネタバレの記録は何も描かない
+export function cardItems(large) {
+  if (large.spoiler === true) return [];
+  return (large.media ?? []).slice(0, CARD_TILES_MAX);
+}
 
 // ---------------------------------------------------------------- fonts
 
@@ -79,7 +150,14 @@ const FIXED_TEXT = "0123456789+,.…─販売・開発さんのプロフィー�
   "ゲーマーDNA対戦没入論理感覚自立仲間集中広範";
 export function cardText(large) {
   const parts = [FIXED_TEXT];
-  if (large.layout === "game") parts.push(large.heading ?? "", large.title, large.publisher ?? "", large.developer ?? "");
+  if (large.layout === "game") {
+    parts.push(large.heading ?? "", large.title, large.publisher ?? "", large.developer ?? "");
+    if (large.score !== undefined) parts.push("満足度/10");
+    if (large.excerpt !== undefined) parts.push(large.excerpt);
+  }
+  if (large.layout === "moment") parts.push(large.heading, large.title, "『』", large.excerpt ?? "", MOMENT_SPOILER);
+  // \u2011 = 題名の折れないハイフン (titleText)
+  if (isR3(large)) parts.push(authorName(large), titleText(large.title), ...Object.values(CTA_LABELS), SPOILER_LABEL, "満足度/10", "›:", "\u2011");
   if (large.layout === "profile") parts.push(large.name);
   if (large.layout === "grid") parts.push(large.title, large.subtitle, large.description ?? "");
   if (large.layout === "diagnosis") {
@@ -161,6 +239,19 @@ export async function pngUri(buffer, width, height) {
   }
 }
 
+// Fits inside the box keeping the aspect; returns the drawn size with the URI.
+export async function fittedUri(buffer, maxWidth, maxHeight) {
+  if (!buffer) return null;
+  try {
+    const { data, info } = await pipeline(buffer).rotate()
+      .resize(maxWidth, maxHeight, { fit: "inside" })
+      .flatten({ background: "#1E293B" }).jpeg({ quality: 88 }).toBuffer({ resolveWithObject: true });
+    return { uri: toDataUri(data, "jpeg"), width: info.width, height: info.height };
+  } catch {
+    return null;
+  }
+}
+
 export async function blurUri(buffer) {
   if (!buffer) return null;
   try {
@@ -183,6 +274,7 @@ export function loadStaticAssets(root = process.cwd()) {
         .resize(BADGE[0] * 2, BADGE[1] * 2, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
         .png().toBuffer(), "png")
     ));
+    // r9: 記録のカードに PlayNavi の印は描かない (assets/og/playnavi-mark-white.png は読まない)
     return {
       logo: toDataUri(logo, "png"),
       logoHeight: Math.round((logoMeta.height * LOGO_W) / logoMeta.width),
@@ -213,6 +305,14 @@ async function loadImage(url, fetchImpl) {
 export async function loadCardImages(large, fetchImpl) {
   const urls = new Set();
   if (large.layout === "game" && large.cover_url) urls.add(large.cover_url);
+  if (large.layout === "moment") {
+    if (large.photo_url) urls.add(large.photo_url);
+    if (large.cover_url) urls.add(large.cover_url);
+  }
+  // r12: 描く物 (その記録の写真・動画) だけを読む。同じプレイの物 (play_media) は読まない。r9: ネタバレの記録は何も読まない
+  if (isR3(large)) for (const item of cardItems(large)) urls.add(item.url);
+  else for (const item of large.media ?? []) urls.add(item.url);
+  if ((large.layout === "moment" || large.layout === "game") && large.author_avatar_url) urls.add(large.author_avatar_url);
   if (large.layout === "profile") {
     if (large.avatar_url) urls.add(large.avatar_url);
     if (large.background_url) urls.add(large.background_url);
@@ -230,10 +330,40 @@ export async function loadCardImages(large, fetchImpl) {
   ));
   const get = (url) => (url ? raw.get(url) ?? null : null);
 
+  if (isR3(large)) {
+    // r10: 投稿者の写真・動画を切らずに並べ (card-layout.mjs)、無ければカバーを大きく。
+    // r12: 描くのはその記録の物だけ (cardItems。同じプレイの物では埋めない)。
+    // 投稿者のアイコンとカバーの小さな絵は上の帯。背景は 1 枚目をぼかして暗くした物 (無い時はカバー)。
+    const spoiler = large.spoiler === true;
+    const media = spoiler ? [] : large.media ?? [];
+    const coverBuffer = get(large.cover_url);
+    const [author, thumb, background, hero, laid] = await Promise.all([
+      pngUri(get(large.author_avatar_url), HEAD_AVATAR * 2, HEAD_AVATAR * 2),
+      coverUri(coverBuffer, THUMB[0] * 2, THUMB[1] * 2),
+      blurUri(coverBuffer ?? get(large.photo_url)),
+      media.length === 0 && !spoiler ? coverUri(coverBuffer, ...HERO_COVER) : null,
+      layoutTiles(cardItems(large), get),
+    ]);
+    return {
+      author, thumb, background, hero,
+      tiles: laid?.tiles ?? [], group: laid?.group ?? null, tilesBackground: laid?.backdrop ?? null,
+    };
+  }
   if (large.layout === "game") {
     const buffer = get(large.cover_url);
     const [cover, background] = await Promise.all([coverUri(buffer, ...COVER.game), blurUri(buffer)]);
     return { cover, background };
+  }
+  if (large.layout === "moment") {
+    const photoBuffer = get(large.photo_url);
+    const coverBuffer = get(large.cover_url);
+    const [photo, cover, background] = await Promise.all([
+      fittedUri(photoBuffer, ...PHOTO_BOX),
+      coverUri(coverBuffer, ...COVER.moment),
+      blurUri(photoBuffer ?? coverBuffer),
+    ]);
+    // A photo that cannot be loaded falls back to the cover.
+    return { photo, cover, background };
   }
   if (large.layout === "profile") {
     const [avatar, background] = await Promise.all([
@@ -260,6 +390,43 @@ export async function loadCardImages(large, fetchImpl) {
     ...buffers.map((buffer) => coverUri(buffer, ...coverSize)),
   ]);
   return { background, owner, covers };
+}
+
+// imageAspect = 幅 ÷ 高さ (EXIF の向きを当てた後)。読めない時は null
+async function imageAspect(buffer) {
+  if (!buffer) return null;
+  try {
+    const meta = await pipeline(buffer).metadata();
+    const swap = (meta.orientation ?? 1) >= 5;
+    const width = swap ? meta.height : meta.width;
+    const height = swap ? meta.width : meta.height;
+    return width > 0 && height > 0 ? width / height : null;
+  } catch {
+    return null;
+  }
+}
+// r10: 写真・動画 (動画は代表の絵) を、読めた物の縦横で card-layout.mjs に並べてもらい、各枠の大きさにちょうど縮める
+// (縦横が同じなので切れない)。読めない物は外す。並べ方が外した物 (短い辺が足りない) は描かない。
+// 背景は 1 枚目をぼかした物。返り値の tiles は表示する順 (外した物を除く)、group はまとまりの外枠
+// r12: items = cardItems (その記録の物だけ・8 つまで)。heroFirst は使わない (r10 と同じ並べ方)
+async function layoutTiles(items, get) {
+  if (items.length === 0) return null;
+  const read = await Promise.all(items.map(async (item) => {
+    const buffer = get(item.url);
+    return { item, buffer, aspect: await imageAspect(buffer) };
+  }));
+  const usable = read.filter((entry) => entry.aspect !== null).slice(0, CARD_TILES_MAX);
+  if (usable.length === 0) return null;
+  const layout = layoutCard(usable.map((entry) => entry.aspect));
+  const shown = usable.map((entry, i) => ({ ...entry, slot: layout.slots[i] })).filter((entry) => entry.slot);
+  if (shown.length === 0) return null;
+  const [backdropUri, ...cut] = await Promise.all([
+    blurUri(shown[0].buffer),
+    ...shown.map((entry) => coverUri(entry.buffer, Math.max(1, Math.round(entry.slot.w)), Math.max(1, Math.round(entry.slot.h)))),
+  ]);
+  // 縮めるのに失敗した枠は空の枠 (並べ方は変えない)。1 つも描けなければ写真なしの形へ
+  const tiles = shown.map((entry, i) => ({ item: entry.item, slot: entry.slot, image: cut[i] }));
+  return tiles.some((tile) => tile.image) ? { tiles, group: layout.group, backdrop: backdropUri } : null;
 }
 
 // ---------------------------------------------------------------- layouts
@@ -306,8 +473,20 @@ function companies(publisher, developer) {
   );
 }
 
+function scoreBadge(score) {
+  const value = Number.isInteger(score) ? String(score) : score.toFixed(1);
+  return div(
+    { alignItems: "flex-end", marginTop: 26 },
+    div({ fontSize: 28, color: "#FDE68A", fontWeight: 900, marginBottom: 6 }, "満足度"),
+    div({ fontSize: 64, color: "#FFFFFF", fontWeight: 900, lineHeight: 1, marginLeft: 12 }, value),
+    div({ fontSize: 30, color: "#E2E8F0", fontWeight: 700, marginLeft: 6, marginBottom: 4 }, "/10"),
+  );
+}
+
 function gameCard(large, images, assets) {
   const [cw, ch] = COVER.game;
+  // A log card with a satisfaction or review text draws those instead of the credits.
+  const record = large.score !== undefined || large.excerpt !== undefined;
   return frame(
     assets,
     images.background,
@@ -321,9 +500,17 @@ function gameCard(large, images, assets) {
         large.heading
           ? div({ fontSize: 30, color: "#E2E8F0", fontWeight: 700, marginBottom: 14, maxWidth: 640, ...ELLIPSIS }, large.heading)
           : null,
-        div({ fontSize: large.title.length > 16 ? 56 : 68, lineHeight: 1.25, color: "#FFFFFF", fontWeight: 900,
-          lineClamp: 3, overflow: "hidden" }, large.title),
-        companies(large.publisher, large.developer),
+        record
+          ? div({ fontSize: large.title.length > 16 ? 44 : 54, lineHeight: 1.25, color: "#FFFFFF", fontWeight: 900,
+            lineClamp: 2, overflow: "hidden" }, large.title)
+          : div({ fontSize: large.title.length > 16 ? 56 : 68, lineHeight: 1.25, color: "#FFFFFF", fontWeight: 900,
+            lineClamp: 3, overflow: "hidden" }, large.title),
+        record && large.score !== undefined ? scoreBadge(large.score) : null,
+        record && large.excerpt !== undefined
+          ? div({ display: "block", fontSize: 28, lineHeight: 1.5, color: "#F1F5F9", fontWeight: 700, marginTop: 22,
+            maxWidth: 640, overflow: "hidden", lineClamp: 3 }, large.excerpt)
+          : null,
+        record ? null : companies(large.publisher, large.developer),
       ),
     ),
   );
@@ -514,11 +701,369 @@ function diagnosisCard(large, images, assets) {
   );
 }
 
+function excerptSize(text) {
+  const length = [...text].length;
+  if (length <= 36) return 38;
+  if (length <= 72) return 32;
+  return 28;
+}
+
+// TASK-20261017-002: the photo large on the left, then who / what they wrote /
+// which game. No photo (none, video only, spoiler, load failure) = the cover.
+function momentCard(large, images, assets) {
+  const photo = images.photo;
+  const [cw, ch] = COVER.moment;
+  const media = photo
+    ? img(photo.uri, { width: photo.width, height: photo.height, borderRadius: 18,
+      boxShadow: "0 16px 48px rgba(0,0,0,0.55)" })
+    : images.cover
+    ? img(images.cover, { width: cw, height: ch, borderRadius: 16, boxShadow: "0 16px 48px rgba(0,0,0,0.55)" })
+    : placeholder(cw, ch, 16);
+  const mediaWidth = photo ? photo.width : cw;
+  const columnWidth = W - 56 - mediaWidth - 48 - 56;
+  const body = large.spoiler
+    ? div({ marginTop: 20 },
+      div({ fontSize: 30, color: "#FFFFFF", fontWeight: 900, padding: "8px 22px", borderRadius: 999,
+        backgroundColor: "rgba(8,14,26,0.6)", border: "2px solid #FBBF24" }, MOMENT_SPOILER))
+    : large.excerpt
+    ? div({ display: "block", fontSize: excerptSize(large.excerpt), lineHeight: 1.45, color: "#FFFFFF", fontWeight: 900,
+      marginTop: 16, overflow: "hidden", lineClamp: 6 }, large.excerpt)
+    : null;
+  return frame(
+    assets,
+    images.background,
+    div(
+      { ...FULL, alignItems: "center", padding: "0 56px 0 56px" },
+      media,
+      div(
+        { flexDirection: "column", marginLeft: 48, width: columnWidth, minWidth: 0, paddingBottom: 40 },
+        div({ fontSize: 26, color: "#E2E8F0", fontWeight: 700, maxWidth: columnWidth, ...ELLIPSIS }, large.heading),
+        body,
+        div({ display: "block", fontSize: body ? 26 : 44, color: body ? "#BFD0E0" : "#FFFFFF", fontWeight: body ? 700 : 900,
+          lineHeight: 1.35, marginTop: 22, maxWidth: columnWidth, overflow: "hidden", lineClamp: 2 },
+        `『${large.title}』`),
+      ),
+    ),
+  );
+}
+
+const PLAY_ICON = `data:image/svg+xml;base64,${Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">' +
+  '<circle cx="48" cy="48" r="45" fill="#08101C" fill-opacity="0.62" stroke="#FFFFFF" stroke-width="4"/>' +
+  '<path d="M39 29 L71 48 L39 67 Z" fill="#FFFFFF"/></svg>',
+).toString("base64")}`;
+
+// ---------------------------------------------------------------- r9 layouts (TASK-20261017-002 r9)
+// 写真・動画が主役 (Emiya 10/21「リンクカードは写真を主役にしていいのでは？」)。r10: 投稿者の写真・動画は切らずに並べ
+// (並べ方は card-layout.mjs。Emiya 10/21「パターンの洗い出しもせずにとりあえずで作ってない？」)、
+// 上の細い帯の左に投稿者の小さなアイコンと名前、右にゲーム (小さなカバー・題名、レビューは満足度) を置く。PlayNavi の印は描かない。
+// 枚数も書かない。右下に重ねた札「写真・動画をすべて見る ›」で先へ誘う (X はカードの左下に住所を重ねるので、札は右下)。
+// 自分の写真・動画が無い記録は、ゲームのカバーを大きく真ん中に (札は「モーメントを見る ›」/「レビューを見る ›」。
+// r12: 同じプレイのほかの記録の写真・動画は描かない = シェアは投稿単位)。ネタバレはぼかしたカバーに「ネタバレを含みます」だけ (写真は読まない・描かない)。
+
+// The poster's name: the new author_name, else the old heading "<name>さんのモーメント / プレイ記録".
+export function authorName(large) {
+  if (typeof large.author_name === "string" && large.author_name.trim()) return large.author_name.trim();
+  const match = /^(.+?)さんの(?:モーメント|プレイ記録)$/.exec(large.heading ?? "");
+  return match ? match[1] : "ユーザー";
+}
+
+const scoreValue = (score) => (Number.isInteger(score) ? String(score) : score.toFixed(1));
+const reviewScore = (large) => (large.layout === "game" && typeof large.score === "number" ? large.score : null);
+const TEXT_SHADOW = "0 1px 4px rgba(0,0,0,0.6)";
+// 字幅の見積もり (和文 1em・欧文と数字 0.6em)
+const ems = (value) => [...String(value)].reduce((w, ch) => w + (ch.charCodeAt(0) < 0x2e80 ? 0.6 : 1), 0);
+
+// どの形で描くか: own = その記録の写真・動画を描く / plain = カバー / spoiler = ネタバレ
+// (r12: r8〜r11 の play = 同じプレイの写真・動画だけ、は無くした)
+export function recordMode(large, images = {}) {
+  if (large.spoiler === true) return "spoiler";
+  if ((images.tiles ?? []).some((tile) => tile?.image)) return "own";
+  return "plain";
+}
+
+// 右下の遷移文言 (枚数は書かない)。「画像」は PlayNavi が作る絵と紛れるので使わず「写真・動画」と言う
+export function ctaText(large, mode) {
+  if (mode === "own" || mode === "spoiler") return `${CTA_LABELS[mode]} ›`;
+  return `${large.layout === "moment" ? CTA_LABELS.moment : CTA_LABELS.review} ›`;
+}
+
+const SCORE_LABEL = 16;
+const SCORE_VALUE = 24;
+const scoreChipWidth = (score) =>
+  Math.ceil(ems("満足度") * SCORE_LABEL + 8 + ems(scoreValue(score)) * SCORE_VALUE + 3 + ems("/10") * SCORE_LABEL + 30);
+
+// 上の帯の幅の割り振り: 名前とゲーム名が両方入れば両方そのまま。入らない時は名前に 4 割まで、残りをゲーム名へ
+// (どちらも … で切る)。左右の塊は重ならない。
+export function headerWidths(name, title, { thumb = false, score = null, width = HEADER.w } = {}) {
+  // + 10 = 右の余白 (paddingRight 6) と見積もりの誤差
+  const nameNeed = Math.ceil(ems(name) * HEAD_NAME) + 10;
+  const titleNeed = Math.min(Math.ceil(ems(title) * HEAD_TITLE) + 10, HEAD_TITLE_MAX);
+  const rightFixed = (thumb ? THUMB[0] + 12 : 0) + (score === null ? 0 : scoreChipWidth(score) + 14);
+  const room = width - HEADER.gap - (HEAD_AVATAR + 12) - rightFixed;
+  if (nameNeed + titleNeed <= room) return { name: nameNeed, title: titleNeed, room };
+  const nameW = Math.min(nameNeed, Math.max(Math.round(room * 0.4), room - titleNeed));
+  return { name: nameW, title: room - nameW, room };
+}
+
+function avatarCircle(uri, name, size, ring) {
+  const style = { width: size, height: size, borderRadius: size / 2, flexShrink: 0,
+    border: `${ring}px solid rgba(255,255,255,0.9)`, boxShadow: "0 2px 10px rgba(0,0,0,0.4)" };
+  if (uri) return img(uri, style);
+  return div({ ...style, alignItems: "center", justifyContent: "center", backgroundColor: "#0D7C90",
+    fontSize: Math.round(size * 0.44), color: "#FFFFFF", fontWeight: 700 }, [...name][0] ?? "?");
+}
+
+function scoreChip(score) {
+  return div(
+    { height: 40, alignItems: "center", padding: "0 15px", borderRadius: 20, flexShrink: 0,
+      backgroundColor: "rgba(8,12,20,0.5)", border: "1px solid rgba(255,255,255,0.3)" },
+    div({ fontSize: SCORE_LABEL, color: "rgba(255,255,255,0.8)", fontWeight: 700, marginTop: 3 }, "満足度"),
+    div({ fontSize: SCORE_VALUE, color: "#FFFFFF", fontWeight: 900, lineHeight: 1, marginLeft: 8 }, scoreValue(score)),
+    div({ fontSize: SCORE_LABEL, color: "rgba(255,255,255,0.7)", fontWeight: 700, marginLeft: 3, marginTop: 5 }, "/10"),
+  );
+}
+
+// 上の帯: 左に投稿者 (小さなアイコン + 名前)、右にゲーム ([満足度] + 小さなカバー + 題名)。写真の上には上からの薄い影。
+// r10: top = 帯の上端 (既定は r9 の位置)、shade = 上からの薄い影 (写真の上の空きに置く時は描かない)、inset = 左右の端からの距離
+function header(large, images, { thumb, top = null, shade = true, inset = HEADER.x }) {
+  const name = authorName(large);
+  const title = titleText(large.title);
+  const score = reviewScore(large);
+  const showThumb = thumb && Boolean(images.thumb);
+  const widths = headerWidths(name, title, { thumb: showThumb, score, width: W - 2 * inset });
+  // paddingRight: 末尾の … が切り取られて「‥」に見えないよう、はみ出し分の余白
+  const text = { fontWeight: 700, color: "#FFFFFF", lineHeight: 1.25, textShadow: TEXT_SHADOW, paddingRight: 6, ...ELLIPSIS };
+  const y = top ?? HEADER.top;
+  return [
+    shade
+      ? div({ position: "absolute", left: 0, top: 0, width: W, height: HEADER.shade, backgroundImage:
+        "linear-gradient(180deg, rgba(4,8,16,0.64) 0%, rgba(4,8,16,0.34) 45%, rgba(4,8,16,0) 100%)" })
+      : null,
+    div(
+      { position: "absolute", left: inset, top: y, height: HEADER.h, alignItems: "center" },
+      avatarCircle(images.author, name, HEAD_AVATAR, 2),
+      div({ ...text, marginLeft: 12, fontSize: HEAD_NAME, maxWidth: widths.name }, name),
+    ),
+    div(
+      { position: "absolute", right: inset, top: y, height: HEADER.h, alignItems: "center" },
+      score === null ? null : scoreChip(score),
+      showThumb
+        ? img(images.thumb, { width: THUMB[0], height: THUMB[1], borderRadius: 6, flexShrink: 0, marginLeft: score === null ? 0 : 14,
+          border: "1px solid rgba(255,255,255,0.4)", boxShadow: "0 3px 10px rgba(0,0,0,0.4)" })
+        : null,
+      div({ ...text, marginLeft: showThumb ? 12 : score === null ? 0 : 14, fontSize: HEAD_TITLE,
+        color: "rgba(255,255,255,0.95)", maxWidth: widths.title }, title),
+    ),
+  ];
+}
+
+const CHEVRON = `data:image/svg+xml;base64,${Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="26" height="44" viewBox="0 0 26 44">' +
+  '<path d="M6 6 L20 22 L6 38" fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+).toString("base64")}`;
+
+// 右下の札 (すりガラス風: 暗い半透明 + 細い白の縁)。r10: 写真の下の空きに置く時は bottom を渡す。空きが狭い時は一回り小さく
+const CTA = { right: 28, bottom: 28, h: 62, compactH: 52 };
+function ctaPill(label, { bottom = CTA.bottom, right = CTA.right, compact = false } = {}) {
+  const height = compact ? CTA.compactH : CTA.h;
+  return div(
+    { position: "absolute", right, bottom, height, alignItems: "center", padding: compact ? "0 22px 0 26px" : "0 26px 0 30px",
+      borderRadius: height / 2, backgroundColor: "rgba(10,14,22,0.58)", border: "2px solid rgba(255,255,255,0.62)",
+      boxShadow: "0 8px 28px rgba(0,0,0,0.4)" },
+    div({ fontSize: compact ? 24 : 27, fontWeight: 700, color: "#FFFFFF", lineHeight: 1.2 }, label),
+    img(CHEVRON, { width: compact ? 12 : 13, height: compact ? 20 : 22, marginLeft: compact ? 12 : 14 }),
+  );
+}
+
+const bottomShade = () => div({ position: "absolute", left: 0, top: H - 190, width: W, height: 190, backgroundImage:
+  "linear-gradient(0deg, rgba(4,8,16,0.5) 0%, rgba(4,8,16,0.18) 55%, rgba(4,8,16,0) 100%)" });
+
+function durationChip(text, position) {
+  return div({ position: "absolute", ...position, height: 36, alignItems: "center", padding: "0 14px", borderRadius: 18,
+    fontSize: 22, fontWeight: 700, color: "#FFFFFF", backgroundColor: "rgba(8,12,20,0.66)" }, text);
+}
+
+const shell = (...children) => div(
+  { width: W, height: H, position: "relative", overflow: "hidden", backgroundColor: "#0B1524", fontFamily: "Noto Sans JP" },
+  ...children.flat(),
+);
+const backdrop = (uri, dim) => [
+  uri ? img(uri, FULL) : div({ ...FULL, backgroundImage: DARK_GRADIENT }),
+  div({ ...FULL, backgroundColor: `rgba(4,8,16,${dim})` }),
+];
+
+// r10: 上の帯と右下の札をどこに置くか。まとまりは上下の真ん中にあるので、上と下の空きは同じ高さ。
+// 空きが ROOM_MIN 以上なら、帯と札をその空きに (X に切られうる上下 15px の内側で、空きの真ん中寄り)。足りなければ写真の上に重ねる
+// 重ねる時、まとまりの左右の空きが狭い (SIDE_INSET_BELOW 未満) と、帯の端のアイコンや札が写真の縁をまたいで落ち着かないので、
+// 帯と札をまとまりの内側へ寄せる (inset / ctaRight)。左右が広く空いている時 (縦長 1 枚など) はカードの端のまま
+const SIDE_INSET_BELOW = 140;
+export function chromePlacement(group) {
+  const room = group ? group.y : 0;
+  if (room < ROOM_MIN) {
+    const side = group ? group.x : 0;
+    const narrow = side < SIDE_INSET_BELOW;
+    // overlayTop: 帯のアイコンが写真の上端から少し下がる所 (左右の inset と釣り合う)
+    return { room, headerTop: null, ctaBottom: null, compact: false, overlayTop: Math.max(HEADER.top, Math.round((group?.y ?? 0) + 8)),
+      inset: narrow ? Math.max(HEADER.x, Math.round(side + 18)) : HEADER.x,
+      ctaRight: narrow ? Math.max(CTA.right, Math.round(side + 16)) : CTA.right };
+  }
+  const compact = room < CTA.h + 2 * 16;
+  const ctaH = compact ? CTA.compactH : CTA.h;
+  const clamp = (value, lo, hi) => Math.max(lo, Math.min(hi, value));
+  return {
+    room,
+    // 帯の中身 (いちばん背の高い小さなカバー) が X_SAFE.top より下に来るように
+    headerTop: clamp(Math.round((room - HEADER.h) / 2), X_SAFE.top - (HEADER.h - THUMB[1]) / 2, HEADER.top),
+    ctaBottom: clamp(Math.round((room - ctaH) / 2), H - X_SAFE.bottom, CTA.bottom),
+    compact, inset: HEADER.x, ctaRight: CTA.right,
+  };
+}
+
+// r10: 札を写真に重ねる時の置き場所。まとまりの下の縁に接する枠のうち、札が丸ごと収まる (左右上下に 16px の余白) いちばん右の枠の
+// 右下に置く (小さな枠を札で隠さない・枠の縁をまたがない)。札の左端はカードの真ん中 (600) より右 (r12: X の住所の札 (左下) は
+// 見本で幅 300px 近くあり、260 では「写」が隠れた。どの縦横の並びでも重ならないよう真ん中より右に限る)。
+// 収まる枠が無ければ null (カードの右下の角に置く)
+export const CTA_SAFE_LEFT = 600;
+export function ctaWidth(label, compact = false) {
+  // 字 + 左右の余白 + › + 縁
+  return Math.ceil(ems(label) * (compact ? 24 : 27)) + (compact ? 48 + 24 : 56 + 27) + 4;
+}
+export function ctaOverTile(tiles, group, label) {
+  if (!group) return null;
+  const width = ctaWidth(label);
+  const bottomEdge = group.y + group.h;
+  const fits = tiles.map((tile) => tile.slot).filter((slot) => Math.abs(slot.y + slot.h - bottomEdge) < 1 &&
+    slot.w >= width + 32 && slot.h >= CTA.h + 32 && slot.x + slot.w - 16 - width >= CTA_SAFE_LEFT);
+  if (fits.length === 0) return null;
+  const slot = fits.reduce((a, b) => (b.x > a.x ? b : a));
+  return { right: Math.round(W - (slot.x + slot.w) + 16), bottom: Math.round(H - bottomEdge + 16) };
+}
+
+// 写真・動画 1 つ分の枠 (切らずに、枠の大きさ = 写真の大きさ)。角を丸めて薄い影。動画は真ん中に ▶、右上に長さ
+// (上の帯を写真に重ねる時は、帯より下へずらす)
+function mediaTile({ item, image, slot }, { headerOverlay }) {
+  const size = Math.round(Math.min(112, Math.min(slot.w, slot.h) * 0.3));
+  const duration = item.kind === "video" ? formatDuration(item.duration_ms) : null;
+  // 帯の下 (帯の上端 + 高さ + 余白) まで下げる
+  const chipTop = headerOverlay && slot.y < HEADER_CLEAR + 10 ? Math.round(HEADER_CLEAR + 10 - slot.y) : 14;
+  return div(
+    { position: "absolute", left: slot.x, top: slot.y, width: slot.w, height: slot.h, borderRadius: TILE_RADIUS,
+      backgroundColor: "rgba(30,41,59,0.85)", boxShadow: "0 10px 30px rgba(0,0,0,0.42)", alignItems: "center", justifyContent: "center" },
+    image ? img(image, { position: "absolute", left: 0, top: 0, width: slot.w, height: slot.h, borderRadius: TILE_RADIUS }) : null,
+    item.kind === "video" ? img(PLAY_ICON, { width: size, height: size }) : null,
+    duration ? durationChip(duration, { right: 14, top: chipTop }) : null,
+  );
+}
+
+// 投稿者の写真・動画を並べたカード。ぼかした 1 枚目の上に、切らずに並べる。札は「写真・動画をすべて見る」
+function photoCard(large, images) {
+  const { tiles, group } = images;
+  const background = images.tilesBackground ?? images.background;
+  const label = CTA_LABELS.own;
+  const place = chromePlacement(group);
+  const headerOverlay = place.headerTop === null;
+  return shell(
+    backdrop(background, 0.34),
+    tiles.map((tile) => mediaTile(tile, { headerOverlay })),
+    place.ctaBottom === null ? bottomShade() : null,
+    header(large, images, { thumb: true, top: place.headerTop ?? place.overlayTop, shade: headerOverlay, inset: place.inset }),
+    ctaPill(label, place.ctaBottom === null
+      ? ctaOverTile(tiles, group, label) ?? { right: place.ctaRight }
+      : { bottom: place.ctaBottom, compact: place.compact }),
+  );
+}
+
+// 描く写真・動画が何も無い: ぼかしたカバーの上に、ゲームのカバーを大きく真ん中に (感想の文は描かない)。
+// カバーが主役なので、上の帯の小さなカバーは省く。
+function plainCard(large, images) {
+  const [cw, ch] = HERO_COVER;
+  const top = HEADER_CLEAR - 8 + Math.round((H - (HEADER_CLEAR - 8) - 30 - ch) / 2);
+  const hero = images.hero
+    ? div({ position: "absolute", left: (W - cw) / 2, top, width: cw, height: ch, borderRadius: 18, overflow: "hidden",
+      border: "1px solid rgba(255,255,255,0.22)", boxShadow: "0 24px 64px rgba(0,0,0,0.6)" },
+    img(images.hero, { width: cw, height: ch }))
+    : div({ position: "absolute", left: 140, top: 150, width: W - 280, height: 300, alignItems: "center", justifyContent: "center" },
+      div({ display: "block", fontSize: 52, lineHeight: 1.3, color: "#FFFFFF", fontWeight: 900, textAlign: "center",
+        overflow: "hidden", lineClamp: 2, ...titleWordBreak(large.title, 52, W - 280) }, titleText(large.title)));
+  return shell(
+    backdrop(images.background, 0.42),
+    hero,
+    bottomShade(),
+    header(large, images, { thumb: !images.hero }),
+    ctaPill(ctaText(large, "plain").replace(/ ›$/, "")),
+  );
+}
+
+// ネタバレ: 写真は描かない。ぼかしたカバーの真ん中に「ネタバレを含みます」だけ
+function spoilerCard(large, images) {
+  return shell(
+    backdrop(images.background, 0.5),
+    div({ ...FULL, alignItems: "center", justifyContent: "center" },
+      div({ height: 76, alignItems: "center", padding: "0 42px", borderRadius: 38, border: "2px solid #FBBF24",
+        backgroundColor: "rgba(8,12,20,0.6)", boxShadow: "0 10px 32px rgba(0,0,0,0.4)",
+        fontSize: 34, fontWeight: 700, color: "#FFFFFF" }, SPOILER_LABEL)),
+    bottomShade(),
+    header(large, images, { thumb: true }),
+    ctaPill(CTA_LABELS.spoiler),
+  );
+}
+
+// 題名の折り返し (TASK-20261017-002 10/20): 日本語は既定だとどの字の間でも折れ、「そ / して伝説へ」のように語の途中で切れる。
+// 空白で区切った塊がどれも 1 行に収まる時だけ、空白の所で折る (keep-all)。収まらない塊がある時は今まで通り
+export function titleWordBreak(text, fontSize, width) {
+  const parts = String(text).split(/\s+/).filter(Boolean);
+  if (parts.length < 2) return {};
+  const longest = Math.max(...parts.map((part) => ems(part)));
+  return longest * fontSize <= width ? { wordBreak: "keep-all" } : {};
+}
+
+// 英数字の間のハイフン (HD-2D など) で折れないよう、折れないハイフン (U+2011) に置き換えて描く
+export function titleText(text) {
+  return String(text).replace(/([0-9A-Za-z])-(?=[0-9A-Za-z])/g, "$1‑");
+}
+
+function recordCard(large, images) {
+  const mode = recordMode(large, images);
+  if (mode === "spoiler") return spoilerCard(large, images);
+  if (mode === "own") return photoCard(large, images);
+  return plainCard(large, images);
+}
+
 export function cardElement(large, images, assets) {
+  if (isR3(large)) return recordCard(large, images, assets);
+  if (large.layout === "moment") return momentCard(large, images, assets);
   if (large.layout === "diagnosis") return diagnosisCard(large, images, assets);
   if (large.layout === "game") return gameCard(large, images, assets);
   if (large.layout === "profile") return profileCard(large, images, assets);
   return gridCard(large, images, assets);
+}
+
+// Encodes the drawn PNG as JPEG at the highest quality that fits the limit.
+export async function toJpeg(png, maxBytes = JPEG_MAX_BYTES) {
+  let out = null;
+  for (const quality of JPEG_QUALITIES) {
+    out = await sharp(png).flatten({ background: "#0B1524" }).jpeg({ quality, mozjpeg: true }).toBuffer();
+    if (out.length <= maxBytes) return out;
+  }
+  throw new Error(`card JPEG exceeds ${maxBytes} bytes`);
+}
+
+// r10: the record cards (moment / review) are always JPEG, also without photos (blurred cover). The PNG of the cover
+// card reached ~950KB, close to Bluesky's 1,000,000-byte thumb limit (app.bsky.embed.external thumb maxSize).
+export function servesJpeg(large) {
+  return drawsUserPhotos(large) || isR3(large);
+}
+
+// Renders a raw `large` payload: { body, contentType }. Record cards and cards that draw the
+// poster's photos are JPEG <= JPEG_MAX_BYTES; the rest stay PNG.
+export async function renderCardImage(rawLarge, options = {}) {
+  const large = validLarge(rawLarge);
+  if (!large) throw new Error("invalid large card");
+  const png = await renderCard(large, options);
+  return servesJpeg(large)
+    ? { body: await toJpeg(png), contentType: "image/jpeg" }
+    : { body: png, contentType: "image/png" };
 }
 
 // Renders a validated `large` payload to a PNG buffer.

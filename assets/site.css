@@ -401,3 +401,584 @@ textarea {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
+
+/*
+ * TASK-20261017-002 r6 記録のページ (モーメント・レビューのリンクを開いた見る人の画面。assets/share-view.mjs が描く)。
+ * サーバ (api/_lib/share-preview.mjs) が中身を埋め込んだ時だけ <html class="pn-rec-page"> になり、ここが効く
+ * (アンケート・ほかのリンクの画面の見た目は変えない)。
+ * 色は Web 版の決まり (playnavi-app web/src/app/globals.css の明るい・暗い) を写し、端末の設定に合わせる。書体は Noto Sans JP。
+ * 画面幅の境界は Web 版と同じ 1024px (PC = 左に写真・動画、右に文の 2 列)。
+ */
+html.pn-rec-page {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --bg-raised: #f5f9fa;
+  --bg-elevated: #ffffff;
+  --bg-sunken: #eef4f6;
+  --line: #dcebec;
+  --line-strong: #c4d9dc;
+  --text: #1a2c32;
+  --text-sub: #58737d;
+  --text-faint: #5f7078;
+  --accent: #0d7c90;
+  --accent-strong: #095f70;
+  --accent-soft: #e6f6f8;
+  --on-accent: #ffffff;
+  --focus: #f2b705;
+  --st-playing: #2f80ed;
+  --st-cleared: #1fa36b;
+  --st-watched: #8a5cf6;
+  --st-dropped: #e8743b;
+  --st-fill-mix: 70%;
+  --on-status: #ffffff;
+  --st-playing-fill: color-mix(in srgb, var(--st-playing) var(--st-fill-mix), #000000);
+  --st-cleared-fill: color-mix(in srgb, var(--st-cleared) var(--st-fill-mix), #000000);
+  --st-watched-fill: color-mix(in srgb, var(--st-watched) var(--st-fill-mix), #000000);
+  --st-dropped-fill: color-mix(in srgb, var(--st-dropped) var(--st-fill-mix), #000000);
+  --pn-font: "Noto Sans JP", system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", sans-serif;
+  --pn-top-h: 40px;
+  --pn-shell: 1200px;
+  --pn-glass: color-mix(in srgb, var(--bg) 86%, transparent);
+  background: var(--bg);
+}
+@media (prefers-color-scheme: dark) {
+  html.pn-rec-page {
+    --bg: #0b0c0e;
+    --bg-raised: #17191c;
+    --bg-elevated: #26292e;
+    --bg-sunken: #1e2124;
+    --line: #2b2f34;
+    --line-strong: #3c4148;
+    --text: #eceef0;
+    --text-sub: #a3a9b0;
+    --text-faint: #8b929a;
+    --accent: #3db2c5;
+    --accent-strong: #2fa4b9;
+    --accent-soft: #13272b;
+    --on-accent: #0b0c0e;
+    --focus: #ffcc4d;
+    --st-playing: #4da3ff;
+    --st-cleared: #3fd18a;
+    --st-watched: #b98cff;
+    --st-dropped: #ff8a65;
+    --st-fill-mix: 100%;
+    --on-status: #0b0c0e;
+  }
+}
+html.pn-rec-page body {
+  color: var(--text);
+  background: var(--bg);
+  font-family: var(--pn-font);
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+}
+html.pn-rec-page main { display: block; min-height: 100vh; min-height: 100dvh; padding: 0; }
+html.pn-rec-page #link-view {
+  width: 100%; min-height: 0; padding: 0; border-radius: 0;
+  background: transparent; box-shadow: none; text-align: left;
+}
+/* 部品が描く前も、今の「リンクを確認しています」の画面は出さない (描けなかった時は app.mjs が html の印を外す) */
+html.pn-rec-page #link-view > .logo,
+html.pn-rec-page #link-view > #spinner,
+html.pn-rec-page #link-view > #heading,
+html.pn-rec-page #link-view > #description,
+html.pn-rec-page #link-view > #store-buttons,
+html.pn-rec-page #link-view > .actions { display: none; }
+html.pn-rec-page .share-view { margin: 0; }
+
+.pn-rec { min-height: 100vh; min-height: 100dvh; color: var(--text); font-size: 16px; line-height: 1.6; }
+:where(.pn-rec) :is(p, h1, h2) { margin: 0; color: inherit; font-size: inherit; line-height: inherit; text-align: left; }
+:where(.pn-rec) a { color: var(--accent); }
+.pn-rec [hidden] { display: none !important; }
+.pn-rec :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* 左上の小さな印だけ (r7 P3: 頭の帯・「アプリで開く」は出さない。主役は本人の投稿) */
+.pn-top { padding-top: env(safe-area-inset-top); }
+.pn-top-inner {
+  display: flex; align-items: center;
+  max-width: var(--pn-shell); height: var(--pn-top-h); margin: 0 auto; padding: 0 16px;
+}
+.pn-logo { position: relative; display: inline-block; flex: none; width: 76px; aspect-ratio: 200 / 35; line-height: 0; border-radius: 4px; opacity: .8; }
+.pn-logo:hover { opacity: 1; }
+.pn-logo img { display: block; max-width: none; }
+.pn-logo .pn-logo-light { width: 100%; height: 100%; }
+.pn-logo .pn-logo-dark { display: none; position: absolute; left: 50%; top: 50%; width: 102.5%; height: auto; transform: translate(-50%, -50%); }
+@media (min-resolution: 1.5dppx) { .pn-logo .pn-logo-light { image-rendering: pixelated; } }
+@media (prefers-color-scheme: dark) {
+  .pn-logo .pn-logo-light { display: none; }
+  .pn-logo .pn-logo-dark { display: block; }
+}
+
+/* 並び (スマホ = 1 列): 名前・日付 → 写真・動画 → (満足度) → 文 → ゲーム */
+.pn-layout { max-width: 640px; margin: 0 auto; }
+.pn-layout > .pn-author { padding: 4px 16px 12px; }
+.pn-details { display: grid; gap: 16px; padding: 16px 20px 0; }
+
+/* 写真・動画 (Q1) */
+.pn-hero { position: relative; }
+.pn-frame { position: relative; width: 100%; aspect-ratio: var(--pn-ratio, 1); overflow: hidden; background: var(--bg-sunken); }
+.pn-track {
+  display: flex; width: 100%; height: 100%;
+  overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory; scrollbar-width: none;
+}
+.pn-track::-webkit-scrollbar { display: none; }
+.pn-track:focus-visible { outline-offset: -3px; }
+.pn-slide {
+  position: relative; flex: 0 0 100%; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; border-radius: 0;
+  overflow: hidden; background: var(--bg-sunken); scroll-snap-align: start; scroll-snap-stop: always;
+}
+.pn-slide-photo { display: block; cursor: zoom-in; }
+.pn-slide-photo:focus-visible { outline-offset: -3px; }
+.pn-photo { display: block; width: 100%; height: 100%; object-fit: cover; }
+.pn-slide-video { background: #000; }
+.pn-video { display: block; width: 100%; height: 100%; object-fit: cover; background: #000; }
+.pn-slide-video.is-started .pn-video { object-fit: contain; }
+.pn-play {
+  position: absolute; inset: 0; z-index: 1; display: grid; place-items: center; width: 100%; height: 100%;
+  padding: 0; border: 0; background: radial-gradient(circle at center, rgb(0 0 0 / .18), rgb(0 0 0 / 0) 60%); cursor: pointer;
+}
+.pn-play-icon {
+  position: relative; width: 76px; height: 76px; border-radius: 50%;
+  background: rgb(0 0 0 / .52); box-shadow: inset 0 0 0 2px rgb(255 255 255 / .9), 0 6px 24px rgb(0 0 0 / .3);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  transition: transform .15s ease;
+}
+.pn-play-icon::after {
+  content: ""; position: absolute; left: 30px; top: 24px;
+  border-style: solid; border-width: 14px 0 14px 23px; border-color: transparent transparent transparent #fff;
+}
+.pn-play:hover .pn-play-icon { transform: scale(1.06); }
+.pn-play:focus-visible { outline-offset: -4px; }
+.pn-duration {
+  position: absolute; left: 12px; bottom: 12px; z-index: 1; padding: 2px 9px; border-radius: 999px;
+  color: #fff; background: rgb(0 0 0 / .6); font-size: 12px; font-weight: 700; line-height: 1.7;
+  font-variant-numeric: tabular-nums; pointer-events: none;
+}
+.pn-slide-video.is-started .pn-duration { display: none; }
+.pn-video-fail {
+  position: absolute; left: 50%; bottom: 20px; z-index: 2; display: grid; gap: 10px; justify-items: center;
+  width: min(calc(100% - 32px), 320px); padding: 14px 16px; border-radius: 14px; transform: translateX(-50%);
+  color: #fff; background: rgb(0 0 0 / .66); text-align: center;
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+}
+.pn-video-fail-text { color: #fff; font-size: 14px; font-weight: 700; line-height: 1.5; text-align: center; }
+.pn-video-fail-link {
+  display: inline-flex; align-items: center; height: 36px; padding: 0 18px; border-radius: 999px;
+  color: #0b0c0e; background: #fff; font-size: 14px; font-weight: 700; text-decoration: none;
+}
+/* r13: 投稿の写真・動画が 2 つ以上 = 全部を一覧 (アルバムの札と同じ見た目・切らない)。行の分け方は share-view.mjs の
+   postGridRows が幅で決め、行の中は縦横比の割合で幅いっぱいに分ける (= 行の中の高さがそろう)。
+   1 枚だけの行が縦長で高くなりすぎないよう、行の幅に上限 (--pn-post-max-h の高さまで) を付けて真ん中に置く */
+.pn-hero.is-grid { --pn-album-gap: 4px; --pn-post-max-h: 440px; padding: 0 12px; }
+.pn-post-frame { position: relative; overflow: hidden; border-radius: 8px; }
+.pn-post-grid { display: grid; gap: var(--pn-album-gap); }
+.pn-post-row {
+  display: flex; gap: var(--pn-album-gap); width: 100%; margin: 0 auto;
+  max-width: calc(var(--rs, 1) * var(--pn-post-max-h) + (var(--n, 1) - 1) * var(--pn-album-gap));
+}
+.pn-post-row > .pn-post-tile { flex: var(--a, 1.333) 1 0; }
+.pn-rec.is-spoiler .pn-post-frame { min-height: 200px; background: var(--bg-sunken); }
+
+/* ネタバレ (Q5): 写真・動画はぼかし、文は入れない。「ネタバレを表示」1 つで両方出る */
+.pn-rec.is-spoiler .pn-track { filter: blur(28px) brightness(.72); transform: scale(1.15); }
+.pn-rec.is-spoiler .pn-post-grid { filter: blur(24px) brightness(.72); }
+.pn-rec.is-spoiler .pn-play,
+.pn-rec.is-spoiler .pn-duration,
+.pn-rec.is-spoiler .pn-post-grid .pn-album-play,
+.pn-rec.is-spoiler .pn-post-grid .pn-album-duration { visibility: hidden; }
+.pn-spoiler-cover {
+  position: absolute; inset: 0; z-index: 3; display: grid; place-content: center; justify-items: center; gap: 14px;
+  padding: 24px; color: #fff; text-align: center;
+}
+.pn-spoiler-note { color: #fff; font-size: 15px; font-weight: 700; text-align: center; text-shadow: 0 1px 8px rgb(0 0 0 / .4); }
+.pn-spoiler-button {
+  display: inline-flex; align-items: center; justify-content: center; height: 44px; padding: 0 24px;
+  border: 0; border-radius: 999px; color: #0b0c0e; background: #fff;
+  font: inherit; font-size: 15px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 16px rgb(0 0 0 / .25);
+}
+.pn-spoiler-text {
+  display: grid; gap: 12px; justify-items: start; padding: 14px 16px;
+  border: 1px dashed var(--line-strong); border-radius: 12px; background: var(--bg-raised);
+}
+.pn-spoiler-text-note { color: var(--text-sub); font-size: 14px; line-height: 1.6; }
+.pn-spoiler-text .pn-spoiler-button { color: var(--on-accent); background: var(--accent); box-shadow: none; }
+
+/* 名前・日付 */
+.pn-author { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.pn-avatar { flex: none; width: 44px; height: 44px; border-radius: 50%; object-fit: cover; background: var(--bg-sunken); }
+.pn-avatar-initial { display: grid; place-items: center; color: var(--accent); font-size: 18px; font-weight: 700; }
+.pn-author-text { display: grid; min-width: 0; }
+.pn-author-line { overflow: hidden; font-size: 15px; font-weight: 400; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
+.pn-author-name { font-weight: 700; }
+.pn-author-kind { color: var(--text-sub); }
+.pn-date { color: var(--text-faint); font-size: 13px; line-height: 1.5; }
+
+/* ゲーム (表紙 + 題名 + 状態の札) */
+.pn-game {
+  display: flex; align-items: center; gap: 12px; min-width: 0; padding: 10px 14px 10px 10px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--bg-raised);
+}
+.pn-cover { flex: none; width: 44px; height: 59px; border-radius: 6px; object-fit: cover; background: var(--bg-sunken); }
+.pn-game-text { display: grid; gap: 4px; justify-items: start; min-width: 0; }
+.pn-game-title {
+  display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  color: var(--text); font-size: 15px; font-weight: 700; line-height: 1.45; overflow-wrap: anywhere;
+}
+.pn-status {
+  display: inline-block; padding: 1px 10px; border-radius: 999px;
+  color: var(--on-status); background: var(--st-playing-fill); font-size: 12px; font-weight: 700; line-height: 1.7;
+}
+.pn-status-completed { background: var(--st-cleared-fill); }
+.pn-status-streaming_completed { background: var(--st-watched-fill); }
+.pn-status-dropped { background: var(--st-dropped-fill); }
+
+/* 満足度 (Q4) */
+.pn-score {
+  display: grid; grid-template-columns: auto 1fr; align-items: end; gap: 8px 16px; padding: 14px 16px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--bg-raised);
+}
+.pn-score-label { grid-column: 1 / -1; color: var(--text-sub); font-size: 13px; font-weight: 700; line-height: 1.4; }
+.pn-score-value { display: flex; align-items: baseline; gap: 2px; color: var(--text); line-height: 1; }
+.pn-score-number { font-size: 40px; font-weight: 700; line-height: 1; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.pn-score-max { color: var(--text-faint); font-size: 17px; font-weight: 700; }
+.pn-score-bar { align-self: center; height: 6px; margin-top: 10px; overflow: hidden; border-radius: 3px; background: var(--line); }
+.pn-score-fill { display: block; width: var(--pn-score, 0%); height: 100%; border-radius: inherit; background: var(--accent); }
+
+/* 文 */
+.pn-text { display: grid; gap: 10px; }
+.pn-text:empty { display: none; }
+.pn-title { color: var(--text); font-size: 20px; font-weight: 700; line-height: 1.5; overflow-wrap: anywhere; }
+.pn-body { max-width: 36em; color: var(--text); font-size: 16px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pn-moments { color: var(--accent-strong); font-size: 14px; font-weight: 700; }
+
+/* r7 P2: このプレイの記録 (親のレビュー + 同じプレイのほかのモーメント。押すとその場で開く) */
+.pn-story { max-width: 640px; margin: 32px auto 0; padding: 24px 20px 0; border-top: 1px solid var(--line); }
+.pn-story-head { display: grid; gap: 2px; margin-bottom: 16px; }
+.pn-story-title { color: var(--text); font-size: 18px; font-weight: 700; line-height: 1.4; }
+.pn-story-sub { overflow: hidden; color: var(--text-sub); font-size: 13px; line-height: 1.5; text-overflow: ellipsis; white-space: nowrap; }
+.pn-story-grid { display: grid; gap: 16px; align-items: start; }
+.pn-story-label { color: var(--text-sub); font-size: 13px; font-weight: 700; line-height: 1.4; }
+.pn-story-review {
+  display: grid; gap: 10px; padding: 16px 18px;
+  border: 1px solid var(--line); border-radius: 16px; background: var(--bg-raised);
+}
+.pn-story-review-head { display: flex; align-items: center; gap: 10px; }
+.pn-story-score { display: flex; align-items: baseline; gap: 6px; color: var(--text); line-height: 1; }
+.pn-story-score-label { color: var(--text-sub); font-size: 13px; font-weight: 700; }
+.pn-story-score-number { font-size: 34px; font-weight: 700; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.pn-story-score-max { color: var(--text-faint); font-size: 15px; font-weight: 700; }
+.pn-story-review-body { display: grid; gap: 8px; justify-items: start; }
+.pn-story-comment { color: var(--text); font-size: 15px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pn-story-comment.is-folded { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 4; }
+.pn-story-more-button {
+  padding: 0; border: 0; background: none; color: var(--accent-strong); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer;
+}
+.pn-story-date { color: var(--text-faint); font-size: 12px; line-height: 1.5; }
+.pn-story-list { display: grid; gap: 10px; }
+.pn-story-item { border: 1px solid var(--line); border-radius: 16px; background: var(--bg); overflow: hidden; }
+.pn-story-item.is-open { border-color: var(--line-strong); }
+.pn-story-toggle {
+  display: flex; align-items: flex-start; gap: 14px; width: 100%; margin: 0; padding: 12px; border: 0;
+  background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.pn-story-toggle:hover { background: var(--bg-raised); }
+.pn-story-toggle:focus-visible { outline-offset: -3px; }
+.pn-story-thumb {
+  position: relative; flex: none; width: 88px; height: 88px; overflow: hidden; border-radius: 12px; background: var(--bg-sunken);
+}
+.pn-story-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.pn-story-item.is-spoiler .pn-story-thumb img { filter: blur(14px) brightness(.8); transform: scale(1.2); }
+.pn-story-thumb-play {
+  position: absolute; left: 50%; top: 50%; width: 32px; height: 32px; margin: -16px 0 0 -16px; border-radius: 50%;
+  background: rgb(0 0 0 / .55); box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / .9);
+}
+.pn-story-thumb-play::after {
+  content: ""; position: absolute; left: 12px; top: 9px;
+  border-style: solid; border-width: 7px 0 7px 11px; border-color: transparent transparent transparent #fff;
+}
+.pn-story-thumb-count {
+  position: absolute; right: 6px; bottom: 6px; min-width: 20px; padding: 0 6px; border-radius: 999px;
+  color: #fff; background: rgb(0 0 0 / .6); font-size: 11px; font-weight: 700; line-height: 18px; text-align: center;
+}
+.pn-story-lines { display: grid; gap: 4px; min-width: 0; padding-top: 2px; }
+.pn-story-item-title {
+  display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  color: var(--text); font-size: 15px; font-weight: 700; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap;
+}
+.pn-story-excerpt {
+  display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  color: var(--text-sub); font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; white-space: pre-wrap;
+}
+.pn-story-item.is-spoiler .pn-story-item-title { color: var(--text-sub); }
+.pn-story-item.is-open .pn-story-item-title,
+.pn-story-item.is-open .pn-story-excerpt { display: block; -webkit-line-clamp: unset; }
+.pn-story-item.is-open .pn-story-excerpt { color: var(--text); font-size: 15px; line-height: 1.75; }
+.pn-story-panel { display: grid; gap: 10px; padding: 0 12px 14px; }
+.pn-story-panel:empty { display: none; }
+.pn-story-panel-title { margin: 0; color: var(--text); font-size: 16px; font-weight: 700; line-height: 1.5; }
+.pn-story-panel-body { color: var(--text); font-size: 15px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pn-story-media {
+  display: flex; gap: 8px; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; overscroll-behavior-x: contain;
+}
+.pn-story-media::-webkit-scrollbar { display: none; }
+.pn-story-photo, .pn-story-video {
+  flex: none; height: 220px; max-width: 86%; margin: 0; padding: 0; border: 0; border-radius: 12px; overflow: hidden;
+  background: var(--bg-sunken); scroll-snap-align: start; cursor: zoom-in;
+}
+.pn-story-photo img { display: block; width: auto; height: 100%; max-width: none; object-fit: cover; }
+.pn-story-video { width: auto; aspect-ratio: 16 / 9; background: #000; cursor: auto; }
+.pn-story-rest { margin-top: 12px; color: var(--text-sub); font-size: 13px; text-align: left; }
+
+/* ページの一番下の控えめな行 (r7 P3)。スマホ = 文字のリンク「PlayNaviアプリで開く」、PC = ストアの小さな文字のリンク */
+.pn-end { margin-top: 40px; padding: 0 0 env(safe-area-inset-bottom); border-top: 1px solid var(--line); }
+.pn-end-inner {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px;
+  max-width: var(--pn-shell); min-height: 56px; margin: 0 auto; padding: 14px 20px 20px;
+  color: var(--text-faint); font-size: 13px; line-height: 1.5;
+}
+.pn-end-brand { color: var(--text-faint); font-weight: 700; }
+.pn-end-slot { flex: 1; min-width: 0; }
+.pn-end-slot .actions { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0; }
+.pn-end-slot .button {
+  display: inline; width: auto; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 0;
+  color: var(--accent-strong); background: none; box-shadow: none;
+  font: inherit; font-size: 14px; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+}
+.pn-end-stores { display: flex; gap: 14px; }
+.pn-end-store { color: var(--text-sub) !important; font-weight: 700; text-decoration: none; }
+.pn-end-store:hover { text-decoration: underline; }
+.pn-rec[data-app="on"] .pn-end-stores,
+.pn-rec[data-app="on"] .pn-end-brand { display: none; }
+
+/* PC (Q6): 左に写真・動画 (約 6 割)、右に名前・文・ゲーム。下に「このプレイの記録」を幅いっぱいに */
+@media (min-width: 1024px) {
+  /* 中身の幅は Web 版の決まり (画面幅の 88%) にそろえ、1100〜1600px に収める (1920 でも小さく縮こまらない) */
+  html.pn-rec-page { --pn-top-h: 56px; --pn-shell: clamp(1100px, 88vw, 1600px); }
+  .pn-top-inner { padding-left: 32px; padding-right: 32px; }
+  .pn-logo { width: 84px; }
+  .pn-layout { max-width: 720px; padding: 24px 32px 0; }
+  .pn-layout > .pn-author { padding: 0 0 4px; }
+  /* 上から置く (上下の真ん中に寄せると、広い画面で上に大きな空白ができる。10/20 Emiya「WEB はダサい」の見直し) */
+  .pn-layout.has-media {
+    display: grid; grid-template-columns: minmax(0, 7fr) minmax(360px, 5fr); grid-template-rows: auto 1fr;
+    column-gap: 56px; row-gap: 20px; align-items: start; align-content: start;
+    max-width: var(--pn-shell); padding-top: 24px;
+  }
+  .pn-layout.has-media .pn-hero { grid-column: 1; grid-row: 1 / span 2; position: sticky; top: 24px; }
+  .pn-layout.has-media > .pn-author { grid-column: 2; grid-row: 1; padding-top: 4px; }
+  .pn-layout.has-media .pn-details { grid-column: 2; grid-row: 2; }
+  .pn-layout.has-media .pn-frame {
+    width: min(100%, calc((100vh - 120px) * var(--pn-ratio, 1)));
+    margin: 0 auto; border-radius: 16px;
+  }
+  /* r13: 一覧は左の列の幅いっぱいに 3〜4 枚ずつ。画面より高くなることがあるので止めない (sticky にしない) */
+  .pn-layout.has-media .pn-hero.is-grid { position: relative; top: auto; padding: 0; }
+  .pn-hero.is-grid { --pn-album-gap: 8px; --pn-post-max-h: 560px; }
+  .pn-post-frame { border-radius: 10px; }
+  .pn-details { gap: 20px; padding: 0; }
+  .pn-layout:not(.has-media) .pn-details { padding-top: 16px; }
+  .pn-avatar { width: 52px; height: 52px; }
+  .pn-author-line { font-size: 17px; }
+  .pn-date { font-size: 14px; }
+  .pn-game-title { font-size: 16px; }
+  .pn-title { font-size: 26px; line-height: 1.45; }
+  .pn-body { font-size: 17px; line-height: 1.85; }
+  .pn-story { max-width: var(--pn-shell); margin-top: 56px; padding: 32px 32px 0; }
+  .pn-story-head { margin-bottom: 20px; }
+  .pn-story-title { font-size: 20px; }
+  .pn-story-sub { font-size: 14px; }
+  /* レビューの札は左の列、モーメントは右に 2 列〜。モーメントだけの時は全部の幅に並べる */
+  .pn-story-grid.has-review { grid-template-columns: minmax(320px, 4fr) minmax(0, 8fr); gap: 24px; }
+  .pn-story-list { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
+  .pn-story-item.is-open { grid-column: 1 / -1; }
+  .pn-story-thumb { width: 112px; height: 112px; }
+  .pn-story-photo, .pn-story-video { height: 320px; }
+  .pn-end { margin-top: 64px; }
+  .pn-end-inner { padding-left: 32px; padding-right: 32px; }
+}
+
+/* r8 (overview §12.2): レビューのプレイ時間・遊んだ機種 */
+.pn-facts { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 0; }
+.pn-fact { display: grid; gap: 2px; min-width: 0; }
+.pn-fact-label { margin: 0; color: var(--text-sub); font-size: 12px; font-weight: 700; line-height: 1.4; }
+.pn-fact-value { margin: 0; color: var(--text); font-size: 15px; font-weight: 700; line-height: 1.5; overflow-wrap: anywhere; }
+.pn-story-review .pn-facts { margin-top: 2px; }
+
+/* r8: このプレイのアルバム。切らずに (それぞれの縦横比のまま) 行ごとに幅をそろえて並べる (行の高さの目安 = --pn-album-h) */
+.pn-album { --pn-album-h: 96px; --pn-album-gap: 4px; max-width: 640px; margin: 28px auto 0; padding: 22px 12px 0; border-top: 1px solid var(--line); scroll-margin-top: 12px; }
+.pn-album-head { display: grid; gap: 4px; margin: 0 4px 14px; }
+.pn-album-title { display: flex; align-items: baseline; flex-wrap: wrap; color: var(--text); font-size: 20px; font-weight: 700; line-height: 1.4; }
+.pn-album-count { color: var(--accent-strong); font-variant-numeric: tabular-nums; }
+.pn-album-sub { color: var(--text-sub); font-size: 14px; line-height: 1.6; }
+.pn-album-grid { display: flex; flex-wrap: wrap; gap: var(--pn-album-gap); }
+/* 最後の行は広げない (ほかの行と同じくらいの高さのまま、右に空きを残す) */
+.pn-album-grid::after { content: ""; flex: 100 1 0; min-width: 0; }
+.pn-album-tile {
+  position: relative; flex: var(--a, 1.333) 1 calc(var(--a, 1.333) * var(--pn-album-h)); aspect-ratio: var(--a, 1.333);
+  min-width: 0; margin: 0; padding: 0; border: 0; border-radius: 8px; overflow: hidden;
+  background: var(--bg-sunken); cursor: zoom-in;
+}
+.pn-album-video { cursor: pointer; }
+.pn-album-img { display: block; width: 100%; height: 100%; object-fit: contain; transition: transform .25s ease, filter .25s ease; }
+.pn-album-empty { background: var(--bg-sunken); }
+.pn-album-tile:hover .pn-album-img { transform: scale(1.025); }
+.pn-album-tile:focus-visible { outline-offset: 2px; }
+.pn-album-play {
+  position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; margin: -22px 0 0 -22px; border-radius: 50%;
+  background: rgb(0 0 0 / .52); box-shadow: inset 0 0 0 2px rgb(255 255 255 / .92), 0 4px 16px rgb(0 0 0 / .3);
+  -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); pointer-events: none;
+}
+.pn-album-play::after {
+  content: ""; position: absolute; left: 17px; top: 13px;
+  border-style: solid; border-width: 9px 0 9px 15px; border-color: transparent transparent transparent #fff;
+}
+.pn-album-duration {
+  position: absolute; right: 6px; bottom: 6px; padding: 0 7px; border-radius: 999px;
+  color: #fff; background: rgb(0 0 0 / .62); font-size: 11px; font-weight: 700; line-height: 20px; font-variant-numeric: tabular-nums; pointer-events: none;
+}
+.pn-album-spoiler {
+  display: none; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  padding: 3px 12px; border-radius: 999px; color: #0b0c0e; background: #fff;
+  font-size: 12px; font-weight: 700; line-height: 1.6; white-space: nowrap; box-shadow: 0 2px 10px rgb(0 0 0 / .25); pointer-events: none;
+}
+.pn-album-tile.is-spoiler { cursor: pointer; }
+.pn-album-tile.is-spoiler .pn-album-img { filter: blur(16px) brightness(.72); transform: scale(1.2); }
+.pn-album-tile.is-spoiler .pn-album-spoiler { display: block; }
+.pn-album-tile.is-spoiler .pn-album-play,
+.pn-album-tile.is-spoiler .pn-album-duration { display: none; }
+.pn-album-rest { margin: 12px 4px 0; color: var(--text-sub); font-size: 13px; }
+
+/* r8: 全画面でアルバムの全部を見る (左右に送る・写真は拡大・動画はその場で再生) */
+.pn-av { position: fixed; inset: 0; z-index: 1000; background: #000; color: #fff; font-family: var(--pn-font, system-ui, sans-serif); }
+.pn-av [hidden] { display: none !important; }
+.pn-av-track {
+  position: absolute; inset: 0; display: flex; overflow-x: auto; overflow-y: hidden;
+  scroll-snap-type: x mandatory; overscroll-behavior: contain; scrollbar-width: none;
+}
+.pn-av-track::-webkit-scrollbar { display: none; }
+.pn-av.is-zoomed .pn-av-track { overflow: hidden; }
+.pn-av-slide {
+  position: relative; flex: 0 0 100%; width: 100%; height: 100%; scroll-snap-align: start; scroll-snap-stop: always;
+  display: grid; place-items: center; overflow: hidden;
+  padding: calc(60px + env(safe-area-inset-top)) 0 calc(76px + env(safe-area-inset-bottom));
+}
+.pn-av-zoom { width: 100%; height: 100%; display: grid; place-items: center; overflow: hidden; touch-action: pan-x; cursor: zoom-in; }
+.pn-av-slide.is-zoomed .pn-av-zoom { touch-action: none; cursor: grab; }
+.pn-av-img { max-width: 100%; max-height: 100%; object-fit: contain; transform-origin: center center; transition: transform .18s ease; user-select: none; -webkit-user-drag: none; }
+.pn-av-slide.is-zoomed .pn-av-img { transition: none; }
+.pn-av-video { max-width: 100%; max-height: 100%; width: 100%; height: 100%; object-fit: contain; background: #000; }
+.pn-av-play {
+  position: absolute; inset: 0; z-index: 1; display: grid; place-items: center; width: 100%; height: 100%;
+  padding: 0; border: 0; background: none; cursor: pointer;
+}
+.pn-av-duration {
+  position: absolute; left: 50%; top: calc(50% + 52px); transform: translateX(-50%); padding: 2px 10px; border-radius: 999px;
+  color: #fff; background: rgb(0 0 0 / .6); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; pointer-events: none;
+}
+.pn-av-video-slide.is-started .pn-av-duration { display: none; }
+.pn-av-spoiler {
+  position: absolute; inset: 0; z-index: 2; display: grid; place-content: center; justify-items: center; gap: 14px; padding: 24px; text-align: center;
+}
+.pn-av-slide.is-spoiler .pn-av-img,
+.pn-av-slide.is-spoiler .pn-av-video { filter: blur(30px) brightness(.6); }
+.pn-av-slide.is-spoiler .pn-av-play,
+.pn-av-slide.is-spoiler .pn-av-duration { visibility: hidden; }
+.pn-av-head {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 3; display: flex; align-items: center; gap: 12px;
+  height: calc(60px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) 8px 0 20px;
+  background: linear-gradient(rgb(0 0 0 / .55), rgb(0 0 0 / 0)); pointer-events: none;
+}
+.pn-av-counter { margin: 0; color: #fff; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.pn-av-close, .pn-av-nav {
+  display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%;
+  color: #fff; background: rgb(255 255 255 / .14); cursor: pointer; pointer-events: auto;
+}
+.pn-av-close { position: relative; width: 44px; height: 44px; margin-left: auto; }
+.pn-av-nav { position: absolute; top: 50%; z-index: 3; width: 48px; height: 48px; margin-top: -24px; }
+.pn-av-nav::before { content: ""; width: 11px; height: 11px; border-top: 2px solid #fff; border-right: 2px solid #fff; }
+.pn-av-nav.prev { left: 16px; }
+.pn-av-nav.prev::before { margin-left: 5px; transform: rotate(-135deg); }
+.pn-av-nav.next { right: 16px; }
+.pn-av-nav.next::before { margin-left: -5px; transform: rotate(45deg); }
+.pn-av-nav:disabled, .pn-av-nav[hidden] { display: none; }
+.pn-av.is-touch .pn-av-nav { display: none; }
+@media (hover: none) { .pn-av-nav { display: none; } }
+.pn-av-close:focus-visible, .pn-av-nav:focus-visible, .pn-av-thumb:focus-visible, .pn-av-play:focus-visible { outline: 2px solid #ffcc4d; outline-offset: 2px; }
+.pn-av-caption {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; display: grid; gap: 2px;
+  padding: 28px 20px calc(16px + env(safe-area-inset-bottom)); background: linear-gradient(rgb(0 0 0 / 0), rgb(0 0 0 / .6)); pointer-events: none;
+}
+.pn-av-caption[hidden] { display: none; }
+.pn-av-caption-title { margin: 0; overflow: hidden; color: #fff; font-size: 15px; font-weight: 700; line-height: 1.5; text-overflow: ellipsis; white-space: nowrap; }
+.pn-av-caption-title:empty { display: none; }
+.pn-av-caption-date { margin: 0; color: rgb(255 255 255 / .72); font-size: 12px; line-height: 1.5; }
+.pn-av-rail { display: none; }
+
+/* r8: アルバムの PC の並び (行の高さを上げ、1440 で 1 行 4〜5 枚・1920 で 5〜6 枚) */
+@media (min-width: 1024px) {
+  .pn-album { --pn-album-h: 150px; --pn-album-gap: 8px; max-width: var(--pn-shell); margin-top: 48px; padding: 32px 32px 0; }
+  .pn-album-head { margin: 0 0 20px; }
+  .pn-album-title { font-size: 24px; }
+  .pn-album-sub { font-size: 15px; }
+  .pn-album-tile { border-radius: 10px; }
+  .pn-album-play { width: 52px; height: 52px; margin: -26px 0 0 -26px; }
+  .pn-album-play::after { left: 20px; top: 16px; border-width: 10px 0 10px 17px; }
+  /* 全画面: 下に小さな絵の列 (押すとその 1 枚へ) */
+  .pn-av-slide { padding: 72px 88px 160px; }
+  .pn-av-caption { bottom: 96px; padding: 0 96px 8px; background: none; text-align: center; justify-items: center; }
+  .pn-av-rail {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; display: flex; justify-content: safe center; gap: 8px;
+    height: 88px; padding: 12px 24px 16px; overflow-x: auto; scrollbar-width: none; background: rgb(0 0 0 / .5);
+  }
+  .pn-av-rail::-webkit-scrollbar { display: none; }
+  .pn-av-thumb {
+    position: relative; flex: none; width: 84px; height: 60px; padding: 0; border: 2px solid transparent; border-radius: 8px;
+    overflow: hidden; background: #1e2124; opacity: .58; cursor: pointer; transition: opacity .15s ease, border-color .15s ease;
+  }
+  .pn-av-thumb img { display: block; width: 100%; height: 100%; object-fit: contain; }
+  .pn-av-thumb:hover { opacity: .9; }
+  .pn-av-thumb.is-current { border-color: #fff; opacity: 1; }
+  .pn-av-thumb.is-spoiler img { filter: blur(8px) brightness(.7); }
+  .pn-av-thumb-play::after {
+    content: ""; position: absolute; left: 50%; top: 50%; margin: -7px 0 0 -4px;
+    border-style: solid; border-width: 7px 0 7px 11px; border-color: transparent transparent transparent #fff; filter: drop-shadow(0 1px 3px rgb(0 0 0 / .6));
+  }
+}
+@media (min-width: 1600px) { .pn-album { --pn-album-h: 168px; } }
+@media (min-width: 2200px) { .pn-album { --pn-album-h: 200px; } }
+
+/* 写真を全画面で見る */
+.share-viewer-open { overflow: hidden; }
+.share-viewer { position: fixed; inset: 0; z-index: 1000; background: #000; touch-action: pan-y; }
+.share-viewer-stage {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  padding: calc(56px + env(safe-area-inset-top)) 0 calc(24px + env(safe-area-inset-bottom));
+}
+.share-viewer-image { max-width: 100%; max-height: 100%; object-fit: contain; }
+.share-viewer-head {
+  position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 12px;
+  height: calc(56px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) 8px 0 20px;
+  background: linear-gradient(rgb(0 0 0 / .5), rgb(0 0 0 / 0));
+}
+.share-viewer-counter { margin: 0; color: #fff; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.share-viewer-close, .share-viewer-nav {
+  display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%;
+  color: #fff; background: rgb(255 255 255 / .14); cursor: pointer;
+}
+.share-viewer-close { position: relative; width: 44px; height: 44px; margin-left: auto; }
+.share-viewer-x::before, .share-viewer-x::after {
+  content: ""; position: absolute; left: 50%; top: 50%; width: 18px; height: 2px; margin: -1px 0 0 -9px; border-radius: 1px; background: #fff;
+}
+.share-viewer-x::before { transform: rotate(45deg); }
+.share-viewer-x::after { transform: rotate(-45deg); }
+.share-viewer-nav { position: absolute; top: 50%; width: 48px; height: 48px; margin-top: -24px; }
+.share-viewer-nav::before { content: ""; width: 11px; height: 11px; border-top: 2px solid #fff; border-right: 2px solid #fff; }
+.share-viewer-nav.prev { left: 16px; }
+.share-viewer-nav.prev::before { margin-left: 5px; transform: rotate(-135deg); }
+.share-viewer-nav.next { right: 16px; }
+.share-viewer-nav.next::before { margin-left: -5px; transform: rotate(45deg); }
+.share-viewer-close:focus-visible, .share-viewer-nav:focus-visible { outline: 2px solid #ffcc4d; outline-offset: 2px; }
+.share-viewer.is-touch .share-viewer-nav { display: none; }
+@media (hover: none) { .share-viewer-nav { display: none; } }
+.share-viewer-nav[hidden], .share-viewer-counter[hidden] { display: none; }
