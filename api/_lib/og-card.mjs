@@ -146,7 +146,7 @@ export function cachedFont(text, weight, fetchImpl) {
 // Fixed labels drawn by the layouts plus every dynamic string, deduplicated
 // and sorted so identical character sets share one cache entry.
 // "…" is drawn by textOverflow: ellipsis, so it must be in every subset.
-const FIXED_TEXT = "0123456789+,.…─販売・開発さんのプロフィール総ログ数本プレイ中クリア実況視聴済断念積みゲーあと作品" +
+const FIXED_TEXT = "0123456789+,.…─販売・開発さんのマイルーム総ログ数本プレイ中クリア実況視聴済断念積みゲーあと作品" +
   "ゲーマーDNA対戦没入論理感覚自立仲間集中広範";
 export function cardText(large) {
   const parts = [FIXED_TEXT];
@@ -532,7 +532,8 @@ function profileCard(large, images, assets) {
       boxShadow: "0 12px 36px rgba(0,0,0,0.45)" })
     : div({ width: AVATAR, height: AVATAR, borderRadius: 24, backgroundColor: "#334155",
       border: "4px solid rgba(255,255,255,0.9)" });
-  const label = `${large.name}さんのプロフィール`;
+  // N6 (TASK-20261023-003): 見出し (share-preview-meta の題) とそろえて「マイルーム」
+  const label = `${large.name}さんのマイルーム`;
   // Japanese glyphs are about 1em wide: size the label to the 832px column
   // (1200 - 2x64 padding - avatar - gap) so most names fit untruncated.
   const nameSize = Math.max(36, Math.min(66, Math.floor(820 / label.length)));

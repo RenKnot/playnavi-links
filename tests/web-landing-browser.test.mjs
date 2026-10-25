@@ -66,23 +66,34 @@ test("browser proves inactive default, PC short landing, mobile fallback and res
     await page.waitForURL(`https://playnavi.app/game/42?logId=${UUID}`);
     check("PC short link opens fixed Web origin with exact logId", page.url() === `https://playnavi.app/game/42?logId=${UUID}`);
     check("real same-origin resolver requests omit cookies", requests.length === 2 && requests.every((request) => request.method === "GET" && request.cookie === undefined));
+    // TASK-20261023-003 Q1=a: canonical links open the Web page right away (PC and phones)
     await page.goto(`${base}/game/42?logId=${UUID}`);
-    await page.locator("#web-btn").waitFor({ state: "visible" });
-    check("canonical PC fallback presents exact Web action", await page.locator("#web-btn").getAttribute("href") === `https://playnavi.app/game/42?logId=${UUID}`);
-    await page.locator("#web-btn").click();
     await page.waitForURL(`https://playnavi.app/game/42?logId=${UUID}`);
-    check("Web action actually navigates", page.url().startsWith("https://playnavi.app/game/42"));
+    check("canonical PC link opens the exact Web page", page.url() === `https://playnavi.app/game/42?logId=${UUID}`);
 
     for (const userAgent of ["iPhone", "Android"]) {
       const mobile = await browser.newContext({ userAgent, viewport: { width: 390, height: 844 } });
       const mobilePage = await mobile.newPage();
       mobilePage.on("pageerror", (error) => errors.push(error.message));
+      await mobilePage.route("https://playnavi.app/**", (route) => route.fulfill({ contentType: "text/html", body: "<h1>Web target</h1>" }));
+      await mobilePage.goto(`${base}/s/${CODE}`, { waitUntil: "commit" });
+      await mobilePage.waitForURL(`https://playnavi.app/game/42?logId=${UUID}`);
+      check(`${userAgent} short link opens the Web page without an app attempt`, mobilePage.url() === `https://playnavi.app/game/42?logId=${UUID}`);
+      await mobilePage.goto(`${base}/game/42?logId=${UUID}`, { waitUntil: "commit" });
+      await mobilePage.waitForURL(`https://playnavi.app/game/42?logId=${UUID}`);
+      check(`${userAgent} canonical link opens the Web page`, mobilePage.url() === `https://playnavi.app/game/42?logId=${UUID}`);
+      // The Web page's "アプリで開く・入れる" goes to the iOS manual-open origin, which must keep the app handoff.
+      await mobilePage.route("https://playnavi-links.vercel.app/**", async (route) => {
+        const url = new URL(route.request().url());
+        const local = await fetch(`${base}${url.pathname}${url.search}`);
+        await route.fulfill({ status: local.status, headers: { "content-type": local.headers.get("content-type") || "text/html" }, body: Buffer.from(await local.arrayBuffer()) });
+      });
       // The existing app scheme attempts an OS handoff during module startup;
       // waiting for network load would wait on Chrome's external-protocol UI.
-      await mobilePage.goto(`${base}/game/42?logId=${UUID}`, { waitUntil: "commit" });
+      await mobilePage.goto(`https://playnavi-links.vercel.app/game/42?logId=${UUID}`, { waitUntil: "commit" });
       await mobilePage.locator("#web-btn").waitFor({ state: "visible" });
-      check(`${userAgent} keeps manual app target`, await mobilePage.locator("#primary-btn").getAttribute("href") === (userAgent === "iPhone" ? `https://playnavi-links.vercel.app/game/42?logId=${UUID}` : `playnavi://game/42?logId=${UUID}`));
-      check(`${userAgent} retains Web fallback`, await mobilePage.locator("#web-btn").getAttribute("href") === `https://playnavi.app/game/42?logId=${UUID}`);
+      { const href = await mobilePage.locator("#primary-btn").getAttribute("href"); assert.equal(href, `playnavi://game/42?logId=${UUID}`, `${userAgent} app entry keeps manual app target`); assertions.push(`${userAgent} app entry keeps manual app target`); }
+      check(`${userAgent} app entry retains Web fallback`, await mobilePage.locator("#web-btn").getAttribute("href") === `https://playnavi.app/game/42?logId=${UUID}`);
       check(`${userAgent} has no horizontal overflow`, await mobilePage.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
       await mobile.close();
     }
@@ -92,8 +103,8 @@ test("browser proves inactive default, PC short landing, mobile fallback and res
     await page.waitForURL(`https://playnavi.app/users/${UUID}/diagnosis`);
     check("diagnosis short link opens the canonical Web page", page.url() === `https://playnavi.app/users/${UUID}/diagnosis`);
     await page.goto(`${base}/users/${UUID}/diagnosis`);
-    await page.getByText("PlayNaviでリンクを開く", { exact: true }).waitFor();
-    check("diagnosis canonical landing offers the Web page", await page.locator("#web-btn").getAttribute("href") === `https://playnavi.app/users/${UUID}/diagnosis`);
+    await page.waitForURL(`https://playnavi.app/users/${UUID}/diagnosis`);
+    check("diagnosis canonical link opens the Web page", page.url() === `https://playnavi.app/users/${UUID}/diagnosis`);
     await page.goto(`${base}/a?act=log&g=42&src=claude&i=stuck&at=1790645000000`);
     await page.getByText("PlayNaviに戻る", { exact: true }).waitFor();
     check("AI return has no Web action", !await page.locator("#web-btn").isVisible());

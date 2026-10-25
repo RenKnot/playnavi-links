@@ -3,7 +3,7 @@ import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
-const RESERVED = "(?:api|assets|\\.well-known|a|s|surveys|survey-login-error|auth/steam/callback)(?:/|$)|(?:logo\\.png|og-fallback\\.png|link\\.html|robots\\.txt)$|users/[^/]+/diagnosis(?:/|$)";
+const RESERVED = "(?:api|assets|\\.well-known|a|s|surveys|survey-login-error|auth/steam/callback)(?:/|$)|(?:logo\\.png|og-fallback\\.png|link\\.html|robots\\.txt)$";
 export const GATEWAY_SOURCE = `/:path((?!${RESERVED}).*)`;
 
 export function prepareWebGateway({ config, html, previewSource, upstreamOrigin, gatewayOrigin }) {
@@ -42,7 +42,6 @@ export function prepareWebGateway({ config, html, previewSource, upstreamOrigin,
   candidate.rewrites.splice(-1, 0,
     { source: "/index.html", has: structuredClone(host), destination: `${url.origin}/` },
     { source: "/survey-login-error", destination: "/link.html" },
-    { source: "/users/:id/diagnosis", destination: "/link.html" },
     { source: GATEWAY_SOURCE, has: structuredClone(host), destination: `${url.origin}/:path*` },
   );
   candidate.headers.push({
