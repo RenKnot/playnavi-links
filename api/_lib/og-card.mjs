@@ -7,6 +7,7 @@ import sharp from "sharp";
 import { MAX_ITEMS, layoutCard } from "./card-layout.mjs";
 import { allowedImageUrl, validLarge } from "./og-large.mjs";
 import { bandPaint, tierBoardLayout } from "./tier-board.mjs";
+import { fitTitle, keepAllFor } from "./title-fit.mjs";
 
 export { ALLOWED_IMAGE_HOSTS, allowedImageUrl, validLarge } from "./og-large.mjs";
 
@@ -504,6 +505,27 @@ function scoreBadge(score) {
   );
 }
 
+// 大きな題 (カタログ・ゲーム・表紙なしの記録のカード): 字の大きさは title-fit.mjs の決まり (1 字だけの行を出さない一番大きい字)
+// fallback = どの大きさも当たらない (とても長い) 時の前の字数の決まり
+const GAME_TITLE_W = W - 72 - 80 - COVER.game[0] - 56;
+const GAME_TITLE = { width: GAME_TITLE_W, sizes: [68, 64, 60, 56, 52, 48], maxLines: 3, fallback: (t) => (t.length > 16 ? 56 : 68) };
+const GAME_RECORD_TITLE = { width: GAME_TITLE_W, sizes: [54, 50, 46, 44, 40], maxLines: 2, fallback: (t) => (t.length > 16 ? 44 : 54) };
+const PLAIN_TITLE = { width: W - 280, sizes: [52, 48, 44, 40], maxLines: 2, fallback: () => 52 };
+const CATALOG_TITLE = { width: W - 620 - 64, sizes: [56, 52, 48, 44, 40], maxLines: 3,
+  fallback: (t) => (t.length > 18 ? 40 : t.length > 10 ? 48 : 56) };
+
+export const TITLE_SPECS = Object.freeze({ catalog: CATALOG_TITLE, game: GAME_TITLE, record: GAME_RECORD_TITLE, plain: PLAIN_TITLE });
+
+export function titleFit(title, spec) {
+  return fitTitle(titleText(title), { width: spec.width, sizes: spec.sizes, maxLines: spec.maxLines, fallback: spec.fallback(title) });
+}
+
+function bigTitle(title, spec, style = {}) {
+  const fit = titleFit(title, spec);
+  return div({ display: "block", fontSize: fit.size, lineHeight: 1.25, color: "#FFFFFF", fontWeight: 900, overflow: "hidden",
+    lineClamp: spec.maxLines, maxWidth: spec.width, ...(fit.keepAll ? { wordBreak: "keep-all" } : {}), ...style }, titleText(title));
+}
+
 function gameCard(large, images, assets) {
   const [cw, ch] = COVER.game;
   // A log card with a satisfaction or review text draws those instead of the credits.
@@ -521,11 +543,7 @@ function gameCard(large, images, assets) {
         large.heading
           ? div({ fontSize: 30, color: "#E2E8F0", fontWeight: 700, marginBottom: 14, maxWidth: 640, ...ELLIPSIS }, large.heading)
           : null,
-        record
-          ? div({ fontSize: large.title.length > 16 ? 44 : 54, lineHeight: 1.25, color: "#FFFFFF", fontWeight: 900,
-            lineClamp: 2, overflow: "hidden" }, large.title)
-          : div({ fontSize: large.title.length > 16 ? 56 : 68, lineHeight: 1.25, color: "#FFFFFF", fontWeight: 900,
-            lineClamp: 3, overflow: "hidden" }, large.title),
+        bigTitle(large.title, record ? GAME_RECORD_TITLE : GAME_TITLE),
         record && large.score !== undefined ? scoreBadge(large.score) : null,
         record && large.excerpt !== undefined
           ? div({ display: "block", fontSize: 28, lineHeight: 1.5, color: "#F1F5F9", fontWeight: 700, marginTop: 22,
@@ -1006,8 +1024,7 @@ function plainCard(large, images) {
       border: "1px solid rgba(255,255,255,0.22)", boxShadow: "0 24px 64px rgba(0,0,0,0.6)" },
     img(images.hero, { width: cw, height: ch }))
     : div({ position: "absolute", left: 140, top: 150, width: W - 280, height: 300, alignItems: "center", justifyContent: "center" },
-      div({ display: "block", fontSize: 52, lineHeight: 1.3, color: "#FFFFFF", fontWeight: 900, textAlign: "center",
-        overflow: "hidden", lineClamp: 2, ...titleWordBreak(large.title, 52, W - 280) }, titleText(large.title)));
+      bigTitle(large.title, PLAIN_TITLE, { lineHeight: 1.3, textAlign: "center" }));
   return shell(
     backdrop(images.background, 0.42),
     hero,
@@ -1034,10 +1051,7 @@ function spoilerCard(large, images) {
 // 題名の折り返し (TASK-20261017-002 10/20): 日本語は既定だとどの字の間でも折れ、「そ / して伝説へ」のように語の途中で切れる。
 // 空白で区切った塊がどれも 1 行に収まる時だけ、空白の所で折る (keep-all)。収まらない塊がある時は今まで通り
 export function titleWordBreak(text, fontSize, width) {
-  const parts = String(text).split(/\s+/).filter(Boolean);
-  if (parts.length < 2) return {};
-  const longest = Math.max(...parts.map((part) => ems(part)));
-  return longest * fontSize <= width ? { wordBreak: "keep-all" } : {};
+  return keepAllFor(text, fontSize, width) ? { wordBreak: "keep-all" } : {};
 }
 
 // 英数字の間のハイフン (HD-2D など) で折れないよう、折れないハイフン (U+2011) に置き換えて描く
@@ -1103,7 +1117,6 @@ function catalogCard(large, images, assets) {
     covers[1] ? fanCover(covers[1], FAN.side, { ...at(-FAN.offset, sw, sh), angle: -FAN.angle }) : null,
     fanCover(covers[0] ?? null, FAN.center, { ...at(0, cw, ch) }),
   ];
-  const titleSize = large.title.length > 18 ? 40 : large.title.length > 10 ? 48 : 56;
   const owner = div(
     { alignItems: "center", marginTop: 22 },
     images.owner
@@ -1121,8 +1134,7 @@ function catalogCard(large, images, assets) {
     div(
       { position: "absolute", left: 620, right: 64, top: 40, bottom: 90, flexDirection: "column", justifyContent: "center" },
       div({ fontSize: 26, fontWeight: 900, color: ACCENT, letterSpacing: 2 }, CATALOG_LABEL),
-      div({ display: "block", fontSize: titleSize, lineHeight: 1.25, color: "#FFFFFF", fontWeight: 900, marginTop: 10,
-        overflow: "hidden", lineClamp: 3, ...titleWordBreak(large.title, titleSize, 516) }, titleText(large.title)),
+      bigTitle(large.title, CATALOG_TITLE, { marginTop: 10 }),
       owner,
       large.description
         ? div({ display: "block", fontSize: 24, lineHeight: 1.45, color: "#E2E8F0", fontWeight: 700, marginTop: 18,
