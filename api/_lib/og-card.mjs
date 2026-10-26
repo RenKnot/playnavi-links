@@ -6,6 +6,7 @@ import { createElement as h } from "react";
 import sharp from "sharp";
 import { MAX_ITEMS, layoutCard } from "./card-layout.mjs";
 import { allowedImageUrl, validLarge } from "./og-large.mjs";
+import { bandPaint, tierBoardLayout } from "./tier-board.mjs";
 
 export { ALLOWED_IMAGE_HOSTS, allowedImageUrl, validLarge } from "./og-large.mjs";
 
@@ -160,6 +161,13 @@ export function cardText(large) {
   if (isR3(large)) parts.push(authorName(large), titleText(large.title), ...Object.values(CTA_LABELS), SPOILER_LABEL, "満足度/10", "›:", "\u2011");
   if (large.layout === "profile") parts.push(large.name);
   if (large.layout === "grid") parts.push(large.title, large.subtitle, large.description ?? "");
+  // TASK-20261023-003 E1〜E3 の新しい形の字
+  if (large.layout === "grid" && large.kind === "catalog") parts.push(CATALOG_LABEL, "本·");
+  if (large.layout === "grid" && large.tier_board) {
+    parts.push(TIER_LABEL, "本+");
+    for (const tier of large.tier_board.tiers) parts.push(tier.rank_name, tier.label ?? "");
+  }
+  if (large.layout === "profile" && large.room) parts.push(...Object.values(ROOM_WORDS), large.room.type_name ?? "", "+");
   if (large.layout === "diagnosis") {
     parts.push(large.name, large.type_name, large.title ?? "");
     for (const axis of large.axes) parts.push(axis.left, axis.right);
@@ -325,6 +333,10 @@ export async function loadCardImages(large, fetchImpl) {
     for (const url of large.cover_urls) urls.add(url);
     if (large.owner_avatar_url) urls.add(large.owner_avatar_url);
   }
+  // E2: 表に描く札の表紙だけを読む (100 枚まで。小さい札は IGDB の小さい版を読む)
+  if (large.layout === "grid" && large.tier_board) return await loadTierImages(large, fetchImpl);
+  // E3: マイルームの新しい形
+  if (large.layout === "profile" && large.room) return await loadRoomImages(large, fetchImpl);
   const raw = new Map(await Promise.all(
     [...urls].map(async (url) => [url, await loadImage(url, fetchImpl)]),
   ));
@@ -383,6 +395,15 @@ export async function loadCardImages(large, fetchImpl) {
     return { illustration: art, owner, background };
   }
   const buffers = large.cover_urls.map(get);
+  if (large.kind === "catalog") {
+    // E1: 扇の真ん中 (1 枚目) は大きく、左右は一回り小さく
+    const [background, owner, ...covers] = await Promise.all([
+      blurUri(buffers.find(Boolean) ?? null),
+      pngUri(get(large.owner_avatar_url), OWNER_AVATAR * 2, OWNER_AVATAR * 2),
+      ...buffers.map((buffer, i) => coverUri(buffer, ...(i === 0 ? FAN.center : FAN.side).map((v) => v * 2))),
+    ]);
+    return { background, owner, covers };
+  }
   const coverSize = large.description ? COVER.gridCompact : COVER.grid;
   const [background, owner, ...covers] = await Promise.all([
     blurUri(buffers.find(Boolean) ?? null),
@@ -1036,8 +1057,380 @@ export function cardElement(large, images, assets) {
   if (large.layout === "moment") return momentCard(large, images, assets);
   if (large.layout === "diagnosis") return diagnosisCard(large, images, assets);
   if (large.layout === "game") return gameCard(large, images, assets);
-  if (large.layout === "profile") return profileCard(large, images, assets);
+  if (large.layout === "profile") return large.room ? roomCard(large, images, assets) : profileCard(large, images, assets);
+  if (large.tier_board) return tierCard(large, images, assets);
+  if (large.kind === "catalog") return catalogCard(large, images, assets);
   return gridCard(large, images, assets);
+}
+
+// ---------------------------------------------------------------- TASK-20261023-003 E1〜E3 (10/26 Emiya)
+// E1 カタログ「カタログ感が一切ない」→ アプリ・Web のカタログの頭と同じ形 (表紙 3 枚を扇に重ね、右に「カタログ」・題・作った人・本数・説明)。
+// E2 Tier表「Tier表になってない。ユーザー名はいらない・題は小さくていい・レイアウトはゼロから」→ 表そのもの (段の札とその色・段ごとの表紙)
+//    を主役に。上の細い行に「Tier表」と題と本数だけ。
+// E3 マイルーム「他に比べてださい」→ アプリのマイルームの頭 (表紙・アイコンの輪・名前・タイプ・数) と、マイベスト (無ければ最近のゲーム)。
+// どれも X の 2:1 の切れ目 (上下 15px) の内側に置き、左下 (X が住所を重ねる所) には読ませる物を置かない。
+
+export const CATALOG_LABEL = "カタログ";
+export const TIER_LABEL = "Tier表";
+const ACCENT = "#3FD1BF";
+// 扇 (アプリ app/(drawer)/catalogs/[id]/index.tsx heroCovers: 真ん中 1.1 倍・左右は ±10 度で 0.9 倍、Web catalog.module.css .fan と同じ)
+const FAN = { cx: 318, cy: 312, center: [246, 328], side: [200, 266], offset: 150, angle: 10 };
+
+const IMAGES_ICON = `data:image/svg+xml;base64,${Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.55)" ' +
+  'stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="14" height="12" rx="2"/>' +
+  '<path d="M7 21h12a2 2 0 0 0 2-2V9"/><circle cx="8" cy="9" r="1.5"/><path d="M17 14l-3.5-3.5L5 17"/></svg>',
+).toString("base64")}`;
+
+function fanCover(uri, [w, h], { left, top, angle = 0 }) {
+  const style = { position: "absolute", left, top, width: w, height: h, borderRadius: 16, overflow: "hidden",
+    border: "3px solid rgba(255,255,255,0.9)", boxShadow: "0 18px 48px rgba(0,0,0,0.55)", backgroundColor: "#1E293B",
+    ...(angle ? { transform: `rotate(${angle}deg)` } : {}) };
+  return uri
+    ? div(style, img(uri, { width: w - 6, height: h - 6 }))
+    : div({ ...style, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(148,163,184,0.28)" },
+      img(IMAGES_ICON, { width: 96, height: 96 }));
+}
+
+function catalogCard(large, images, assets) {
+  const covers = images.covers.filter(Boolean);
+  const [cw, ch] = FAN.center;
+  const [sw, sh] = FAN.side;
+  const at = (dx, w, h) => ({ left: Math.round(FAN.cx + dx - w / 2), top: Math.round(FAN.cy - h / 2) });
+  // 重なりの順はアプリと同じ: 右 (いちばん奥) → 左 → 真ん中 (いちばん手前)
+  const fan = [
+    covers[2] ? fanCover(covers[2], FAN.side, { ...at(FAN.offset, sw, sh), angle: FAN.angle }) : null,
+    covers[1] ? fanCover(covers[1], FAN.side, { ...at(-FAN.offset, sw, sh), angle: -FAN.angle }) : null,
+    fanCover(covers[0] ?? null, FAN.center, { ...at(0, cw, ch) }),
+  ];
+  const titleSize = large.title.length > 18 ? 40 : large.title.length > 10 ? 48 : 56;
+  const owner = div(
+    { alignItems: "center", marginTop: 22 },
+    images.owner
+      ? img(images.owner, { width: OWNER_AVATAR, height: OWNER_AVATAR, borderRadius: OWNER_AVATAR / 2, flexShrink: 0,
+        border: "2px solid rgba(255,255,255,0.85)" })
+      : null,
+    div({ fontSize: 26, color: "#E2E8F0", fontWeight: 700, marginLeft: images.owner ? 12 : 0, maxWidth: 360, ...ELLIPSIS },
+      large.subtitle.replace(/さんのカタログ$/, "")),
+    div({ fontSize: 26, color: "#E2E8F0", fontWeight: 700, marginLeft: 12, flexShrink: 0 }, `· ${n(large.total_count)}本`),
+  );
+  return frame(
+    assets,
+    images.background,
+    ...fan,
+    div(
+      { position: "absolute", left: 620, right: 64, top: 40, bottom: 90, flexDirection: "column", justifyContent: "center" },
+      div({ fontSize: 26, fontWeight: 900, color: ACCENT, letterSpacing: 2 }, CATALOG_LABEL),
+      div({ display: "block", fontSize: titleSize, lineHeight: 1.25, color: "#FFFFFF", fontWeight: 900, marginTop: 10,
+        overflow: "hidden", lineClamp: 3, ...titleWordBreak(large.title, titleSize, 516) }, titleText(large.title)),
+      owner,
+      large.description
+        ? div({ display: "block", fontSize: 24, lineHeight: 1.45, color: "#E2E8F0", fontWeight: 700, marginTop: 18,
+          overflow: "hidden", lineClamp: 3 }, large.description)
+        : null,
+    ),
+  );
+}
+
+// ---- E2 Tier表
+
+// 表の枠 (上の行の下から、左下の X の住所の札にかからない所まで)
+export const TIER_BOARD_BOX = { left: 40, top: 86, width: W - 80, height: 466 };
+const TIER_HEAD = { top: 24, h: 48 };
+const IGDB_SIZE = /^(https:\/\/images\.igdb\.com\/igdb\/image\/upload\/)t_[a-z0-9_]+\//;
+// 小さい札は IGDB の小さい版を読む (100 枚を読むので軽く。cover_small = 90x128、cover_big = 264x374)
+export function tierCoverSource(url, cardW) {
+  return IGDB_SIZE.test(url) ? url.replace(IGDB_SIZE, `$1${cardW * 2 <= 90 ? "t_cover_small" : "t_cover_big"}/`) : url;
+}
+
+export function tierLayoutOf(large) {
+  return tierBoardLayout(large.tier_board.tiers.map((tier) => tier.cover_urls.length > 0 ? Math.max(tier.count, tier.cover_urls.length) : tier.count),
+    TIER_BOARD_BOX);
+}
+
+export const TIER_FETCH_CONCURRENCY = 8;
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+
+async function loadTierImages(large, fetchImpl) {
+  const layout = tierLayoutOf(large);
+  const { cardW, cardH } = layout;
+  // 描く札 (段ごとに shown 枚) の表紙だけ。同じ URL は 1 回
+  const drawn = large.tier_board.tiers.map((tier, i) => tier.cover_urls.slice(0, layout.rows[i].shown));
+  const unique = [...new Set(drawn.flat().filter(Boolean))];
+  // 一度に読むのは 8 枚まで (IGDB は 16 本同時だと接続を切ることがある: 2026-10-26 手元で 86 枚中 8 枚 ECONNRESET、8 本同時は 0 枚)。
+  // 読めなかった物は 1 回だけ読み直す (それでもだめなら無地の札。カード全体は崩さない)
+  const fetchOne = async (url) => [url, await loadImage(tierCoverSource(url, cardW), fetchImpl) ?? null];
+  const first = await mapLimit(unique, TIER_FETCH_CONCURRENCY, fetchOne);
+  const retried = new Map(await mapLimit(first.filter(([, buffer]) => !buffer).map(([url]) => url), 4, fetchOne));
+  const read = first.map(([url, buffer]) => [url, buffer ?? retried.get(url) ?? null]);
+  const buffers = new Map(read);
+  const cut = new Map(await mapLimit([...buffers], 8, async ([url, buffer]) => [url, await coverUri(buffer, cardW * 2, cardH * 2)]));
+  const firstBuffer = read.find(([, buffer]) => buffer)?.[1] ?? null;
+  return {
+    layout,
+    background: await blurUri(firstBuffer),
+    tiers: drawn.map((urls) => urls.map((url) => (url ? cut.get(url) ?? null : null))),
+  };
+}
+
+// 段のラベル (0〜12 字) の字の大きさ: 1 行に 18 で入ればそのまま、13 まで縮めて 1 行に入ればその大きさ、入らなければ 2 行に分けて入る大きさ
+// (「かなり好 / き」のように 1 字だけ次の行へ落ちない)
+export function tierLabelSize(label, band) {
+  const room = band - 12;
+  const width = ems(label);
+  if (width * 18 <= room) return { size: 18, lines: 1 };
+  if (Math.floor(room / width) >= 13) return { size: Math.floor(room / width), lines: 1 };
+  return { size: Math.max(10, Math.min(18, Math.floor(room / Math.ceil(width / 2)))), lines: 2 };
+}
+
+function tierBand(large, tier, index, height, band) {
+  const count = large.tier_board.tiers.length;
+  const p = bandPaint(large.tier_board.look, tier.color_key, large.tier_board.mono_color, index, count);
+  const base = Math.min(54, Math.round(height * 0.5), Math.round(band * 0.46));
+  const rankSize = [...tier.rank_name].length > 2 ? Math.round(base * 0.74) : base;
+  const showLabel = tier.label && height >= 84;
+  const label = showLabel ? tierLabelSize(tier.label, band) : null;
+  return div(
+    { position: "relative", flexShrink: 0, width: band, height, flexDirection: "column", alignItems: "center", justifyContent: "center",
+      backgroundColor: p.backgroundColor, backgroundImage: p.gradient, overflow: "hidden" },
+    p.gloss ? div({ position: "absolute", left: 0, top: 0, width: band, height, backgroundImage: p.gloss }) : null,
+    p.neon ? div({ position: "absolute", left: 0, top: 0, width: 5, height, backgroundColor: p.neon }) : null,
+    div({ fontSize: rankSize, lineHeight: 1.1, fontWeight: 900, color: p.ink, textShadow: p.textShadow,
+      ...(p.italic ? { transform: "skewX(-10deg)" } : {}) }, tier.rank_name),
+    showLabel
+      ? div({ display: "block", maxWidth: band - 12, marginTop: 4, fontSize: label.size, lineHeight: 1.25, fontWeight: 700, textAlign: "center",
+        color: p.neon ? "#e6ebf0" : p.ink, opacity: 0.88, overflow: "hidden", lineClamp: label.lines, wordBreak: "break-all" }, tier.label)
+      : null,
+  );
+}
+
+function tierCard(large, images, assets) {
+  const { layout } = images;
+  const box = TIER_BOARD_BOX;
+  const { cardW, cardH, gap, pad, perRow } = layout;
+  const radius = Math.max(4, Math.round(cardW * 0.07));
+  const placeholderTile = () => div({ width: cardW, height: cardH, borderRadius: radius, flexShrink: 0,
+    backgroundImage: "linear-gradient(160deg, #233447 0%, #172231 100%)", border: "1px solid rgba(255,255,255,0.12)" });
+  const moreTile = (more) => div(
+    { width: cardW, height: cardH, borderRadius: radius, flexShrink: 0, alignItems: "center", justifyContent: "center",
+      backgroundColor: "rgba(8,14,26,0.7)", border: "1px solid rgba(255,255,255,0.24)" },
+    div({ fontSize: Math.max(12, Math.min(40, Math.round(cardW * (String(more).length > 2 ? 0.3 : 0.4)))), fontWeight: 900,
+      color: "#FFFFFF", lineHeight: 1 }, `+${n(more)}`),
+  );
+  const rows = large.tier_board.tiers.map((tier, i) => {
+    const row = layout.rows[i];
+    const tiles = images.tiers[i].map((uri) =>
+      uri ? img(uri, { width: cardW, height: cardH, borderRadius: radius, flexShrink: 0 }) : placeholderTile()
+    );
+    if (row.more > 0) tiles.push(moreTile(row.more));
+    const lines = [];
+    for (let j = 0; j < tiles.length; j += perRow) lines.push(tiles.slice(j, j + perRow));
+    return div(
+      { height: row.h, marginTop: i === 0 ? 0 : layout.divider, backgroundColor: "rgba(255,255,255,0.05)" },
+      tierBand(large, tier, i, row.h, layout.band),
+      div(
+        { flexDirection: "column", justifyContent: "center", padding: `0 ${pad}px` },
+        ...lines.map((line, r) => div({ marginTop: r === 0 ? 0 : gap },
+          ...line.map((tile, c) => div({ marginLeft: c === 0 ? 0 : gap, flexShrink: 0 }, tile)))),
+      ),
+    );
+  });
+  const total = large.tier_board.tiers.reduce((sum, tier) => sum + tier.count, 0);
+  const countLabel = `${n(Math.max(total, large.total_count))}本`;
+  const countWidth = Math.ceil(ems(countLabel) * 26) + 8;
+  const labelWidth = Math.ceil(ems(TIER_LABEL) * 24 + 2 * 6) + 28;
+  return frame(
+    assets,
+    images.background,
+    // 上の細い行: 「Tier表」と題 (小さく) と本数。利用者の名前は描かない
+    div(
+      { position: "absolute", left: box.left, top: TIER_HEAD.top, width: box.width, height: TIER_HEAD.h, alignItems: "center",
+        justifyContent: "space-between" },
+      div(
+        { alignItems: "center", minWidth: 0 },
+        div({ fontSize: 24, fontWeight: 900, color: ACCENT, letterSpacing: 2, flexShrink: 0 }, TIER_LABEL),
+        div({ fontSize: 30, fontWeight: 900, color: "#FFFFFF", marginLeft: 16, maxWidth: box.width - labelWidth - countWidth - 24,
+          paddingRight: 6, ...ELLIPSIS }, titleText(large.title)),
+      ),
+      div({ fontSize: 26, fontWeight: 700, color: "#E2E8F0", flexShrink: 0 }, countLabel),
+    ),
+    div(
+      { position: "absolute", left: box.left, top: box.top + Math.max(0, Math.floor((box.height - layout.total) / 2)), width: box.width,
+        flexDirection: "column", borderRadius: 14, overflow: "hidden", backgroundColor: "rgba(8,14,26,0.74)",
+        boxShadow: "0 16px 48px rgba(0,0,0,0.5)" },
+      ...rows,
+    ),
+  );
+}
+
+// ---- E3 マイルーム
+
+// テーマの 3 色 (左上 → 右下)。写し元: アプリ constants/theme.ts roomGradients・Web web/src/lib/users/profileCover.ts ROOM_GRADIENTS
+export const ROOM_GRADIENTS = {
+  cyan: ["#7BE3E8", "#3DB2C5", "#2D6FB8"],
+  blue: ["#5FB6FF", "#2F80ED", "#2B3F9E"],
+  purple: ["#D17BF6", "#7B5CF0", "#3A3BB5"],
+  pink: ["#FFB1C8", "#E8669A", "#B83D8A"],
+  red: ["#FFB35C", "#E0673F", "#B8304F"],
+  amber: ["#FFE08A", "#E3A72F", "#B0700C"],
+  green: ["#B6E86C", "#22A36A", "#11705F"],
+  teal: ["#5EE0B5", "#0F8B8D", "#0B4F6C"],
+  brown: ["#D9A47E", "#8A5A44", "#4A2C24"],
+  slate: ["#7D8FA6", "#3A4A5E", "#141B2D"],
+};
+export const ROOM_WORDS = { room: "マイルーム", best: "マイベスト", recent: "最近のゲーム", total: "記録", completed: "クリア",
+  playing: "プレイ中", want_to_play: "積みゲー" };
+// 数の並び (アプリ constants/logStatus.ts の名前と、暗い地の文字の色 STATUS_TEXT.dark)
+const ROOM_STATS = [
+  ["total", null],
+  ["completed", "#48B383"],
+  ["playing", "#63A0F2"],
+  ["want_to_play", "#CF982E"],
+];
+const ROOM = { band: 292, avatar: 172, ring: 6, avatarLeft: 60, nameLeft: 262, shelfLeft: 712, shelfW: W - 64 - 712 };
+const ROOM_BASE = "#0E1622";
+const alpha = (hex, a) => `${hex}${Math.round(a * 255).toString(16).padStart(2, "0")}`;
+
+async function loadRoomImages(large, fetchImpl) {
+  const { room } = large;
+  const shelf = room.cover_urls.slice(0, 4);
+  const art = room.cover === "best" ? room.cover_urls.slice(0, 5) : [];
+  const urls = [...new Set([large.avatar_url, room.cover_url, ...shelf, ...art].filter(Boolean))];
+  // 読めなかった物は 1 回だけ読み直す (Tier表と同じ)
+  const raw = new Map(await Promise.all(urls.map(async (url) =>
+    [url, await loadImage(url, fetchImpl) ?? await loadImage(url, fetchImpl)])));
+  const get = (url) => (url ? raw.get(url) ?? null : null);
+  const size = shelfCoverSize(shelf.length);
+  const [avatar, photo, shelfCovers, artCovers] = await Promise.all([
+    pngUri(get(large.avatar_url), ROOM.avatar * 2, ROOM.avatar * 2),
+    room.cover === "photo" ? coverUri(get(room.cover_url), W, ROOM.band) : null,
+    Promise.all(shelf.map((url) => coverUri(get(url), size[0] * 2, size[1] * 2))),
+    Promise.all(art.map((url) => coverUri(get(url), 168, 224))),
+  ]);
+  return { avatar, photo, shelf: shelfCovers, art: artCovers };
+}
+
+// 右の棚の表紙の大きさ (4 つまで。少ない時は大きく)
+export function shelfCoverSize(count) {
+  if (count <= 2) return [132, 176];
+  if (count === 3) return [128, 171];
+  return [98, 131];
+}
+
+function roomBand(large, images) {
+  const { room } = large;
+  const g = ROOM_GRADIENTS[room.theme] ?? ROOM_GRADIENTS.cyan;
+  const full = { position: "absolute", left: 0, top: 0, width: W, height: ROOM.band };
+  if (room.cover === "photo" && images.photo) {
+    return [
+      img(images.photo, full),
+      div({ ...full, backgroundImage: "linear-gradient(180deg, rgba(5,18,30,0.28) 0%, rgba(5,18,30,0.06) 45%, rgba(5,18,30,0.62) 100%)" }),
+    ];
+  }
+  const base = div({ ...full, backgroundImage: `linear-gradient(135deg, ${g[0]} 0%, ${g[1]} 50%, ${g[2]} 100%)` });
+  if (room.cover === "best" && images.art.some(Boolean)) {
+    // アプリ RoomCoverArt: マイベスト 1〜5 位を -8 度に傾けて並べ、テーマの色で染める (偶数番目は少し下げる)
+    const art = div(
+      { position: "absolute", left: -40, top: -70, width: W + 80, height: ROOM.band + 140, alignItems: "center", justifyContent: "center",
+        transform: "rotate(-8deg)" },
+      ...images.art.map((uri, i) => (uri
+        ? img(uri, { width: 168, height: 224, borderRadius: 18, marginLeft: i === 0 ? 0 : 18, marginTop: i % 2 === 0 ? 72 : 0 })
+        : null)),
+    );
+    return [
+      base,
+      // 傾けた並びは表紙の帯の中で切る (名前の側へはみ出さない)
+      div({ ...full, overflow: "hidden" }, art),
+      div({ ...full, backgroundImage: `linear-gradient(135deg, ${alpha(g[0], 0.55)} 0%, ${alpha(g[2], 0.7)} 100%)` }),
+      div({ ...full, backgroundImage: `linear-gradient(180deg, rgba(5,18,30,0.10) 0%, rgba(5,18,30,0) 50%, ${alpha(g[2], 0.4)} 100%)` }),
+    ];
+  }
+  return [
+    base,
+    // 表紙の斜めの光 (アプリ ProfileHero の profile-cover-sheen)
+    div({ ...full, backgroundImage: "linear-gradient(135deg, rgba(255,255,255,0.42) 0%, rgba(255,255,255,0) 45%)" }),
+    div({ ...full, backgroundImage: "linear-gradient(115deg, rgba(255,255,255,0) 52%, rgba(255,255,255,0.18) 60%, rgba(255,255,255,0) 68%)" }),
+  ];
+}
+
+function roomCard(large, images, assets) {
+  const { room } = large;
+  const g = ROOM_GRADIENTS[room.theme] ?? ROOM_GRADIENTS.cyan;
+  const stats = large.stats;
+  const shelfUris = images.shelf.filter(Boolean);
+  const hasShelf = room.shelf !== null && shelfUris.length > 0;
+  const columnRight = hasShelf ? ROOM.shelfLeft - 36 : W - 64;
+  const nameWidth = columnRight - ROOM.nameLeft;
+  const nameSize = Math.max(36, Math.min(60, Math.floor((nameWidth - 8) / Math.max(1, ems(large.name)))));
+  const ring = ROOM.avatar + ROOM.ring * 2;
+  const avatar = div(
+    { position: "absolute", left: ROOM.avatarLeft, top: ROOM.band - Math.round(ring * 0.58), width: ring, height: ring, borderRadius: ring / 2,
+      backgroundImage: `linear-gradient(135deg, ${g[0]} 0%, ${g[1]} 50%, ${g[2]} 100%)`, alignItems: "center", justifyContent: "center",
+      boxShadow: "0 12px 36px rgba(0,0,0,0.45)" },
+    images.avatar
+      ? img(images.avatar, { width: ROOM.avatar, height: ROOM.avatar, borderRadius: ROOM.avatar / 2 })
+      : div({ width: ROOM.avatar, height: ROOM.avatar, borderRadius: ROOM.avatar / 2, backgroundColor: "#0D7C90", alignItems: "center",
+        justifyContent: "center", fontSize: 76, fontWeight: 900, color: "#FFFFFF" }, [...large.name][0] ?? "?"),
+  );
+  const typeChip = room.type_name
+    ? div({ alignSelf: "flex-start", height: 44, alignItems: "center", padding: "0 18px", borderRadius: 22, marginTop: 12, maxWidth: nameWidth,
+      backgroundColor: alpha(g[1], 0.22), border: `2px solid ${alpha(g[0], 0.85)}`, fontSize: 24, fontWeight: 700, color: "#FFFFFF",
+      ...ELLIPSIS }, room.type_name)
+    : null;
+  const statTiles = stats
+    ? div(
+      { position: "absolute", left: ROOM.avatarLeft, top: 448, width: columnRight - ROOM.avatarLeft },
+      ...ROOM_STATS.map(([key, color], i) =>
+        div(
+          { flex: 1, flexDirection: "column", justifyContent: "center", height: 80, marginLeft: i === 0 ? 0 : 12, padding: "0 16px",
+            borderRadius: 16, backgroundColor: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.10)" },
+          div({ fontSize: 20, fontWeight: 700, color: color ?? alpha(g[0], 1) }, ROOM_WORDS[key]),
+          div({ fontSize: stats[key] >= 10_000 ? 30 : 38, fontWeight: 900, color: "#FFFFFF", lineHeight: 1.1, marginTop: 2 }, n(stats[key])),
+        )
+      ),
+    )
+    : null;
+  const [sw, sh] = shelfCoverSize(shelfUris.length);
+  const shelf = hasShelf
+    ? div(
+      { position: "absolute", left: ROOM.shelfLeft, top: 318, width: ROOM.shelfW, flexDirection: "column" },
+      div({ fontSize: 22, fontWeight: 700, color: "#E2E8F0" }, ROOM_WORDS[room.shelf]),
+      div({ marginTop: 12 },
+        ...shelfUris.map((uri, i) => img(uri, { width: sw, height: sh, borderRadius: 12, marginLeft: i === 0 ? 0 : 8, flexShrink: 0,
+          border: "1px solid rgba(255,255,255,0.18)", boxShadow: "0 10px 28px rgba(0,0,0,0.45)" }))),
+    )
+    : null;
+  return div(
+    { width: W, height: H, position: "relative", overflow: "hidden", backgroundColor: ROOM_BASE, fontFamily: "Noto Sans JP" },
+    ...roomBand(large, images),
+    // 名前まわり: 表紙の色が上から光のようににじみ、下で地の色に溶ける (アプリ ProfileHero の profile-body-theme)
+    div({ position: "absolute", left: 0, top: ROOM.band, width: W, height: H - ROOM.band,
+      backgroundImage: `linear-gradient(180deg, ${alpha(g[1], 0.34)} 0%, ${alpha(g[2], 0.12)} 45%, rgba(14,22,34,0) 100%)` }),
+    div({ position: "absolute", left: 40, top: 28, height: 44, alignItems: "center", padding: "0 18px", borderRadius: 22,
+      backgroundColor: "rgba(5,18,30,0.42)", border: "1px solid rgba(255,255,255,0.35)", fontSize: 22, fontWeight: 700, color: "#FFFFFF" },
+    ROOM_WORDS.room),
+    avatar,
+    div(
+      { position: "absolute", left: ROOM.nameLeft, top: ROOM.band + 12, width: nameWidth, flexDirection: "column" },
+      div({ fontSize: nameSize, lineHeight: 1.2, fontWeight: 900, color: "#FFFFFF", maxWidth: nameWidth, paddingRight: 6, ...ELLIPSIS },
+        large.name),
+      typeChip,
+    ),
+    statTiles,
+    shelf,
+    img(assets.logo, { position: "absolute", right: 36, bottom: 30, width: LOGO_W, height: assets.logoHeight }),
+  );
 }
 
 // Encodes the drawn PNG as JPEG at the highest quality that fits the limit.
@@ -1053,8 +1446,12 @@ export async function toJpeg(png, maxBytes = JPEG_MAX_BYTES) {
 // r10: the record cards (moment / review) are always JPEG, also without photos (blurred cover). The PNG of the cover
 // card reached ~950KB, close to Bluesky's 1,000,000-byte thumb limit (app.bsky.embed.external thumb maxSize).
 export function servesJpeg(large) {
-  return drawsUserPhotos(large) || isR3(large);
+  return drawsUserPhotos(large) || isR3(large) || isR3Collection(large);
 }
+
+// TASK-20261023-003 E1〜E3: 表紙をたくさん描く新しい形 (カタログの扇・Tier表・マイルーム) も JPEG (PNG は 1MB を超えうる)
+export const isR3Collection = (large) =>
+  (large.layout === "grid" && (large.kind === "catalog" || Boolean(large.tier_board))) || (large.layout === "profile" && Boolean(large.room));
 
 // Renders a raw `large` payload: { body, contentType }. Record cards and cards that draw the
 // poster's photos are JPEG <= JPEG_MAX_BYTES; the rest stay PNG.

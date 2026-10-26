@@ -1,6 +1,7 @@
 // Pure validation of the optional `card.large` payload from share-preview-meta.
 // Kept free of image/font dependencies so the share page function stays light.
 import { createHash } from "node:crypto";
+import { TIER_COLORS, TIER_LOOKS } from "./tier-board.mjs";
 
 export const OG_IMAGE_ORIGIN = "https://playnavi.app/api/og";
 export const ALLOWED_IMAGE_HOSTS = new Set([
@@ -161,6 +162,53 @@ function playFields(large, { spoiler }) {
   return { play_media: media, play_media_total: Math.max(total, media.length), play_media_counts: counts };
 }
 
+// ---------------------------------------------------------------- TASK-20261023-003 E1〜E3
+// 新しい鍵 (kind / tier_board / room) は、EF が送った時だけ正規化した写しに入る (古い答えは今の形と版のハッシュのまま)。
+// 中身が壊れている時はその鍵だけ捨てる (カード全体は今の形で描く)。古い links はこの鍵を知らないので捨てて今の形を描く。
+
+const chars = (value) => Array.from(value).length;
+const plain = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+// E2: 段 1〜8・置いた札は合わせて 100 まで (save_tier_list_v1 の上限)。表紙の URL は 1 枚ずつ確かめ、だめな物は「表紙なし」
+export const TIER_BOARD_TIERS_MAX = 8;
+export const TIER_BOARD_CARDS_MAX = 100;
+function tierBoardField(large) {
+  const board = large.tier_board;
+  if (!plain(board) || !TIER_LOOKS.includes(board.look) || !TIER_COLORS.includes(board.mono_color)) return {};
+  if (!Array.isArray(board.tiers) || board.tiers.length === 0 || board.tiers.length > TIER_BOARD_TIERS_MAX) return {};
+  let left = TIER_BOARD_CARDS_MAX;
+  const tiers = [];
+  for (const tier of board.tiers) {
+    if (!plain(tier) || typeof tier.rank_name !== "string") return {};
+    const rank = tier.rank_name.trim();
+    if (!rank || chars(rank) > 4 || !TIER_COLORS.includes(tier.color_key)) return {};
+    const label = typeof tier.label === "string" && tier.label.trim() && chars(tier.label.trim()) <= 12 ? tier.label.trim() : null;
+    if (!Array.isArray(tier.cover_urls) || !Number.isSafeInteger(tier.count) || tier.count < 0) return {};
+    const covers = tier.cover_urls.slice(0, left).map((url) => (allowedImageUrl(url) ? url : null));
+    left -= covers.length;
+    tiers.push({ rank_name: rank, label, color_key: tier.color_key, count: Math.min(Math.max(tier.count, covers.length), TIER_BOARD_CARDS_MAX), cover_urls: covers });
+  }
+  return { tier_board: { look: board.look, mono_color: board.mono_color, tiers } };
+}
+
+// E3: マイルーム。テーマの名前はアプリ constants/theme.ts roomGradients のキー (DB の CHECK と同じ 10 個)
+export const ROOM_THEMES = ["cyan", "blue", "purple", "pink", "red", "amber", "green", "teal", "brown", "slate"];
+export const ROOM_COVERS_MAX = 5;
+const ROOM_TYPE_NAME_MAX = 40;
+function roomField(large) {
+  const room = large.room;
+  if (!plain(room) || !ROOM_THEMES.includes(room.theme) || !["photo", "theme", "best"].includes(room.cover)) return {};
+  const coverUrl = allowedImageUrl(room.cover_url) ? room.cover_url : null;
+  const covers = Array.isArray(room.cover_urls) ? room.cover_urls.filter((url) => allowedImageUrl(url)).slice(0, ROOM_COVERS_MAX) : [];
+  const shelf = covers.length > 0 && (room.shelf === "best" || room.shelf === "recent") ? room.shelf : null;
+  // 写真の表紙なのに写真が無い・マイベストの表紙なのにマイベストが無い時はテーマの色 (アプリ resolveProfileCoverKind と同じ戻し方)
+  const cover = room.cover === "photo" && !coverUrl ? "theme" : room.cover === "best" && shelf !== "best" ? "theme" : room.cover;
+  const typeName = typeof room.type_name === "string" && room.type_name.trim() && chars(room.type_name.trim()) <= ROOM_TYPE_NAME_MAX
+    ? room.type_name.trim()
+    : null;
+  return { room: { theme: room.theme, cover, cover_url: cover === "photo" ? coverUrl : null, type_name: typeName, shelf, cover_urls: shelf ? covers : [] } };
+}
+
 // Returns a normalized copy (fixed key order) or null.
 export function validLarge(large) {
   try {
@@ -214,6 +262,7 @@ export function validLarge(large) {
           avatar_url: imageUrl(large.avatar_url),
           background_url: imageUrl(large.background_url),
           stats,
+          ...roomField(large),
         };
       }
       case "grid":
@@ -237,6 +286,10 @@ export function validLarge(large) {
             return url;
           }),
           total_count: count(large.total_count),
+          // E1: カタログ (表紙を扇に重ねた形で描く)
+          ...(large.kind === "catalog" ? { kind: "catalog" } : {}),
+          // E2: Tier表そのもの
+          ...tierBoardField(large),
         };
       case "diagnosis":
         onlyKeys(large);
