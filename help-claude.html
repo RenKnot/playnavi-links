@@ -35,14 +35,15 @@ code{background:#eef4f6;border-radius:6px;padding:2px 6px;font-size:.95em;word-b
 <h2>使うときに知っておくこと</h2>
 <ul>
   <li>はじめて PlayNavi のカードが出るとき、Claude が表示の許可を聞きます。「許可」（毎回聞かれたくなければ「常に許可」）を選んでください。</li>
-  <li>記録を変える操作のたびに Claude が実行してよいか聞くことがあります。PlayNavi の追加・変更・削除は、確定するまで確認箱で待つ下書きです。</li>
+  <li>Claude は PlayNavi の道具を使う前に、実行してよいか聞くことがあります。AI に頼んだ記録の追加・変更・削除は、すべて確認箱で待つ下書きになり、あなたが確定するまで記録は変わりません。なので、PlayNavi の道具は全部「常に許可」にしても大丈夫です（Claude の「コネクタ」で PlayNavi を開いて選べます）。その場で保存されるのは、チェックイン・チェックアウト（とチェックインの取り消し）、希望価格、AI が作った下書きの取り下げだけです。</li>
+  <li>この確認の画面には、Claude が PlayNavi に送る中身がそのまま出ます。番号は PlayNavi の中のゲームや下書きの番号で、あなたのログインでしか読むことも変えることもできません。ログインの鍵やパスワードは出ません。</li>
   <li>Claude からは写真や動画を PlayNavi に送れません。文章だけ下書きになるので、写真と動画はアプリか Web の確認箱でその下書きに足してください。</li>
   <li>渡す内容の変更と連携の解除は、PlayNavi アプリの「設定 → AIとプレイログの設定 → 連携中の AI と渡す内容」か、Claude の「コネクタ」からできます。</li>
 </ul>
 <p>取り扱う情報は <a href="/privacy">プライバシーポリシー</a> の「6-2. AI サービスとの連携」をご覧ください。</p>
 
 <h2>Connect Claude to PlayNavi (English)</h2>
-<p>In Claude on the web or desktop, open Customize → Connectors → Add custom connector, enter <code>https://ai.playnavi.app/mcp</code>, press Connect, sign in to PlayNavi and choose what to share on the consent page. The connector then also works in the Claude mobile app. Photos and videos cannot be sent from Claude; add them to the draft in the PlayNavi inbox. You can disconnect in the PlayNavi app (Settings → AIとプレイログの設定) or in Claude's Connectors.</p>
+<p>In Claude on the web or desktop, open Customize → Connectors → Add custom connector, enter <code>https://ai.playnavi.app/mcp</code>, press Connect, sign in to PlayNavi and choose what to share on the consent page. The connector then also works in the Claude mobile app. Photos and videos cannot be sent from Claude; add them to the draft in the PlayNavi inbox. You can disconnect in the PlayNavi app (Settings → AIとプレイログの設定) or in Claude's Connectors. Claude may ask before using a PlayNavi tool, and the prompt shows what it sends (numbers are PlayNavi game or draft ids that only your own sign-in can read or change; never your sign-in key or password). Every change the AI asks for (add, change or delete a record) waits as a draft in the PlayNavi inbox until you confirm it, so you can set all PlayNavi tools to "Always allow" in Claude's Connectors. Only check-in, check-out (and cancelling a check-in), target prices and taking back an AI draft are saved at once.</p>
 </main>
 </body>
 </html>
