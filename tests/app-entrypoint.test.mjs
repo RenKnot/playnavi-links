@@ -162,6 +162,48 @@ test("moment return link keeps session and text in the app handoff", async () =>
   }
 });
 
+// TASK-20261020-004: review, moment f=1 and game get the same "PlayNaviに戻る" page and manual button as moment.
+for (const [name, search, ua, expectedHref] of [
+  ["review", "?act=review&g=42&src=chatgpt&at=1790645000000&t=%E8%89%AF%E3%81%8B%E3%81%A3%E3%81%9F", "iPhone",
+    "https://playnavi-links.vercel.app/a?act=review&g=42&src=chatgpt&at=1790645000000&t=%E8%89%AF%E3%81%8B%E3%81%A3%E3%81%9F"],
+  ["moment f=1", "?act=moment&g=42&src=chatgpt&at=1790645000000&s=0123ABCD&f=1&t=%E6%9C%AC%E6%96%87", "Android",
+    "playnavi://a?act=moment&g=42&src=chatgpt&at=1790645000000&s=0123ABCD&f=1&t=%E6%9C%AC%E6%96%87"],
+  ["game", "?act=game&g=42&src=claude&i=stuck&at=1790645000000", "Android",
+    "playnavi://a?act=game&g=42&src=claude&i=stuck&at=1790645000000"],
+]) {
+  test(`${name} return link gets the same manual app handoff as moment`, async () => {
+    const { browser, temp } = await importEntrypointWithoutSurvey("/a", search, ua);
+    try {
+      assert.equal(browser.elements.get("heading").textContent, "PlayNaviに戻る");
+      assert.equal(browser.elements.get("primary-btn").hidden, false);
+      assert.equal(browser.elements.get("primary-btn").href, expectedHref);
+      assert.equal(browser.location.href, "", "the fallback must not auto-open an unverified app route");
+      assert.equal(browser.elements.get("store-buttons").hidden, false);
+    } finally {
+      browser.restore();
+      await rm(temp, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const search of [
+  "?act=review&g=42&src=chatgpt&at=1790645000000&s=0123ABCD&t=x",
+  "?act=moment&g=42&src=chatgpt&at=1790645000000&s=0123ABCD&f=2&t=x",
+  "?act=moment&g=42&src=chatgpt&at=1790645000000&f=1&t=x",
+]) {
+  test(`malformed review / finish link shows the failure page (${search})`, async () => {
+    const { browser, temp } = await importEntrypointWithoutSurvey("/a", search, "Android");
+    try {
+      assert.equal(browser.elements.get("heading").textContent, "リンクを開けません");
+      assert.equal(browser.elements.get("primary-btn").href, "/");
+      assert.equal(browser.location.href, "");
+    } finally {
+      browser.restore();
+      await rm(temp, { recursive: true, force: true });
+    }
+  });
+}
+
 test("invalid AI return link never becomes an app launch button", async () => {
   const { browser, temp } = await importEntrypointWithoutSurvey(
     "/a", "?act=share&g=42&src=chatgpt&i=stuck&at=1790645000000", "Android",

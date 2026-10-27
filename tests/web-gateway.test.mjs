@@ -30,8 +30,8 @@ test("candidate changes entrypoint atomically and preserves reserved contracts",
   assert.match(candidate.html, /name="pn-web-origin" content="https:\/\/playnavi.app"/);
   assert.equal(candidate.config.rewrites.some(({ destination }) => destination === "/index.html"), false);
   const matcher = new RegExp(`^/${GATEWAY_SOURCE.slice('/:path('.length, -1)}$`);
-  for (const path of ["/", "/game/42", "/login", "/auth/callback", "/_next/static/chunk.js", "/favicon.ico", "/users/uuid", "/users/uuid/best-games", "/catalogs/uuid", "/apple-touch-icon.png"]) assert.equal(matcher.test(path), true, path);
-  for (const path of ["/api", "/api/auth/start", "/api/auth/callback", "/api/survey/session/guest", "/api/unknown", "/assets/site.css", "/.well-known/apple-app-site-association", "/a", "/a/extra", "/s/code", "/surveys/slug", "/survey-login-error", "/auth/steam/callback", "/users/uuid/diagnosis", "/users/uuid/diagnosis/extra", "/logo.png", "/og-fallback.png", "/robots.txt", "/link.html"]) assert.equal(matcher.test(path), false, path);
+  for (const path of ["/", "/game/42", "/login", "/auth/callback", "/_next/static/chunk.js", "/favicon.ico", "/users/uuid", "/users/uuid/best-games", "/users/uuid/diagnosis", "/catalogs/uuid", "/apple-touch-icon.png"]) assert.equal(matcher.test(path), true, path);
+  for (const path of ["/api", "/api/auth/start", "/api/auth/callback", "/api/survey/session/guest", "/api/unknown", "/assets/site.css", "/.well-known/apple-app-site-association", "/a", "/a/extra", "/s/code", "/surveys/slug", "/survey-login-error", "/auth/steam/callback", "/logo.png", "/og-fallback.png", "/robots.txt", "/link.html"]) assert.equal(matcher.test(path), false, path);
   const gateway = candidate.config.rewrites.find(({ source }) => source === GATEWAY_SOURCE);
   assert.deepEqual(gateway.has, [{ type: "host", value: "playnavi.app" }]);
   assert.equal(gateway.destination, "https://playnavi-web-v2-stg.vercel.app/:path*");

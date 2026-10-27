@@ -126,7 +126,35 @@ function manualHrefForCanonical(target) {
   return target.schemeUrl;
 }
 
+// TASK-20261017-002 r3 (V3)・r5: モーメント・レビューのリンクは、サーバが HTML に埋め込んだ記録の中身を
+// 画面の主役にする。アプリを開きに行く今の流れ (下の openCanonicalTarget / openShortLink) はそのまま。
+// 埋め込みが無い時は部品を読み込まない。部品が読めない・中身が壊れている時は今の画面のまま
+async function showShareView(target) {
+  if (!document.getElementById("pn-share-view")) return;
+  let drawn = false;
+  try {
+    const { startShareView } = await import("./share-view.mjs");
+    drawn = startShareView(target);
+  } catch {
+    // 記録の中身は付け足し。失敗してもリンクを開く画面は変えない
+  }
+  // r6: サーバが付けた記録のページの印 (色・並び) は、描けなかった時に外して今の画面に戻す
+  if (!drawn) document.documentElement.classList.remove("pn-rec-page");
+}
+
 function openCanonicalTarget(target) {
+  // TASK-20261023-003 Q1=a: 正規の住所の形のリンク (短縮リンクが作れなかった時の代わり・前に配った物) も、
+  // Web 版がある時はスマホも PC もすぐ Web 版へ。Web 版の「アプリで開く・入れる」から来た時
+  // (iOS の手動起動の住所 = IOS_OPEN_APP_ORIGIN) だけは、今までどおりアプリを開きに行く
+  const directWeb = webTargetFromPath(target.canonicalPath, webOrigin);
+  if (directWeb && window.location.origin !== IOS_OPEN_APP_ORIGIN) {
+    document.documentElement.classList.remove("pn-rec-page");
+    hideActions();
+    setContent({ heading: "共有された内容を開いています…", description: "そのままお待ちください。", loading: true });
+    window.location.replace(directWeb);
+    return;
+  }
+  void showShareView(target);
   hideActions();
   setContent({
     heading: "PlayNaviを起動しています…",
@@ -162,9 +190,10 @@ function openCanonicalTarget(target) {
   window.location.href = target.schemeUrl;
   window.setTimeout(() => {
     if (appLaunched) return;
+    // N5 (TASK-20261023-003): アプリが無い人にも「アプリで開く」を押すよう促していた。Web 版がある時は文を出さずボタンで伝える
     setContent({
       heading: "PlayNaviでリンクを開く",
-      description:
+      description: webHref ? "" :
         "「PlayNaviアプリで開く」をタップしてください。未ログインの場合は、ログイン後にこのリンクをもう一度開く必要があることがあります。",
     });
     showStores();
@@ -217,9 +246,12 @@ async function openShortLink(code) {
     const target = await resolveShortLink(code, { signal: controller.signal });
     window.clearTimeout(timeout);
 
+    // TASK-20261023-003 Q1=a (Emiya 10/25): Web 版がある時は、スマホも PC と同じくすぐ Web 版のその画面へ移る。
+    // アプリがある人は、このページが開く前に OS の関連付け (/s/* は apple-app-site-association・assetlinks の対象) でアプリが開く。
+    // Web 版の画面の下の「アプリで開く・入れる」は lib/appLinks の入口 (このサイトの openCanonicalTarget) へ戻ってアプリを開く
     const webHref = showWeb(target);
-    if (platform === "other" && webHref) {
-      setContent({ heading: "共有された内容を開いています…", description: "そのままお待ちください。" });
+    if (webHref) {
+      setContent({ heading: "共有された内容を開いています…", description: "そのままお待ちください。", loading: true });
       window.location.replace(webHref);
       return;
     }
@@ -305,6 +337,10 @@ function start() {
       showFailure("unavailable");
       return;
     }
+    // 短縮リンクの種類はサーバが決めて埋め込む (モーメント・レビューの時だけ中身がある)。
+    // Web 版がある時は、すぐ Web 版へ移るので記録のページは描かない (TASK-20261023-003 Q1=a)
+    if (webOrigin) document.documentElement.classList.remove("pn-rec-page");
+    else void showShareView(null);
     openShortLink(code);
     return;
   }

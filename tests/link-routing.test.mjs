@@ -89,12 +89,13 @@ test("AI return link rejects unsupported actions and query injection", () => {
   ]) assert.equal(aiReturnTargetFromPath(path), null, path);
 });
 
-test("allowlists the eight canonical target shapes", () => {
+test("allowlists the nine canonical target shapes", () => {
   const cases = [
     [`/users/${UUID_A}/best-games`, "best_games"],
     [`/users/${UUID_A}/diagnosis`, "diagnosis"],
     ["/game/42", "game"],
     [`/game/42?logId=${UUID_A}`, "log"],
+    [`/game/42?logId=${UUID_A}&moment=${UUID_B}`, "moment"],
     [`/users/${UUID_A}`, "user"],
     [`/users/${UUID_A}/custom-rankings/${UUID_B}`, "ranking"],
     [`/users/${UUID_A}/tier-lists/${UUID_B}`, "tier_list"],
@@ -140,6 +141,14 @@ test("rejects arbitrary URLs, schemes, queries, fragments, and short paths", () 
     `/users/${UUID_A}/tier-lists/${UUID_B}?remix=1&next=https://evil.example`,
     `/users/${UUID_A}/tier-lists/${UUID_B}?share=1`,
     `/users/${UUID_A}/tier-lists/${UUID_B}#remix`,
+    // moment (TASK-20261017-002): only ?logId=&moment= in this order, two uuids, nothing else.
+    `/game/42?moment=${UUID_B}&logId=${UUID_A}`,
+    `/game/42?moment=${UUID_B}`,
+    `/game/42?logId=${UUID_A}&moment=not-a-uuid`,
+    `/game/42?logId=${UUID_A}&moment=${UUID_B}&next=https://evil.example`,
+    `/game/42?logId=${UUID_A}&moment=${UUID_B}#x`,
+    `/game/42?logId=${UUID_A}&moment=${UUID_B}&moment=${UUID_B}`,
+    `/game/9223372036854775808?logId=${UUID_A}&moment=${UUID_B}`,
     `/s/${CODE}`,
   ]) {
     assert.equal(canonicalTargetFromPath(value), null, value);
@@ -217,4 +226,104 @@ test("maps unavailable and retryable resolver failures separately", async () => 
     }),
     (error) => error.kind === "temporary",
   );
+});
+
+// TASK-20261020-004: the app's current return links (playnavi-app lib/aiLaunch.ts) must open the
+// browser fallback too. act=inbox is TASK-20260930-006 (links #35) and is not covered here.
+test("AI return link accepts act=game with the exact five-key contract", () => {
+  const path = "/a?act=game&g=42&src=chatgpt&i=stuck&at=1790645000000";
+  assert.deepEqual(aiReturnTargetFromPath(path), {
+    canonicalPath: path,
+    canonicalUrl: `${AI_RETURN_ORIGIN}${path}`,
+    schemeUrl: `playnavi:/${path}`,
+  });
+  for (const bad of [
+    "/a?act=game&g=42&src=chatgpt&at=1790645000000",
+    "/a?act=game&g=42&src=chatgpt&i=stuck&at=1790645000000&t=x",
+    "/a?act=game&g=42&src=chatgpt&i=stuck&at=1790645000000&s=0123ABCD&f=1",
+  ]) assert.equal(aiReturnTargetFromPath(bad), null, bad);
+});
+
+test("AI return link for a review keeps only the comment text as data", () => {
+  const comment = "良かった点: 戦闘 & 音楽。気になった点: 序盤が長い";
+  const target = aiReturnTargetFromPath(`/a?t=${encodeURIComponent(comment)}&at=1790645000000&src=claude&g=42&act=review`);
+  assert.equal(target?.canonicalPath,
+    `/a?act=review&g=42&src=claude&at=1790645000000&${new URLSearchParams({ t: comment })}`);
+  assert.equal(new URL(target.canonicalUrl).searchParams.get("t"), comment);
+  assert.equal(target.schemeUrl, `playnavi:/${target.canonicalPath}`);
+  // The AI may return the link as handed out (empty t) or drop t; the app then opens an empty comment.
+  assert.equal(aiReturnTargetFromPath("/a?act=review&g=42&src=chatgpt&at=1790645000000&t=")?.canonicalPath,
+    "/a?act=review&g=42&src=chatgpt&at=1790645000000&t=");
+  assert.equal(aiReturnTargetFromPath("/a?act=review&g=42&src=chatgpt&at=1790645000000")?.canonicalPath,
+    "/a?act=review&g=42&src=chatgpt&at=1790645000000");
+  // Up to twice the app's 2,000-character cut is let through; the app trims it.
+  assert.ok(aiReturnTargetFromPath(`/a?act=review&g=42&src=chatgpt&at=1790645000000&t=${"🎮".repeat(4000)}`));
+});
+
+test("AI return link for a review rejects missing, extra, repeated and malformed keys", () => {
+  for (const path of [
+    "/a?act=review&src=chatgpt&at=1790645000000&t=x",
+    "/a?act=review&g=42&at=1790645000000&t=x",
+    "/a?act=review&g=42&src=chatgpt&t=x",
+    "/a?act=review&g=42&src=chatgpt&at=1790645000000&s=0123ABCD&t=x",
+    "/a?act=review&g=42&src=chatgpt&at=1790645000000&s=0123ABCD&f=1&t=x",
+    "/a?act=review&g=42&src=chatgpt&i=stuck&at=1790645000000&t=x",
+    "/a?act=review&g=42&src=chatgpt&at=1790645000000&next=https://evil.example&t=x",
+    "/a?act=review&g=42&src=chatgpt&at=1790645000000&t=a&t=b",
+    "/a?act=review&act=moment&g=42&src=chatgpt&at=1790645000000&t=x",
+    `/a?act=review&g=42&src=chatgpt&at=1790645000000&t=${"x".repeat(4001)}`,
+    "/a?act=review&g=0&src=chatgpt&at=1790645000000&t=x",
+    "/a?act=review&g=42&src=evil&at=1790645000000&t=x",
+    "/a?act=review&g=42&src=chatgpt&at=179064500000&t=x",
+    "/a?act=review&g=42&src=chatgpt&at=1790645000000&t=x#fragment",
+    "/a?act=__proto__&g=42&src=chatgpt&at=1790645000000",
+    "/a?act=constructor&g=42&src=chatgpt&i=stuck&at=1790645000000",
+  ]) assert.equal(aiReturnTargetFromPath(path), null, path);
+});
+
+test("AI return link for a moment keeps f=1 (finish the play) only together with a session", () => {
+  const text = "やっと倒せた";
+  const target = aiReturnTargetFromPath(
+    `/a?f=1&t=${encodeURIComponent(text)}&s=0123ABCD&at=1790645000000&src=perplexity&g=42&act=moment`);
+  assert.equal(target?.canonicalPath,
+    `/a?act=moment&g=42&src=perplexity&at=1790645000000&s=0123ABCD&f=1&${new URLSearchParams({ t: text })}`);
+  assert.equal(new URL(target.canonicalUrl).searchParams.get("f"), "1");
+  for (const path of [
+    "/a?act=moment&g=42&src=chatgpt&at=1790645000000&f=1&t=x",
+    "/a?act=moment&g=42&src=chatgpt&at=1790645000000&s=0123ABCD&f=2&t=x",
+    "/a?act=moment&g=42&src=chatgpt&at=1790645000000&s=0123ABCD&f=&t=x",
+    "/a?act=moment&g=42&src=chatgpt&at=1790645000000&s=0123ABCD&f=true&t=x",
+    "/a?act=moment&g=42&src=chatgpt&at=1790645000000&s=0123ABCD&f=1&f=1&t=x",
+    "/a?act=moment&g=42&src=chatgpt&at=1790645000000&s=bad&f=1&t=x",
+    "/a?act=log&g=42&src=chatgpt&i=stuck&at=1790645000000&f=1",
+    `/a?act=moment&g=42&src=chatgpt&at=1790645000000&s=0123ABCD&f=1&t=${"x".repeat(2001)}`,
+  ]) assert.equal(aiReturnTargetFromPath(path), null, path);
+});
+
+test("contract: every return link the app builds today opens unchanged (playnavi-app lib/aiLaunch.ts)", () => {
+  // Fixed samples copied from the app's own tests, then the AI's text appended to the trailing t=
+  // the way the prompt asks (URL-encoded):
+  //  - lib/__tests__/aiLaunch.test.ts:30          buildAiReturnUrl("game", …)        act=game (at= fixed here)
+  //  - lib/__tests__/aiLaunch.test.ts:117         buildAiMomentReturnUrl(…, true)    act=moment … &s=…&f=1&t=
+  //  - lib/__tests__/aiLaunch.test.ts:228         buildAiMomentReturnUrl(…, false)   act=moment … &s=…&t=
+  //  - lib/__tests__/aiV4ScreenParams.test.ts:90  buildAiReviewReturnUrl(…)          act=review … &t=
+  // log / wishlist and moment without s are what buildAiReturnUrl / buildAiMomentReturnUrl(null) return.
+  const appLinks = [
+    "https://playnavi.app/a?act=game&g=123&src=chatgpt&i=reviews_no_spoiler&at=1800000000000",
+    "https://playnavi.app/a?act=log&g=42&src=claude&i=similar&at=1800000000000",
+    "https://playnavi.app/a?act=wishlist&g=42&src=gemini&i=fit_for_me&at=1800000000000",
+    "https://playnavi.app/a?act=moment&g=42&src=chatgpt&at=1800000000000&s=0123ABCD&f=1&t=",
+    "https://playnavi.app/a?act=moment&g=42&src=chatgpt&at=1800000000000&s=0123ABCD&t=",
+    "https://playnavi.app/a?act=moment&g=42&src=chatgpt&at=1800000000000&t=",
+    "https://playnavi.app/a?act=review&g=42&src=chatgpt&at=1800000000000&t=",
+  ];
+  for (const link of appLinks) {
+    for (const appended of ["", encodeURIComponent("今日は港町まで。ボスが強かった")]) {
+      if (appended && !link.endsWith("&t=")) continue;
+      const url = new URL(link + appended);
+      const target = aiReturnTargetFromPath(`${url.pathname}${url.search}`);
+      assert.ok(target, link + appended);
+      assert.equal(target.canonicalUrl, link + appended);
+    }
+  }
 });
