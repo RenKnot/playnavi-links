@@ -359,7 +359,8 @@ test("playnavi.app/help/claude serves the Claude connection guide with the real 
   assert.equal(config.rewrites[help]?.destination, "/help-claude.html");
   assert.ok(help >= 0 && help < fallback, "help rewrite must come before the catch-all");
   const html = await readFile(new URL("../help-claude.html", import.meta.url), "utf8");
-  assert.match(html, /https:\/\/playnavi\.app\/mcp/);
+  // 10/27: Claude は本番の入口 ai.playnavi.app (playnavi.app/mcp は ChatGPT の審査の間 STG)
+  assert.match(html, /https:\/\/ai\.playnavi\.app\/mcp/);
   assert.match(html, /カスタムコネクタを追加/);
   assert.match(html, /\/privacy/);
 });
