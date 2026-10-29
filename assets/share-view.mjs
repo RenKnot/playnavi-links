@@ -418,7 +418,8 @@ function storyMoment(value) {
   if (!value || typeof value !== "object" || typeof value.memory_id !== "string" || !/^[0-9a-f-]{36}$/i.test(value.memory_id)) {
     return null;
   }
-  const media = Array.isArray(value.media) ? value.media.slice(0, 4).map(mediaItem).filter(Boolean) : [];
+  // TASK-20261021-002 (10/29): モーメントは写真 10 + 動画 1 (EF _shared/shareRecordMedia.ts MOMENT_MEDIA_LIMIT = 11)
+  const media = Array.isArray(value.media) ? value.media.slice(0, 11).map(mediaItem).filter(Boolean) : [];
   return {
     id: value.memory_id.toLowerCase(),
     title: text(value.title, 200),
@@ -427,7 +428,7 @@ function storyMoment(value) {
     dateText: formatJstDate(value.date),
     spoiler: value.spoiler === true,
     thumb: storyThumb(value.thumb),
-    mediaCount: Number.isSafeInteger(value.media_count) && value.media_count > 0 ? Math.min(value.media_count, 4) : media.length,
+    mediaCount: Number.isSafeInteger(value.media_count) && value.media_count > 0 ? Math.min(value.media_count, 11) : media.length,
     media,
   };
 }

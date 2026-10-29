@@ -491,15 +491,16 @@ test("r3: moment media and counts are validated entry by entry; bad entries are 
       { kind: "audio", url: signed("y.jpg") }, null, "x", { kind: "image" },
       { kind: "video", url: signed("v.jpg"), duration_ms: "12" },
       { kind: "video", url: signed("w.jpg"), duration_ms: 1234.4, extra: 1 },
-      image("b.jpg"), image("c.jpg"), image("d.jpg"),
+      image("b.jpg"), image("c.jpg"), image("d.jpg"), image("e.jpg"), image("f.jpg"), image("g.jpg"), image("h.jpg"),
     ],
   });
+  // TASK-20261021-002 (10/29): モーメントのカードも 8 まで (写真 10 + 動画 1 を一緒に付けられる)
   assert.deepEqual(noisy.media, [
     image("a.jpg"),
     { kind: "video", url: signed("v.jpg"), duration_ms: null },
     { kind: "video", url: signed("w.jpg"), duration_ms: 1234 },
-    image("b.jpg"),
-  ], "at most 4, record order kept");
+    image("b.jpg"), image("c.jpg"), image("d.jpg"), image("e.jpg"), image("f.jpg"),
+  ], "at most 8, record order kept");
   // A broken counts object is dropped; the card still renders.
   assert.equal(validLarge({ ...R3_MOMENT, counts: { photos: -1, videos: 0, text: true } }).counts, undefined);
   assert.equal(validLarge({ ...R3_MOMENT, counts: "3" }).counts, undefined);
@@ -976,10 +977,10 @@ const playShaped = (keys) => [...keys].map((key, i) => ({ kind: "image", url: pl
 const fill = (keys) => ({ play_media: playShaped(keys), play_media_total: 30, play_media_counts: { photos: 29, videos: 1 } });
 const aspectsOf = (tiles) => tiles.map(({ slot }) => slot.w / slot.h);
 
-test("r12: the card draws only the record's own items (moment <= 4, review <= 8), never the play's; a spoiler draws none", () => {
+test("r12: the card draws only the record's own items (moment <= 8 since 10/29, review <= 8), never the play's; a spoiler draws none", () => {
   const large = validLarge({ ...R3_MOMENT, media: shaped("LP"), ...fill("SSSSSSSS") });
   assert.deepEqual(cardItems(large), large.media);
-  assert.equal(cardItems(validLarge({ ...R3_MOMENT, media: shaped("LPSLPS") })).length, 4);
+  assert.equal(cardItems(validLarge({ ...R3_MOMENT, media: shaped("LPSLPSLPSL") })).length, 8);
   assert.equal(cardItems(validLarge({ ...R3_REVIEW, media: shaped("LPSLPSLPSL", "-r"), ...fill("SS") })).length, 8);
   assert.deepEqual(cardItems(validLarge({ ...R3_MOMENT, spoiler: true, ...fill("SSS") })), []);
   assert.deepEqual(cardItems(validLarge({ ...R3_REVIEW, spoiler: true, ...fill("SSS") })), []);

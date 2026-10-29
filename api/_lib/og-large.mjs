@@ -85,7 +85,8 @@ function photoUrl(value) {
 // TASK-20261017-002 r3 (V1/V2): the drawn previews of the record (C1 `media`)
 // and what the share page holds (C1 `counts`). Each media entry goes through
 // the same signed-path check as photo_url; a bad entry is dropped, never fatal.
-export const MOMENT_MEDIA_MAX = 4;
+// TASK-20261021-002 (10/29): モーメントは写真 10 + 動画 1 を一緒に付けられる。カードに描くのはレビューと同じ 8 まで (card-layout.mjs MAX_ITEMS)
+export const MOMENT_MEDIA_MAX = 8;
 // r11: レビューは写真 10 枚まで付けられる (app ReviewMediaPicker MAX_REVIEW_MEDIA = 10)。カードに描くのは 8 枚まで (card-layout.mjs MAX_ITEMS)
 export const REVIEW_MEDIA_MAX = 8;
 function mediaItem(value, { imagesOnly }) {
