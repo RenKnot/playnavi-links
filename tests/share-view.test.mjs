@@ -31,6 +31,11 @@ import {
   STORY_TITLE,
   storyModel,
   startShareView,
+  startFreshness,
+  modelHasPreparing,
+  SIGNED_URL_STALE_MS,
+  PREPARING_POLL_MS,
+  PREPARING_POLL_LIMIT,
   syncAppLinks,
   UNPLAYABLE_TEXT,
   videoMime,
@@ -487,7 +492,11 @@ test("the content is read from the JSON the server embedded (no network); broken
   }
   assert.equal(readEmbeddedShareView(fakeDocument()), null);
   const source = await readFile(new URL("../assets/share-view.mjs", import.meta.url), "utf8");
-  assert.doesNotMatch(source, /\bfetch\(|XMLHttpRequest/);
+  // 開いた時は通信しない (埋め込みだけで描く)。通信するのは TASK-20261026-003 B4・B5 の取り直しの 1 か所だけ
+  // (変換中の動画がある間・50 分を過ぎたページ。同じ住所の HTML をもらって埋め込みを読み直す)
+  assert.doesNotMatch(source, /XMLHttpRequest/);
+  assert.deepEqual(source.match(/\bfetch\(/g), ["fetch("]);
+  assert.match(source, /win\.fetch\(win\.location\.href, \{ cache: "no-store"/);
 });
 
 test("startShareView fills the page from the embedded JSON and leaves today's page alone without it", () => {
@@ -819,4 +828,112 @@ test("r8: a review shows play time and platforms (and so does the parent review 
   assert.match(card.text(), /100〜200時間\n遊んだ機種\nPC/);
   // 無い時は出さない
   assert.equal(buildShareView(fakeDocument(), shareModel(ok(REVIEW_VIEW))).byClass("pn-facts").length, 0);
+});
+
+
+// TASK-20261026-003 B4・B5 (運営者 10/29「動画を準備中のまま永遠に終わらない」「画像とかゲームのカバーとかが…『？』になってる」)
+function freshnessHarness({ model, fetchView, visibility = "visible", viewerOpen = false, playing = false }) {
+  let clock = 1_000_000;
+  const timers = [];
+  const doc = fakeDocument();
+  doc.visibilityState = visibility;
+  if (viewerOpen) doc.body.classList.add("share-viewer-open");
+  doc.querySelectorAll = () => (playing ? [{ paused: false, ended: false }] : []);
+  const listeners = {};
+  doc.addEventListener = (type, fn) => { (listeners[type] ??= []).push(fn); };
+  doc.defaultView = {
+    setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
+    addEventListener: (type, fn) => { (listeners[type] ??= []).push(fn); },
+    scrollY: 120,
+    scrollTo: () => {},
+  };
+  const mounted = [];
+  let current = model;
+  const api = startFreshness(doc, {
+    now: () => clock,
+    mount: (next) => { mounted.push(next); current = next; },
+    getModel: () => current,
+    fetchView: async () => fetchView?.() ?? null,
+  });
+  return {
+    api, doc, timers, mounted, listeners,
+    advance: (ms) => { clock += ms; },
+    runTimer: async () => { const t = timers.shift(); await t.fn(); },
+  };
+}
+
+const PREPARING_MOMENT = shareModel(ok({ ...MOMENT_VIEW, media: [
+  { kind: "video", url: null, preparing: true, poster_url: `${STORAGE}/game-log-media-private/p.jpg?token=b`, duration_ms: 5_000 },
+  { kind: "image", url: `${STORAGE}/game-log-media-private/1.jpg?token=c`, width: 1200, height: 900 },
+] }));
+
+test("B4: 変換中の動画がある間は 20 秒ごとに中身を取り直し、元の動画が届いたら描き直して止める", async () => {
+  assert.equal(modelHasPreparing(PREPARING_MOMENT), true);
+  assert.equal(modelHasPreparing(shareModel(ok(MOMENT_VIEW))), false);
+  const ready = shareModel(ok(MOMENT_VIEW));
+  let answer = PREPARING_MOMENT;
+  const h = freshnessHarness({ model: PREPARING_MOMENT, fetchView: () => answer });
+  assert.equal(h.timers.length, 1);
+  assert.equal(h.timers[0].ms, PREPARING_POLL_MS);
+  await h.runTimer();
+  assert.equal(h.mounted.length, 1, "1 回目はまだ準備中の中身で描き直す");
+  assert.equal(h.timers.length, 1, "準備中のままなら次を待つ");
+  answer = ready;
+  await h.runTimer();
+  assert.equal(h.mounted.at(-1), ready);
+  assert.equal(h.timers.length, 0, "準備中が無くなったら止める");
+});
+
+test("B4: 取り直しは見えている間だけ・15 分 (45 回) まで。全画面で見ている間・再生中は取り直さない", async () => {
+  const hidden = freshnessHarness({ model: PREPARING_MOMENT, fetchView: () => PREPARING_MOMENT, visibility: "hidden" });
+  await hidden.runTimer();
+  assert.equal(hidden.mounted.length, 0);
+  assert.equal(hidden.timers.length, 0, "見えない間は次を積まない (見えるようになった時に始め直す)");
+  hidden.doc.visibilityState = "visible";
+  hidden.listeners.visibilitychange[0]();
+  assert.equal(hidden.timers.length, 1);
+
+  const h = freshnessHarness({ model: PREPARING_MOMENT, fetchView: () => PREPARING_MOMENT });
+  for (let i = 0; i < PREPARING_POLL_LIMIT; i += 1) await h.runTimer();
+  assert.equal(h.mounted.length, PREPARING_POLL_LIMIT);
+  assert.equal(h.timers.length, 0);
+
+  const viewer = freshnessHarness({ model: PREPARING_MOMENT, fetchView: () => shareModel(ok(MOMENT_VIEW)), viewerOpen: true });
+  await viewer.runTimer();
+  assert.equal(viewer.mounted.length, 0);
+  const playing = freshnessHarness({ model: PREPARING_MOMENT, fetchView: () => shareModel(ok(MOMENT_VIEW)), playing: true });
+  await playing.runTimer();
+  assert.equal(playing.mounted.length, 0);
+});
+
+test("B5: 読めない絵は「?」を出さずに隠す。50 分を過ぎたページは絵が読めなかった時・戻った時に中身を取り直す (署名は 3600 秒)", async () => {
+  const fresh = shareModel(ok(MOMENT_VIEW));
+  const h = freshnessHarness({ model: fresh, fetchView: () => fresh });
+  assert.equal(h.timers.length, 0, "準備中が無ければ定期の取り直しはしない");
+  const root = buildShareView(h.doc, fresh);
+  const photo = root.all((n) => n.tagName === "IMG" && String(n.src).includes("1.jpg"))[0];
+  assert.ok(photo);
+  // 新しいページで読めない絵: 隠すだけ (取り直さない)
+  for (const fn of photo.listeners.error) fn();
+  assert.ok(photo.classList.contains("is-broken"));
+  await Promise.resolve();
+  assert.equal(h.mounted.length, 0);
+  // 50 分を過ぎた: 読めない絵で取り直す
+  h.advance(SIGNED_URL_STALE_MS);
+  for (const fn of photo.listeners.error) fn();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(h.mounted.length, 1);
+  // 戻った時 (pageshow) も、また 50 分が過ぎていれば取り直す
+  h.advance(SIGNED_URL_STALE_MS);
+  for (const fn of h.listeners.pageshow) fn();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(h.mounted.length, 2);
+});
+
+test("B4: EF が返す変換中の元の動画 (準備中の印なし) は普通の動画として再生でき、準備中の印は出さない", () => {
+  const model = shareModel(ok({ ...MOMENT_VIEW, media: [{ kind: "video", url: `${STORAGE}/game-log-video-private/memories/video-1.mov?token=z`, poster_url: `${STORAGE}/game-log-media-private/p.jpg?token=b`, duration_ms: 97_000 }] }));
+  assert.equal(modelHasPreparing(model), false);
+  const root = buildShareView(fakeDocument(), model);
+  assert.equal(root.all((n) => n.tagName === "VIDEO").length, 1);
+  assert.equal(root.text().includes(PREPARING_TEXT), false);
 });
