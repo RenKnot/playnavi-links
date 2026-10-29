@@ -16,6 +16,8 @@ import {
   heroRatio,
   isShareViewTarget,
   OPEN_IN_APP,
+  openAlbumViewer,
+  PREPARING_TEXT,
   PAGE_CLASS,
   PLAY_STORE_URL,
   playTimeText,
@@ -284,6 +286,47 @@ test("r6 Q7: a video the browser cannot play shows the poster, the message and a
   for (const fn of video.listeners.error) fn({});
   assert.equal(broken.byClass("pn-video-fail").length, 1);
   assert.equal(broken.byClass("pn-play")[0].hidden, true);
+});
+
+test("TASK-20261021-002 10/29: a video still converting shows its poster and a small preparing label, never a player", () => {
+  const preparing = { kind: "video", url: null, preparing: true, poster_url: `${STORAGE}/game-log-media-private/p2.jpg?token=e`, duration_ms: 5_000 };
+  const model = shareModel(ok({ ...MOMENT_VIEW, media: [preparing] }));
+  assert.equal(model.media.length, 1);
+  assert.equal(model.media[0].preparing, true);
+  assert.equal(model.media[0].url, null);
+  // 1 つだけ = 大きな 1 枚: 表紙の絵 + 長さ + 準備中。動画の部品・▶ は作らない (何も読み込まない)
+  const single = buildShareView(fakeDocument(), model);
+  const slide = single.byClass("pn-slide-video")[0];
+  assert.ok(slide.classList.contains("is-preparing"));
+  assert.equal(single.all((node) => node.tagName === "VIDEO").length, 0);
+  assert.equal(single.byClass("pn-play").length, 0);
+  assert.match(slide.all((node) => node.tagName === "IMG")[0].src, /p2\.jpg/);
+  assert.equal(single.byClass("pn-video-preparing")[0].textContent, PREPARING_TEXT);
+  assert.equal(single.byClass("pn-duration")[0].textContent, "0:05");
+  // 2 つ以上 = 一覧: 準備中の札 (▶ なし)。ほかの動画は今まで通り ▶
+  const grid = buildShareView(fakeDocument(), shareModel(ok({ ...MOMENT_VIEW, media: [MOMENT_VIEW.media[0], preparing, MOMENT_VIEW.media[1]] })));
+  const tiles = grid.byClass("pn-post-tile");
+  assert.equal(tiles.length, 3);
+  assert.equal(tiles[0].byClass("pn-album-play").length, 1);
+  assert.ok(tiles[1].classList.contains("is-preparing"));
+  assert.equal(tiles[1].byClass("pn-album-play").length, 0);
+  assert.equal(tiles[1].byClass("pn-video-preparing")[0].textContent, PREPARING_TEXT);
+  assert.match(tiles[1].getAttribute("aria-label"), /動画を準備中/);
+  // 表紙の無い準備中・再生の住所の無い ready は出さない
+  assert.equal(shareModel(ok({ ...MOMENT_VIEW, media: [{ ...preparing, poster_url: null }] })).media.length, 0);
+  assert.equal(shareModel(ok({ ...MOMENT_VIEW, media: [{ ...MOMENT_VIEW.media[0], url: null }] })).media.length, 0);
+});
+
+test("TASK-20261021-002 10/29: the full-screen viewer shows a converting video as its poster with the preparing label", () => {
+  const doc = fakeDocument();
+  const items = shareModel(ok({ ...MOMENT_VIEW, media: [MOMENT_VIEW.media[1], { kind: "video", url: null, preparing: true, poster_url: `${STORAGE}/game-log-media-private/p2.jpg?token=e`, duration_ms: 5_000 }] })).postItems;
+  openAlbumViewer(doc, items, 1);
+  const root = doc.body;
+  const slide = root.byClass("pn-av-video-slide")[0];
+  assert.ok(slide.classList.contains("is-preparing"));
+  assert.equal(slide.all((node) => node.tagName === "VIDEO").length, 0);
+  assert.equal(slide.byClass("pn-av-play").length, 0);
+  assert.equal(slide.byClass("pn-video-preparing")[0].textContent, PREPARING_TEXT);
 });
 
 test("a review shows status, the big satisfaction with a bar, the comment, photos and (old EF without story) the moments line", () => {
