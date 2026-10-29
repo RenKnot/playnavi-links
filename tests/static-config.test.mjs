@@ -340,6 +340,9 @@ test("playnavi.app/privacy serves the full privacy policy, including the AI conn
   assert.ok(i < config.rewrites.findIndex((r) => r.source === "/(.*)"), "must come before the catch-all");
   const page = await readFile(new URL("../privacy.html", import.meta.url), "utf8");
   for (const s of ["<title>プライバシーポリシー | PlayNavi</title>", "PlayNavi Lab", "6-2. AI サービスとの連携", "(4) 保持期間", "Connecting AI services", "contact@playnavilab.com"]) assert.ok(page.includes(s), s);
+  // 10/29 (TASK-20261028-005): 10/25 の改定 (6-1 に PlayNavi AI・画像から取り込む機能で送る物) を写す。
+  // 公式 www.playnavilab.com/privacypolicy を改定したら、scripts/check-privacy-copy.mjs で差を見てこのページも直す
+  for (const s of ["最終更新日：2026年10月25日", "(1) PlayNavi AI（話して、または文字を入力して操作を頼む機能）", "(3) 画像から取り込む機能", "これらの機能でも、メールアドレスやパスワードをAIサービスへ送信しません。"]) assert.ok(page.includes(s), s);
   assert.doesNotMatch(page, /<script/i);
 });
 
