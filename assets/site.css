@@ -567,6 +567,13 @@ html.pn-rec-page .share-view { margin: 0; }
   display: inline-flex; align-items: center; height: 36px; padding: 0 18px; border-radius: 999px;
   color: #0b0c0e; background: #fff; font-size: 14px; font-weight: 700; text-decoration: none;
 }
+/* TASK-20261021-002 10/29: 上げた直後 (変換中) の動画 = 表紙 + 小さな「動画を準備中」(▶ は出さない・押しても再生しない) */
+.pn-video-preparing {
+  position: absolute; left: 50%; top: 50%; z-index: 1; transform: translate(-50%, -50%);
+  padding: 3px 12px; border-radius: 999px; color: #fff; background: rgb(0 0 0 / .62);
+  font-size: 12px; font-weight: 700; line-height: 1.6; white-space: nowrap; pointer-events: none;
+}
+.pn-slide-video.is-preparing .pn-video { object-fit: cover; }
 /* r13: 投稿の写真・動画が 2 つ以上 = 全部を一覧 (アルバムの札と同じ見た目・切らない)。行の分け方は share-view.mjs の
    postGridRows が幅で決め、行の中は縦横比の割合で幅いっぱいに分ける (= 行の中の高さがそろう)。
    1 枚だけの行が縦長で高くなりすぎないよう、行の幅に上限 (--pn-post-max-h の高さまで) を付けて真ん中に置く */
@@ -584,6 +591,7 @@ html.pn-rec-page .share-view { margin: 0; }
 .pn-rec.is-spoiler .pn-track { filter: blur(28px) brightness(.72); transform: scale(1.15); }
 .pn-rec.is-spoiler .pn-post-grid { filter: blur(24px) brightness(.72); }
 .pn-rec.is-spoiler .pn-play,
+.pn-rec.is-spoiler .pn-video-preparing,
 .pn-rec.is-spoiler .pn-duration,
 .pn-rec.is-spoiler .pn-post-grid .pn-album-play,
 .pn-rec.is-spoiler .pn-post-grid .pn-album-duration { visibility: hidden; }
@@ -846,6 +854,7 @@ html.pn-rec-page .share-view { margin: 0; }
 .pn-album-tile.is-spoiler .pn-album-img { filter: blur(16px) brightness(.72); transform: scale(1.2); }
 .pn-album-tile.is-spoiler .pn-album-spoiler { display: block; }
 .pn-album-tile.is-spoiler .pn-album-play,
+.pn-album-tile.is-spoiler .pn-video-preparing,
 .pn-album-tile.is-spoiler .pn-album-duration { display: none; }
 .pn-album-rest { margin: 12px 4px 0; color: var(--text-sub); font-size: 13px; }
 

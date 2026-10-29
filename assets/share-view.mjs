@@ -43,6 +43,8 @@ export const SPOILER_BUTTON = "ネタバレを表示";
 export const SPOILER_NOTE = "ネタバレを含む内容です";
 export const SPOILER_TEXT_NOTE = "本文はネタバレを含むため隠しています";
 export const UNPLAYABLE_TEXT = "このブラウザでは再生できません";
+// TASK-20261021-002 10/29: 上げた直後 (変換中) の動画。EF share-view は表紙だけを返す (再生の住所は無い)
+export const PREPARING_TEXT = "動画を準備中";
 export const OPEN_IN_APP = "アプリで見る";
 export const STORY_TITLE = "このプレイの記録";
 export const STORY_SPOILER = "ネタバレを含むモーメント";
@@ -158,6 +160,21 @@ const dimension = (value) => (Number.isSafeInteger(value) && value > 0 && value 
 
 function mediaItem(item) {
   if (!item || typeof item !== "object") return null;
+  // TASK-20261021-002 10/29: 変換中の動画 = 表紙 +「動画を準備中」(再生しない)。表紙が無ければ出さない
+  if (item.kind === "video" && item.preparing === true) {
+    const posterUrl = safeUrl(item.poster_url);
+    if (!posterUrl) return null;
+    return {
+      kind: "video",
+      url: null,
+      preparing: true,
+      posterUrl,
+      durationText: formatDuration(item.duration_ms),
+      width: dimension(item.width),
+      height: dimension(item.height),
+      mime: null,
+    };
+  }
   const url = safeUrl(item.url);
   if (!url) return null;
   if (item.kind === "image") {
@@ -515,11 +532,26 @@ function logo(doc) {
 
 // 1 枚の動画: 表紙と大きな ▶。押すとその場で再生 (playsinline・始まってから操作の棒)。音を消した自動再生はしない。
 // 再生できない (canPlayType が「無理」・読み込みの error) 時は表紙 +「このブラウザでは再生できません」+「アプリで見る」(Q7)
+// TASK-20261021-002 10/29: 変換中の動画の札 (表紙 + 長さ + 小さな「動画を準備中」。▶ は出さない)
+function preparingVideo(doc, node, item, { posterClass, durationClass }) {
+  node.classList.add("is-preparing");
+  node.append(image(doc, posterClass, item.posterUrl, ""));
+  if (item.durationText) node.append(el(doc, "span", durationClass, item.durationText));
+  const label = el(doc, "span", "pn-video-preparing", PREPARING_TEXT);
+  label.setAttribute("role", "status");
+  node.append(label);
+  return node;
+}
+
 function videoSlide(doc, item, position, total, appHref) {
   const slide = el(doc, "div", "pn-slide pn-slide-video");
   slide.setAttribute("role", "group");
   slide.setAttribute("aria-roledescription", "スライド");
   slide.setAttribute("aria-label", `${position} / ${total} 動画`);
+  if (item.preparing) {
+    preparingVideo(doc, slide, item, { posterClass: "pn-video", durationClass: "pn-duration" });
+    return { slide, video: null, fail: () => {} };
+  }
   const video = doc.createElement("video");
   video.className = "pn-video";
   video.playsInline = true;
@@ -925,6 +957,7 @@ export function storySection(doc, model, { onOpen = () => {}, onReveal = () => {
 // ---------------------------------------------------------------- r8: このプレイのアルバム (DOM)
 
 function albumLabel(item, index, total) {
+  if (item.kind === "video" && item.preparing) return `動画 (${PREPARING_TEXT}) ${index + 1} / ${total} を開く`;
   if (item.kind === "video") return `動画${item.durationText ? ` (${item.durationText})` : ""} ${index + 1} / ${total} を開く`;
   return `写真 ${index + 1} / ${total} を大きく表示`;
 }
@@ -955,7 +988,11 @@ function albumTile(doc, item, index, total, { revealed, onPress, onRatio = null,
   } else {
     tile.append(el(doc, "span", "pn-album-img pn-album-empty"));
   }
-  if (item.kind === "video") {
+  if (item.kind === "video" && item.preparing) {
+    tile.classList.add("is-preparing");
+    if (item.durationText) tile.append(el(doc, "span", "pn-album-duration", item.durationText));
+    tile.append(el(doc, "span", "pn-video-preparing", PREPARING_TEXT));
+  } else if (item.kind === "video") {
     tile.append(el(doc, "span", "pn-album-play"));
     if (item.durationText) tile.append(el(doc, "span", "pn-album-duration", item.durationText));
   }
@@ -1150,6 +1187,10 @@ export function openAlbumViewer(doc, items, start, { touch = false, isRevealed =
 
   const buildVideo = (item) => {
     const node = el(doc, "div", "pn-av-slide pn-av-video-slide");
+    if (item.preparing) {
+      preparingVideo(doc, node, item, { posterClass: "pn-av-img", durationClass: "pn-av-duration" });
+      return { node, video: null, load: () => {}, pause: () => {} };
+    }
     const video = doc.createElement("video");
     video.className = "pn-av-video";
     video.playsInline = true;

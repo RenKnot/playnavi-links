@@ -536,6 +536,16 @@ test("r3: the image version ignores media signatures but follows the stored obje
   assert.doesNotMatch(JSON.stringify(a), /token/);
 });
 
+test("TASK-20261021-002 10/29: a video still converting gives the same card version as after conversion", () => {
+  // 変換中: 表紙 (同じ保存先) + アプリが測った長さ。変換の後: 表紙は同じ・署名と長さ (ms) だけ違う
+  const converting = { ...R3_MOMENT, media: [{ kind: "video", url: signed("v.jpg"), duration_ms: 12_340 }, ...R3_MOMENT.media.slice(1)] };
+  const converted = { ...R3_MOMENT, media: [{ kind: "video", url: signed("v.jpg", "zz"), duration_ms: 12_017 }, ...R3_MOMENT.media.slice(1)] };
+  assert.equal(largeVersion(validLarge(converted)), largeVersion(validLarge(converting)));
+  // 描く長さ (秒) が変われば版も変わる
+  const longer = { ...R3_MOMENT, media: [{ kind: "video", url: signed("v.jpg"), duration_ms: 13_000 }, ...R3_MOMENT.media.slice(1)] };
+  assert.notEqual(largeVersion(validLarge(longer)), largeVersion(validLarge(converting)));
+});
+
 test("r7 P3/P4: the poster is the hero — author name / icon are validated, the old heading still gives the name", () => {
   const avatar = `https://${STORAGE}/storage/v1/object/public/avatars/hinata.png`;
   const moment = validLarge({ ...R3_MOMENT, author_name: " Hinata ", author_avatar_url: avatar });

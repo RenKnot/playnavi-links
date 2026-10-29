@@ -323,12 +323,19 @@ const unsigned = (value) => {
   const url = new URL(value);
   return `${url.origin}${url.pathname}`;
 };
+// 秒に丸めた長さ (ms の形のまま。もともと 1000 の倍数の物は今までの版の印のまま)
+const videoSeconds = (item) =>
+  item.kind === "video" && typeof item.duration_ms === "number"
+    ? { duration_ms: Math.round(item.duration_ms / 1000) * 1000 }
+    : {};
 function versionSource(large) {
   let source = large;
   if (large.layout === "moment" && large.photo_url) source = { ...source, photo_url: unsigned(large.photo_url) };
   // r3: the media URLs are signed too; hash only the stored objects.
+  // TASK-20261021-002 10/29: 動画の長さは描く単位 (秒。og-card.mjs formatDuration と同じ丸め) で数える。
+  // 変換中はアプリが測った長さ、変換の後は作り直した動画の長さ (ms がずれる) なので、ms のままだと絵が同じでも版の印が変わる
   if (Array.isArray(large.media) && large.media.length > 0) {
-    source = { ...source, media: large.media.map((item) => ({ ...item, url: unsigned(item.url) })) };
+    source = { ...source, media: large.media.map((item) => ({ ...item, url: unsigned(item.url), ...videoSeconds(item) })) };
   }
   // r8: the play's photos are signed too
   if (Array.isArray(large.play_media) && large.play_media.length > 0) {
