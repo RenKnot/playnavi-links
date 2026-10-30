@@ -1,7 +1,9 @@
 // TASK-20261017-002 記録のページ (モーメント・レビューのリンクを開いた見る人の画面)。
 // r3 (V3/C4)・r5: アプリが無い人・ログインしていない人にも中身 (ゲーム・投稿した人・日付・文・満足度・写真・動画) を見せる。
 // 中身はサーバ (api/share-preview.mjs) が EF share-view (C2) の 200 の本文を HTML の
-// <script id="pn-share-view" type="application/json"> に埋め込む。ここは通信しない (1 回の読み込みで出す)。
+// <script id="pn-share-view" type="application/json"> に埋め込む。開いた時は通信しない (1 回の読み込みで出す)。
+// TASK-20261026-003 B4・B5: 変換中の動画がある間と、署名の期限 (3600 秒) が近いページだけ、同じ住所の HTML をもらって中身を取り直す
+// (fetchFreshShareView・startFreshness)。
 // 埋め込みが無い・形が違う時は何もしない = 今までの「PlayNaviでリンクを開く」+ ストアのまま。
 // 利用者の文字は必ず textContent で入れる (文字を HTML として読ませる書き方は使わない)。
 //
@@ -44,7 +46,20 @@ export const SPOILER_NOTE = "ネタバレを含む内容です";
 export const SPOILER_TEXT_NOTE = "本文はネタバレを含むため隠しています";
 export const UNPLAYABLE_TEXT = "このブラウザでは再生できません";
 // TASK-20261021-002 10/29: 上げた直後 (変換中) の動画。EF share-view は表紙だけを返す (再生の住所は無い)
+// TASK-20261026-003 B4 10/29: EF は撮った場所の情報の無い元の動画なら再生の住所を返す (普通の動画として描く)。
+// 準備中になるのは元の動画を渡せない時だけで、ページは変換が終わるまで中身を取り直す (PREPARING_POLL_MS)
 export const PREPARING_TEXT = "動画を準備中";
+// TASK-20261026-003 B5 (運営者 10/29「画像とかゲームのカバーとかが読み込まれないで『？』になってることが結構あった」):
+// 写真・動画の住所は EF share-view が 3600 秒で切れる署名をつけて HTML に埋め込む (api/share-preview.mjs)。
+// SNS のアプリ内ブラウザはページを残したまま後で戻れるので、50 分を過ぎたページの絵 (遅れて読む loading=lazy の絵・戻った時の絵) は
+// 期限切れで読めず「?」になっていた。古くなったページは、戻った時・絵が読めなかった時にその場で中身を取り直す (ページは読み直さない)。
+// 読めなかった絵は「?」を出さずに隠す (枠の地の色だけ)
+export const SIGNED_URL_STALE_MS = 50 * 60 * 1000;
+// 変換中の動画がある間の取り直しの間隔と回数 (見えている間だけ。15 分まで)
+export const PREPARING_POLL_MS = 20_000;
+export const PREPARING_POLL_LIMIT = 45;
+// 取り直しの間を最低これだけ空ける (絵がまとめて読めなかった時に何度も取りに行かない)
+export const REFRESH_MIN_GAP_MS = 60_000;
 export const OPEN_IN_APP = "アプリで見る";
 export const STORY_TITLE = "このプレイの記録";
 export const STORY_SPOILER = "ネタバレを含むモーメント";
@@ -484,6 +499,9 @@ function el(doc, tag, className, content) {
   return node;
 }
 
+// 写真・動画が読めなかった時に呼ぶ (startShareView が置く。古いページなら中身を取り直す)
+let mediaErrorHook = null;
+
 function image(doc, className, src, alt = "") {
   const node = doc.createElement("img");
   if (className) node.className = className;
@@ -492,6 +510,11 @@ function image(doc, className, src, alt = "") {
   node.loading = "lazy";
   node.decoding = "async";
   node.referrerPolicy = "no-referrer";
+  // B5: 読めない絵は「?」を出さずに隠す (枠の地の色が残る)。古いページなら中身を取り直す
+  node.addEventListener("error", () => {
+    node.classList.add("is-broken");
+    mediaErrorHook?.();
+  });
   return node;
 }
 
@@ -584,7 +607,11 @@ function videoSlide(doc, item, position, total, appHref) {
     return { slide, video, fail };
   }
   video.src = item.url;
-  video.addEventListener("error", fail);
+  video.addEventListener("error", () => {
+    // 期限切れの住所なら取り直す (古いページの時だけ。取り直した中身で描き直すので、ここでは今までどおり失敗を出す)
+    mediaErrorHook?.();
+    fail();
+  });
   video.addEventListener("playing", () => slide.classList.add("is-playing"));
   play.addEventListener("click", () => {
     play.hidden = true;
@@ -1076,6 +1103,11 @@ export function openAlbumViewer(doc, items, start, { touch = false, isRevealed =
     pic.decoding = "async";
     pic.referrerPolicy = "no-referrer";
     pic.draggable = false;
+    // B5: 全画面の写真も、読めない時は「?」を出さずに隠す (image() と同じ)。古いページなら閉じた後の取り直しに回す
+    pic.addEventListener("error", () => {
+      pic.classList.add("is-broken");
+      mediaErrorHook?.();
+    });
     box.append(pic);
     node.append(box);
     const z = { s: 1, x: 0, y: 0 };
@@ -1611,10 +1643,29 @@ export function openViewer(doc, images, start, { touch = false } = {}) {
   return { show, close: finish };
 }
 
+// 中身の中に変換中 (準備中) の動画があるか (投稿・このプレイの記録・アルバム)
+export function modelHasPreparing(model) {
+  const lists = [model?.media ?? [], model?.album?.items ?? [], ...((model?.story?.moments ?? []).map((m) => m.media ?? []))];
+  return lists.some((list) => list.some((item) => item?.kind === "video" && item.preparing === true));
+}
+
+// 同じ住所の HTML をもう一度もらって、埋め込まれた中身を読む (ページは読み直さない)。読めない時は null
+export async function fetchFreshShareView(win) {
+  if (typeof win?.fetch !== "function" || typeof win.DOMParser !== "function" || !win.location?.href) return null;
+  try {
+    const response = await win.fetch(win.location.href, { cache: "no-store", credentials: "same-origin", headers: { Accept: "text/html" } });
+    if (!response.ok) return null;
+    const parsed = new win.DOMParser().parseFromString(await response.text(), "text/html");
+    return readEmbeddedShareView(parsed);
+  } catch {
+    return null;
+  }
+}
+
 // app.mjs から呼ぶ。描けたら true。埋め込みが無い時は何も変えずに false。
 // target は正規の住所の時の link-routing の結果 (モーメント・レビュー以外は描かない)。/s/<code> の時は null
 // (種類はサーバが短縮リンクから決めて埋め込む)
-export function startShareView(target, { doc = document, userAgent } = {}) {
+export function startShareView(target, { doc = document, userAgent, now = () => Date.now() } = {}) {
   if (target !== null && !isShareViewTarget(target)) return false;
   const container = doc.getElementById("share-view");
   const linkView = doc.getElementById("link-view");
@@ -1622,26 +1673,92 @@ export function startShareView(target, { doc = document, userAgent } = {}) {
   const model = readEmbeddedShareView(doc);
   if (!model) return false;
   const ua = userAgent ?? doc.defaultView?.navigator?.userAgent ?? globalThis.navigator?.userAgent ?? "";
-  const root = buildShareView(doc, model, {
-    platform: detectPlatform(ua),
-    onOpen: (images, index) => openViewer(doc, images, index, { touch: detectPlatform(ua) !== "other" }),
-  });
-  container.replaceChildren(root);
+  const primary = doc.getElementById("primary-btn");
+  let current = model;
+  let root = null;
+  const mount = (next) => {
+    const nextRoot = buildShareView(doc, next, {
+      platform: detectPlatform(ua),
+      onOpen: (images, index) => openViewer(doc, images, index, { touch: detectPlatform(ua) !== "other" }),
+    });
+    // app.mjs の「PlayNaviアプリで開く」(とその横の「もう一度試す」) をページの一番下の控えめな行へ移す (r7 P3)。
+    // 要素そのものを移すので、app.mjs が持っている参照・住所の決め方はそのまま (ストアの印は出さない)。描き直す時は前の中身から移し直す
+    const actions = typeof linkView.querySelector === "function"
+      ? linkView.querySelector(".actions") ?? (root && typeof root.querySelector === "function" ? root.querySelector(".actions") : null)
+      : null;
+    container.replaceChildren(nextRoot);
+    const slot = typeof nextRoot.querySelector === "function" ? nextRoot.querySelector(".pn-end-slot") : null;
+    if (actions && slot) slot.append(actions);
+    root = nextRoot;
+    current = next;
+    syncAppLinks(root, primary, current.appUrl);
+  };
+  mount(model);
   container.classList.remove("hidden");
   linkView.classList.add("has-share");
   doc.documentElement?.classList?.add(PAGE_CLASS);
-
-  // app.mjs の「PlayNaviアプリで開く」(とその横の「もう一度試す」) をページの一番下の控えめな行へ移す (r7 P3)。
-  // 要素そのものを移すので、app.mjs が持っている参照・住所の決め方はそのまま (ストアの印は出さない)
-  const actions = typeof linkView.querySelector === "function" ? linkView.querySelector(".actions") : null;
-  const slot = typeof root.querySelector === "function" ? root.querySelector(".pn-end-slot") : null;
-  if (actions && slot) slot.append(actions);
-  const primary = doc.getElementById("primary-btn");
-  const sync = () => syncAppLinks(root, primary, model.appUrl);
-  sync();
   const Observer = doc.defaultView?.MutationObserver ?? globalThis.MutationObserver;
   if (primary && typeof Observer === "function") {
-    new Observer(sync).observe(primary, { attributes: true, attributeFilter: ["href", "class"] });
+    new Observer(() => syncAppLinks(root, primary, current.appUrl)).observe(primary, { attributes: true, attributeFilter: ["href", "class"] });
   }
+  startFreshness(doc, { now, mount, getModel: () => current });
   return true;
+}
+
+// TASK-20261026-003 B4・B5: 中身を新しく保つ。① 変換中の動画がある間は 20 秒ごと (見えている間だけ・15 分まで) に取り直す
+// ② 50 分を過ぎたページは、戻った時 (pageshow・見えるようになった時)・絵が読めなかった時に取り直す。
+// 全画面で見ている間・動画を再生している間は取り直さない (見ている物を消さない)
+export function startFreshness(doc, { now = () => Date.now(), mount, getModel, fetchView = fetchFreshShareView } = {}) {
+  const win = doc.defaultView;
+  if (!win || typeof win.setTimeout !== "function") return null;
+  let renderedAt = now();
+  let lastRefresh = 0;
+  let busy = false;
+  let polls = 0;
+  let timer = null;
+  const visible = () => doc.visibilityState === undefined || doc.visibilityState === "visible";
+  const watching = () => {
+    if (doc.body?.classList?.contains?.("share-viewer-open")) return true;
+    const videos = typeof doc.querySelectorAll === "function" ? [...doc.querySelectorAll("video")] : [];
+    return videos.some((video) => video.paused === false && video.ended !== true);
+  };
+  const refresh = async () => {
+    if (busy || watching() || now() - lastRefresh < REFRESH_MIN_GAP_MS && lastRefresh !== 0) return false;
+    busy = true;
+    lastRefresh = now();
+    try {
+      const next = await fetchView(win);
+      if (!next) return false;
+      const y = typeof win.scrollY === "number" ? win.scrollY : null;
+      mount(next);
+      renderedAt = now();
+      if (y !== null && typeof win.scrollTo === "function") win.scrollTo(0, y);
+      return true;
+    } finally {
+      busy = false;
+    }
+  };
+  const stale = () => now() - renderedAt >= SIGNED_URL_STALE_MS;
+  const schedule = () => {
+    if (timer !== null || polls >= PREPARING_POLL_LIMIT || !modelHasPreparing(getModel())) return;
+    timer = win.setTimeout(async () => {
+      timer = null;
+      if (!visible()) return; // 見えるようになった時に onShow がまた始める
+      polls += 1;
+      // 準備中の時は間を空ける決まり (REFRESH_MIN_GAP_MS) より短い間隔で聞く
+      lastRefresh = 0;
+      await refresh();
+      schedule();
+    }, PREPARING_POLL_MS);
+  };
+  const onShow = () => {
+    if (!visible()) return;
+    if (stale()) void refresh().then(schedule);
+    else schedule();
+  };
+  mediaErrorHook = () => { if (stale()) void refresh().then(schedule); };
+  doc.addEventListener?.("visibilitychange", onShow);
+  win.addEventListener?.("pageshow", onShow);
+  schedule();
+  return { refresh, schedule, onShow, get polls() { return polls; } };
 }

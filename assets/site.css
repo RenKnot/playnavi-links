@@ -829,6 +829,8 @@ html.pn-rec-page .share-view { margin: 0; }
 }
 .pn-album-video { cursor: pointer; }
 .pn-album-img { display: block; width: 100%; height: 100%; object-fit: contain; transition: transform .25s ease, filter .25s ease; }
+/* TASK-20261026-003 B5: 読めなかった絵は「?」を出さずに隠す (枠の地の色だけ。share-view.mjs image()) */
+.pn-rec img.is-broken, .share-viewer img.is-broken, .pn-av img.is-broken { visibility: hidden; }
 .pn-album-empty { background: var(--bg-sunken); }
 .pn-album-tile:hover .pn-album-img { transform: scale(1.025); }
 .pn-album-tile:focus-visible { outline-offset: 2px; }
