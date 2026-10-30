@@ -2,271 +2,127 @@
   "functions": {
     "api/share-preview.mjs": {
       "includeFiles": "link.html",
-      "regions": [
-        "hnd1"
-      ]
+      "regions": ["hnd1"]
     },
     "api/og.mjs": {
       "includeFiles": "{logo.png,assets/og/**}",
-      "regions": [
-        "hnd1"
-      ]
+      "regions": ["hnd1"]
     }
   },
   "headers": [
     {
       "source": "/.well-known/apple-app-site-association",
       "headers": [
-        {
-          "key": "Content-Type",
-          "value": "application/json"
-        },
-        {
-          "key": "Cache-Control",
-          "value": "public, max-age=300"
-        }
+        { "key": "Content-Type", "value": "application/json" },
+        { "key": "Cache-Control", "value": "public, max-age=300" }
       ]
     },
     {
       "source": "/.well-known/assetlinks.json",
       "headers": [
-        {
-          "key": "Content-Type",
-          "value": "application/json"
-        },
-        {
-          "key": "Cache-Control",
-          "value": "public, max-age=300"
-        }
+        { "key": "Content-Type", "value": "application/json" },
+        { "key": "Cache-Control", "value": "public, max-age=300" }
       ]
     },
     {
       "source": "/a",
       "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "no-store"
-        },
-        {
-          "key": "Referrer-Policy",
-          "value": "no-referrer"
-        },
-        {
-          "key": "X-Robots-Tag",
-          "value": "noindex, nofollow"
-        },
-        {
-          "key": "X-Content-Type-Options",
-          "value": "nosniff"
-        }
+        { "key": "Cache-Control", "value": "no-store" },
+        { "key": "Referrer-Policy", "value": "no-referrer" },
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" }
       ]
     },
     {
       "source": "/s/(.*)",
       "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "no-store"
-        },
-        {
-          "key": "Referrer-Policy",
-          "value": "no-referrer"
-        },
-        {
-          "key": "X-Robots-Tag",
-          "value": "noindex, nofollow"
-        },
-        {
-          "key": "X-Content-Type-Options",
-          "value": "nosniff"
-        }
+        { "key": "Cache-Control", "value": "no-store" },
+        { "key": "Referrer-Policy", "value": "no-referrer" },
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" }
       ]
     },
     {
       "source": "/api/share-links/(.*)",
       "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "no-store"
-        },
-        {
-          "key": "Referrer-Policy",
-          "value": "no-referrer"
-        },
-        {
-          "key": "X-Robots-Tag",
-          "value": "noindex, nofollow"
-        },
-        {
-          "key": "X-Content-Type-Options",
-          "value": "nosniff"
-        }
+        { "key": "Cache-Control", "value": "no-store" },
+        { "key": "Referrer-Policy", "value": "no-referrer" },
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" }
       ]
     },
     {
       "source": "/surveys/(.*)",
       "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "no-store"
-        },
-        {
-          "key": "Content-Security-Policy",
-          "value": "default-src 'self'; base-uri 'none'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'"
-        },
-        {
-          "key": "Permissions-Policy",
-          "value": "camera=(), microphone=(), geolocation=()"
-        },
-        {
-          "key": "Referrer-Policy",
-          "value": "no-referrer"
-        },
-        {
-          "key": "X-Content-Type-Options",
-          "value": "nosniff"
-        },
-        {
-          "key": "X-Frame-Options",
-          "value": "DENY"
-        },
-        {
-          "key": "X-Robots-Tag",
-          "value": "noindex, nofollow"
-        }
+        { "key": "Cache-Control", "value": "no-store" },
+        { "key": "Content-Security-Policy", "value": "default-src 'self'; base-uri 'none'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'" },
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=()" },
+        { "key": "Referrer-Policy", "value": "no-referrer" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" }
       ]
     },
     {
       "source": "/mcp(.*)",
       "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "no-store"
-        },
-        {
-          "key": "X-Robots-Tag",
-          "value": "noindex, nofollow"
-        }
+        { "key": "Cache-Control", "value": "no-store" },
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" }
       ]
     },
     {
       "source": "/ai-auth(.*)",
       "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "no-store"
-        },
-        {
-          "key": "X-Robots-Tag",
-          "value": "noindex, nofollow"
-        }
+        { "key": "Cache-Control", "value": "no-store" },
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" }
       ]
     },
     {
       "source": "/.well-known/openai-apps-challenge",
       "headers": [
-        {
-          "key": "Content-Type",
-          "value": "text/plain; charset=utf-8"
-        },
-        {
-          "key": "Cache-Control",
-          "value": "no-store"
-        }
+        { "key": "Content-Type", "value": "text/plain; charset=utf-8" },
+        { "key": "Cache-Control", "value": "no-store" }
       ]
     },
     {
       "source": "/.well-known/(oauth-authorization-server|oauth-protected-resource/mcp)",
       "headers": [
-        {
-          "key": "Content-Type",
-          "value": "application/json"
-        },
-        {
-          "key": "Cache-Control",
-          "value": "public, max-age=60"
-        },
-        {
-          "key": "Access-Control-Allow-Origin",
-          "value": "*"
-        }
+        { "key": "Content-Type", "value": "application/json" },
+        { "key": "Cache-Control", "value": "public, max-age=60" },
+        { "key": "Access-Control-Allow-Origin", "value": "*" }
       ]
     },
     {
       "source": "/api/(.*)",
       "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "private, no-store, max-age=0"
-        },
-        {
-          "key": "Content-Security-Policy",
-          "value": "default-src 'none'; frame-ancestors 'none'"
-        },
-        {
-          "key": "Referrer-Policy",
-          "value": "no-referrer"
-        },
-        {
-          "key": "X-Content-Type-Options",
-          "value": "nosniff"
-        },
-        {
-          "key": "X-Frame-Options",
-          "value": "DENY"
-        },
-        {
-          "key": "X-Robots-Tag",
-          "value": "noindex, nofollow"
-        }
+        { "key": "Cache-Control", "value": "private, no-store, max-age=0" },
+        { "key": "Content-Security-Policy", "value": "default-src 'none'; frame-ancestors 'none'" },
+        { "key": "Referrer-Policy", "value": "no-referrer" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" }
       ]
     },
     {
       "source": "/:path((?!(?:api|assets|\\.well-known|a|s|surveys|survey-login-error|auth/steam/callback)(?:/|$)|(?:logo\\.png|og-fallback\\.png|link\\.html|robots\\.txt)$).*)",
       "has": [
-        {
-          "type": "host",
-          "value": "playnavi.app"
-        }
+        { "type": "host", "value": "playnavi.app" }
       ],
       "headers": [
-        {
-          "key": "x-vercel-enable-rewrite-caching",
-          "value": "0"
-        },
-        {
-          "key": "CDN-Cache-Control",
-          "value": "no-store"
-        },
-        {
-          "key": "Vercel-CDN-Cache-Control",
-          "value": "no-store"
-        }
+        { "key": "x-vercel-enable-rewrite-caching", "value": "0" },
+        { "key": "CDN-Cache-Control", "value": "no-store" },
+        { "key": "Vercel-CDN-Cache-Control", "value": "no-store" }
       ]
     },
     {
       "source": "/:path((?!(?:api|assets|\\.well-known|a|s|surveys|survey-login-error|auth/steam/callback)(?:/|$)|(?:logo\\.png|og-fallback\\.png|link\\.html|robots\\.txt)$).*)",
       "has": [
-        {
-          "type": "host",
-          "value": {
-            "re": "^playnavi-links-[a-z0-9]+-masanobu-iwasakis-projects\\.vercel\\.app$"
-          }
-        }
+        { "type": "host", "value": { "re": "^playnavi-links-[a-z0-9]+-masanobu-iwasakis-projects\\.vercel\\.app$" } }
       ],
       "headers": [
-        {
-          "key": "x-vercel-enable-rewrite-caching",
-          "value": "0"
-        },
-        {
-          "key": "CDN-Cache-Control",
-          "value": "no-store"
-        },
-        {
-          "key": "Vercel-CDN-Cache-Control",
-          "value": "no-store"
-        }
+        { "key": "x-vercel-enable-rewrite-caching", "value": "0" },
+        { "key": "CDN-Cache-Control", "value": "no-store" },
+        { "key": "Vercel-CDN-Cache-Control", "value": "no-store" }
       ]
     }
   ],
@@ -274,20 +130,14 @@
     {
       "source": "/auth/steam/callback",
       "has": [
-        {
-          "type": "host",
-          "value": "links.playnavilab.com"
-        }
+        { "type": "host", "value": "links.playnavilab.com" }
       ],
       "destination": "https://irbtguncoatqfikctreq.supabase.co/functions/v1/steam-signin"
     },
     {
       "source": "/auth/steam/callback",
       "has": [
-        {
-          "type": "host",
-          "value": "playnavi-links.vercel.app"
-        }
+        { "type": "host", "value": "playnavi-links.vercel.app" }
       ],
       "destination": "https://irbtguncoatqfikctreq.supabase.co/functions/v1/steam-signin"
     },
@@ -298,30 +148,21 @@
     {
       "source": "/api/share-links/:code",
       "has": [
-        {
-          "type": "host",
-          "value": "playnavi.app"
-        }
+        { "type": "host", "value": "playnavi.app" }
       ],
       "destination": "https://irbtguncoatqfikctreq.supabase.co/functions/v1/short-links-resolve?code=:code"
     },
     {
       "source": "/api/share-links/:code",
       "has": [
-        {
-          "type": "host",
-          "value": "links.playnavilab.com"
-        }
+        { "type": "host", "value": "links.playnavilab.com" }
       ],
       "destination": "https://irbtguncoatqfikctreq.supabase.co/functions/v1/short-links-resolve?code=:code"
     },
     {
       "source": "/api/share-links/:code",
       "has": [
-        {
-          "type": "host",
-          "value": "playnavi-links.vercel.app"
-        }
+        { "type": "host", "value": "playnavi-links.vercel.app" }
       ],
       "destination": "https://irbtguncoatqfikctreq.supabase.co/functions/v1/short-links-resolve?code=:code"
     },
@@ -332,40 +173,28 @@
     {
       "source": "/mcp",
       "has": [
-        {
-          "type": "host",
-          "value": "playnavi.app"
-        }
+        { "type": "host", "value": "playnavi.app" }
       ],
       "destination": "https://wffhdhdxdrmobgojxddo.supabase.co/functions/v1/mcp"
     },
     {
       "source": "/mcp/:path*",
       "has": [
-        {
-          "type": "host",
-          "value": "playnavi.app"
-        }
+        { "type": "host", "value": "playnavi.app" }
       ],
       "destination": "https://wffhdhdxdrmobgojxddo.supabase.co/functions/v1/mcp/:path*"
     },
     {
       "source": "/ai-auth",
       "has": [
-        {
-          "type": "host",
-          "value": "playnavi.app"
-        }
+        { "type": "host", "value": "playnavi.app" }
       ],
       "destination": "https://wffhdhdxdrmobgojxddo.supabase.co/functions/v1/ai-oauth"
     },
     {
       "source": "/ai-auth/:path*",
       "has": [
-        {
-          "type": "host",
-          "value": "playnavi.app"
-        }
+        { "type": "host", "value": "playnavi.app" }
       ],
       "destination": "https://wffhdhdxdrmobgojxddo.supabase.co/functions/v1/ai-oauth/:path*"
     },
@@ -404,70 +233,49 @@
     {
       "source": "/game/:id",
       "has": [
-        {
-          "type": "host",
-          "value": "links.playnavilab.com"
-        }
+        { "type": "host", "value": "links.playnavilab.com" }
       ],
       "destination": "/api/share-preview?kind=game&id=:id"
     },
     {
       "source": "/users/:ownerId/custom-rankings/:rankingId",
       "has": [
-        {
-          "type": "host",
-          "value": "links.playnavilab.com"
-        }
+        { "type": "host", "value": "links.playnavilab.com" }
       ],
       "destination": "/api/share-preview?kind=ranking&ownerId=:ownerId&rankingId=:rankingId"
     },
     {
       "source": "/users/:ownerId/tier-lists/:listId",
       "has": [
-        {
-          "type": "host",
-          "value": "links.playnavilab.com"
-        }
+        { "type": "host", "value": "links.playnavilab.com" }
       ],
       "destination": "/api/share-preview?kind=tier_list&ownerId=:ownerId&listId=:listId"
     },
     {
       "source": "/users/:id/best-games",
       "has": [
-        {
-          "type": "host",
-          "value": "links.playnavilab.com"
-        }
+        { "type": "host", "value": "links.playnavilab.com" }
       ],
       "destination": "/api/share-preview?kind=best_games&id=:id"
     },
     {
       "source": "/users/:id/diagnosis",
       "has": [
-        {
-          "type": "host",
-          "value": "links.playnavilab.com"
-        }
+        { "type": "host", "value": "links.playnavilab.com" }
       ],
       "destination": "/api/share-preview?kind=diagnosis&id=:id"
     },
     {
       "source": "/users/:id",
       "has": [
-        {
-          "type": "host",
-          "value": "links.playnavilab.com"
-        }
+        { "type": "host", "value": "links.playnavilab.com" }
       ],
       "destination": "/api/share-preview?kind=user&id=:id"
     },
     {
       "source": "/catalogs/:id",
       "has": [
-        {
-          "type": "host",
-          "value": "links.playnavilab.com"
-        }
+        { "type": "host", "value": "links.playnavilab.com" }
       ],
       "destination": "/api/share-preview?kind=catalog&id=:id"
     },
@@ -486,22 +294,14 @@
     {
       "source": "/index.html",
       "has": [
-        {
-          "type": "host",
-          "value": "playnavi.app"
-        }
+        { "type": "host", "value": "playnavi.app" }
       ],
       "destination": "https://playnavi-web.vercel.app/"
     },
     {
       "source": "/index.html",
       "has": [
-        {
-          "type": "host",
-          "value": {
-            "re": "^playnavi-links-[a-z0-9]+-masanobu-iwasakis-projects\\.vercel\\.app$"
-          }
-        }
+        { "type": "host", "value": { "re": "^playnavi-links-[a-z0-9]+-masanobu-iwasakis-projects\\.vercel\\.app$" } }
       ],
       "destination": "https://playnavi-web-v2-stg.vercel.app/"
     },
@@ -512,22 +312,14 @@
     {
       "source": "/:path((?!(?:api|assets|\\.well-known|a|s|surveys|survey-login-error|auth/steam/callback)(?:/|$)|(?:logo\\.png|og-fallback\\.png|link\\.html|robots\\.txt)$).*)",
       "has": [
-        {
-          "type": "host",
-          "value": "playnavi.app"
-        }
+        { "type": "host", "value": "playnavi.app" }
       ],
       "destination": "https://playnavi-web.vercel.app/:path*"
     },
     {
       "source": "/:path((?!(?:api|assets|\\.well-known|a|s|surveys|survey-login-error|auth/steam/callback)(?:/|$)|(?:logo\\.png|og-fallback\\.png|link\\.html|robots\\.txt)$).*)",
       "has": [
-        {
-          "type": "host",
-          "value": {
-            "re": "^playnavi-links-[a-z0-9]+-masanobu-iwasakis-projects\\.vercel\\.app$"
-          }
-        }
+        { "type": "host", "value": { "re": "^playnavi-links-[a-z0-9]+-masanobu-iwasakis-projects\\.vercel\\.app$" } }
       ],
       "destination": "https://playnavi-web-v2-stg.vercel.app/:path*"
     },
