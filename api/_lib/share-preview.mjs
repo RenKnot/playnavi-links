@@ -7,10 +7,17 @@ export const PREVIEW_META_URL =
 // TASK-20261017-002 r5: 記録のページの中身 (EF share-view)。リンクカードの EF と同じプロジェクト
 export const SHARE_VIEW_URL = PREVIEW_META_URL.replace(/\/share-preview-meta$/, "/share-view");
 
+// 小さいカード (summary) の絵の決まり (TASK-20261023-003 10/30「アップしてすぐシェアしたら…謎のカードしか出なかった」の類件):
+// X の小さいカードの絵は 144×144 以上が要る。前の代わりの絵 logo.png は 200×35 で、X は灰色の仮のカードにしていた。
+// 代わりの絵は 1200×630 の og-fallback.png (api/og.mjs の失敗時と同じ) にし、EF share-preview-meta が返す logo.png
+// (表紙の無いゲーム・18 歳以上の題を伏せる時。supabase _shared/sharePreviewMeta.ts SHARE_PREVIEW_FALLBACK_IMAGE) もここで差し替える
+export const CARD_FALLBACK_IMAGE = "https://playnavi.app/og-fallback.png";
+const TOO_SMALL_CARD_IMAGES = new Set(["https://playnavi.app/logo.png"]);
+
 export const GENERIC_CARD = Object.freeze({
   title: "PlayNavi",
   description: "PlayNaviでゲームの記録をチェック",
-  image_url: "https://playnavi.app/logo.png",
+  image_url: CARD_FALLBACK_IMAGE,
 });
 
 const ALLOWED_HOSTS = new Set([
@@ -154,9 +161,10 @@ export function validCard(payload) {
     return null;
   }
   const large = validLarge(payload.card.large);
+  const image = TOO_SMALL_CARD_IMAGES.has(imageUrl) ? CARD_FALLBACK_IMAGE : imageUrl;
   return large
-    ? { title, description, image_url: imageUrl, large }
-    : { title, description, image_url: imageUrl };
+    ? { title, description, image_url: image, large }
+    : { title, description, image_url: image };
 }
 
 // The large card image URL for a validated card, or null for the small card.
