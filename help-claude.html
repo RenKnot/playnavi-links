@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Claude と PlayNavi をつなぐ | PlayNavi</title>
-<meta name="description" content="Claude（Anthropic）に PlayNavi をつないで、会話の中でチェックイン・モーメント・ログを扱う手順。">
+<meta name="description" content="Claude（Anthropic）に PlayNavi をつないで、会話の中で次に遊ぶゲームを探したり、チェックイン・モーメント・ログを残したりする手順。">
 <link rel="icon" href="/favicon.ico">
 <style>
 body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;color:#1d2a30;background:#fff;line-height:1.8}
@@ -15,20 +15,21 @@ p,li{font-size:.95rem}
 a{color:#1f7f8f}
 code{background:#eef4f6;border-radius:6px;padding:2px 6px;font-size:.95em;word-break:break-all}
 .note{font-size:.85rem;color:#5b6b70}
+.add{display:inline-block;margin:4px 0 8px;padding:12px 22px;border-radius:12px;background:#1f7f8f;color:#fff;font-weight:700;text-decoration:none}
 </style>
 </head>
 <body>
 <main>
 <h1>Claude と PlayNavi をつなぐ</h1>
-<p>Claude（Anthropic の AI）に PlayNavi をつなぐと、会話の中で「今日はペルソナやるよー」と言うだけでチェックインしたり、遊んだことをモーメントの下書きにしたり、自分の記録について相談したりできます。</p>
+<p>Claude（Anthropic の AI）に PlayNavi をつなぐと、自分の好みと遊んだ記録から次に遊ぶゲームを相談したり、「今日はペルソナやるよー」と言うだけでチェックインしたり、遊んだことをモーメントの下書きにしたりできます。</p>
 
-<h2>つなぎ方（パソコンか Web の Claude で 1 回だけ）</h2>
+<h2>つなぎ方（1 回だけ）</h2>
+<p><a class="add" href="https://claude.ai/customize/connectors?modal=add-custom-connector&amp;connectorName=PlayNavi&amp;connectorUrl=https%3A%2F%2Fai.playnavi.app%2Fmcp">Claude に PlayNavi を追加する</a></p>
 <ol>
-  <li>Claude を開き、「カスタマイズ」→「コネクタ」→「カスタムコネクタを追加」を選びます。</li>
-  <li>サーバの住所に <code>https://ai.playnavi.app/mcp</code> を入れて「追加」を押します。</li>
+  <li>上のボタンを押すと、Claude の「カスタムコネクタを追加」が、名前（PlayNavi）と住所の入った状態で開きます。中身を確かめて「追加」を押します。ボタンを使わない時は、Claude の「カスタマイズ」→「コネクタ」→「カスタムコネクタを追加」で、住所に <code>https://ai.playnavi.app/mcp</code> を入れます。</li>
   <li>「接続」を押すと PlayNavi のログイン画面が開きます。いつもの方法（Apple・Google など）でログインします。</li>
   <li>「Claude と PlayNavi を連携しますか？」の画面で、渡す内容を選んで「連携する」を押します。</li>
-  <li>Claude に戻ると接続済みになります。スマホの Claude アプリでも、同じアカウントならそのまま使えます（スマホから追加することはできません）。</li>
+  <li>Claude に戻ると接続済みになります。パソコン・Web・スマホのどれで追加しても、同じ Claude のアカウントなら、ほかの場所でもそのまま使えます。スマホでは、ボタンが Claude アプリかブラウザで開きます。ブラウザで開いた時は、Claude にログインしてから追加してください。</li>
 </ol>
 <p class="note">無料プランの Claude では、カスタムコネクタは 1 つまでです。Team・Enterprise プランでは、組織の管理者が先に追加します。</p>
 
@@ -43,7 +44,7 @@ code{background:#eef4f6;border-radius:6px;padding:2px 6px;font-size:.95em;word-b
 <p>取り扱う情報は <a href="/privacy">プライバシーポリシー</a> の「6-2. AI サービスとの連携」をご覧ください。</p>
 
 <h2>Connect Claude to PlayNavi (English)</h2>
-<p>In Claude on the web or desktop, open Customize → Connectors → Add custom connector, enter <code>https://ai.playnavi.app/mcp</code>, press Connect, sign in to PlayNavi and choose what to share on the consent page. The connector then also works in the Claude mobile app. Photos and videos cannot be sent from Claude; add them to the draft in the PlayNavi inbox. You can disconnect in the PlayNavi app (Settings → AIとプレイログの設定) or in Claude's Connectors. Claude may ask before using a PlayNavi tool, and the prompt shows what it sends (numbers are PlayNavi game or draft ids that only your own sign-in can read or change; never your sign-in key or password). Every change the AI asks for (add, change or delete a record) waits as a draft in the PlayNavi inbox until you confirm it, so you can set all PlayNavi tools to "Always allow" in Claude's Connectors. Only check-in, check-out (and cancelling a check-in), target prices and taking back an AI draft are saved at once.</p>
+<p>Open <a href="https://claude.ai/customize/connectors?modal=add-custom-connector&amp;connectorName=PlayNavi&amp;connectorUrl=https%3A%2F%2Fai.playnavi.app%2Fmcp">Add PlayNavi to Claude</a> (or in Claude, Customize → Connectors → Add custom connector and enter <code>https://ai.playnavi.app/mcp</code>), press Add and then Connect, sign in to PlayNavi and choose what to share on the consent page. The connector then also works in the Claude mobile app. Photos and videos cannot be sent from Claude; add them to the draft in the PlayNavi inbox. You can disconnect in the PlayNavi app (Settings → AIとプレイログの設定) or in Claude's Connectors. Claude may ask before using a PlayNavi tool, and the prompt shows what it sends (numbers are PlayNavi game or draft ids that only your own sign-in can read or change; never your sign-in key or password). Every change the AI asks for (add, change or delete a record) waits as a draft in the PlayNavi inbox until you confirm it, so you can set all PlayNavi tools to "Always allow" in Claude's Connectors. Only check-in, check-out (and cancelling a check-in), target prices and taking back an AI draft are saved at once.</p>
 </main>
 </body>
 </html>
