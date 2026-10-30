@@ -373,4 +373,11 @@ test("playnavi.app/help/claude serves the Claude connection guide with the real 
   assert.match(html, /https:\/\/ai\.playnavi\.app\/mcp/);
   assert.match(html, /カスタムコネクタを追加/);
   assert.match(html, /\/privacy/);
+  // 10/30 Emiya「勝手に入る内容で変えずに確定していけば大丈夫とか、全スキルを常に承認にするのがおすすめとか」: つなぐ時の手順を厚く
+  assert.match(html, /入っている内容は何も変えずに「追加」/);
+  assert.match(html, /詳細設定/);
+  assert.match(html, /アプリで使っているのと同じ方法/);
+  assert.match(html, /道具を全部「常に許可」/);
+  assert.match(html, /確定するまで記録は変わりません/);
+  assert.match(html, /id="trouble"/);
 });
