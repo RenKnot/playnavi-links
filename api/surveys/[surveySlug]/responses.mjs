@@ -91,6 +91,9 @@ export function validAnswers(value) {
   return entries.every(([questionId, answer]) => {
     if (!/^[A-Za-z0-9_-]{1,100}$/.test(questionId)) return false;
     if (typeof answer === "string") return answer.length <= 2_000;
+    // 版 1 の「確認しました」(consent) は true だけを送る (assets/survey-contract.mjs validateAnswers)。
+    // 設問の種類との突き合わせは DB (validate_survey_answers_v1) がする。TASK-20260930-006 10/31 本番の試しで送信が 400 になった
+    if (answer === true) return true;
     return (
       Array.isArray(answer) &&
       answer.length <= 100 &&

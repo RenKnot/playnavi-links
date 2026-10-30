@@ -8,6 +8,7 @@ import {
   parseSurveyRead,
   validateAnswers,
 } from "../assets/survey-contract.mjs";
+import { validSubmission } from "../api/surveys/[surveySlug]/responses.mjs";
 
 const surveyPayload = {
   status: "ok",
@@ -156,4 +157,23 @@ test("確認しました: true だけを送り、付けていなければ必須�
   assert.deepEqual(validateAnswers(questions, { agree_notice: true, plan: "Pro" }), { answers: { agree_notice: true, plan: "Pro" }, missing: [] });
   assert.deepEqual(validateAnswers(questions, { agree_notice: false, plan: "Pro" }).missing, ["agree_notice"]);
   assert.deepEqual(validateAnswers(questions, { agree_notice: "true", plan: "Pro" }).missing, ["agree_notice"]);
+});
+
+// 回答のページが作る答えは、サイトの窓口 (api/surveys/[surveySlug]/responses.mjs) がそのまま受け付けること。
+// 10/31 本番の試し: ページは「確認しました」を true で送るのに、窓口が文字と一覧しか通さず 400 →「回答を送信できませんでした」。
+// 2 つの層を同じ試験でつなぎ、版 1 の設問の種類を足した時に片方だけ直す事故を落とす (TASK-20260930-006)
+test("版 1 の全種類: ページが作った答えを窓口が受け付ける (確認しました・1 つ選択・複数選択・自由入力)", () => {
+  const token = "a".repeat(43);
+  const general = parseSurveyRead(surveyPayload, "launch-2026");
+  const generalAnswers = validateAnswers(general.questions, { q1: "A", q2: ["C", "D"], q3: "ひとこと" });
+  assert.deepEqual(generalAnswers.missing, []);
+  assert.equal(validSubmission({ answers: generalAnswers.answers, submission_token: token }), true);
+  const identified = parseSurveyRead(identifiedPayload, "identified-test");
+  const identifiedAnswers = validateAnswers(identified.questions, { agree_notice: true, plan: "Pro" });
+  assert.deepEqual(identifiedAnswers.missing, []);
+  assert.equal(validSubmission({ answers: identifiedAnswers.answers, submission_token: token }), true);
+  // 文字・一覧のほかに窓口が通すのは true だけ (false・数・空・入れ物は弾く。設問の種類との突き合わせは DB がする)
+  for (const value of [false, 1, null, { yes: true }]) {
+    assert.equal(validSubmission({ answers: { agree_notice: value, plan: "Pro" }, submission_token: token }), false);
+  }
 });
