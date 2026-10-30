@@ -116,3 +116,44 @@ test("parses submit status, idempotency, and reward", () => {
     reward: null,
   }).status, "already_answered");
 });
+
+// TASK-20260930-006 B2: 記名式 (回答を PlayNavi のアカウントに結び付ける) と「確認しました」のチェック
+const identifiedPayload = {
+  status: "ok",
+  survey: {
+    slug: "identified-test",
+    title: "テストアンケート",
+    description: "記名式の試し",
+    schema_version: 1,
+    identity_mode: "identified",
+    opens_at: "2026-10-31T00:00:00Z",
+    closes_at: "2026-11-07T00:00:00Z",
+    reward: null,
+    questions: [
+      { id: "agree_notice", type: "consent", required: true, label: "注意事項を読みました" },
+      { id: "plan", type: "single_choice", required: true, label: "プラン", options: ["Plus", "Pro"] },
+    ],
+  },
+  response: null,
+};
+
+test("記名式の読み取り: identity_mode は identified の時だけ記名式、無ければ匿名", () => {
+  assert.equal(parseSurveyRead(identifiedPayload, "identified-test").identityMode, "identified");
+  const anonymous = structuredClone(identifiedPayload);
+  delete anonymous.survey.identity_mode;
+  assert.equal(parseSurveyRead(anonymous, "identified-test").identityMode, "anonymous");
+});
+
+test("記名式の入口: 公開の情報の identity_mode は identified だけ受け、ほかの値は弾く", () => {
+  const preview = { status: "ok", survey: { slug: "identified-test", title: "テストアンケート", description: "", identity_mode: "identified" } };
+  assert.equal(parseSurveyPreview(preview, "identified-test").identityMode, "identified");
+  assert.equal(parseSurveyPreview({ status: "ok", survey: { slug: "s", title: "t", description: "" } }, "s").identityMode, undefined);
+  assert.throws(() => parseSurveyPreview({ status: "ok", survey: { slug: "s", title: "t", identity_mode: "anonymous" } }, "s"), SurveyContractError);
+});
+
+test("確認しました: true だけを送り、付けていなければ必須の抜け", () => {
+  const { questions } = parseSurveyRead(identifiedPayload, "identified-test");
+  assert.deepEqual(validateAnswers(questions, { agree_notice: true, plan: "Pro" }), { answers: { agree_notice: true, plan: "Pro" }, missing: [] });
+  assert.deepEqual(validateAnswers(questions, { agree_notice: false, plan: "Pro" }).missing, ["agree_notice"]);
+  assert.deepEqual(validateAnswers(questions, { agree_notice: "true", plan: "Pro" }).missing, ["agree_notice"]);
+});

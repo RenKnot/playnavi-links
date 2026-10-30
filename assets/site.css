@@ -364,6 +364,8 @@ textarea {
 #survey-questions { padding-bottom: calc(104px + env(safe-area-inset-bottom)); }
 .survey-navigation { position: sticky; bottom: 0; z-index: 2; display: grid; grid-template-columns: minmax(92px, .4fr) 1fr; gap: 10px; margin: 0 -8px -12px; padding: 14px 8px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--border); background: rgba(255, 255, 255, .98); box-shadow: 0 -8px 20px rgba(27, 76, 88, .08); }
 .survey-navigation .secondary.hidden + .primary:not(.hidden) { grid-column: 1 / -1; }
+/* 1 ページだけのアンケート (戻る・次へが両方隠れる) でも「回答を送信」を横いっぱいに (TASK-20260930-006 B2。隠れた「次へ」を挟むと + では届かない) */
+.survey-navigation .secondary.hidden ~ .primary:not(.hidden) { grid-column: 1 / -1; }
 .result { text-align: center; }
 .result-icon {
   display: grid;

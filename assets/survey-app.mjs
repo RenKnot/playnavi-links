@@ -75,8 +75,15 @@ function hideStates() {
   }
 }
 
+/** 記名式 (回答を PlayNavi のアカウントに結び付ける。TASK-20260930-006 B2) のログインの案内 */
+const IDENTIFIED_LOGIN_NOTICES = [
+  "このアンケートは記名式です。回答は PlayNavi のアカウントに結び付けて受け付けます。",
+  "PlayNavi に登録済みの Apple または Google でログインしてください。未登録の方は、PlayNavi アプリで登録してから開いてください。",
+];
+
 function showLogin(slug, preview, authFailure = null) {
   hideStates();
+  const identified = preview?.identityMode === "identified";
   const isVoiceV5 = [5, 6, 7].includes(preview?.schemaVersion);
   elements.view?.classList.toggle("survey-schema-v5", isVoiceV5);
   elements.view?.classList.toggle("survey-schema-v6", [6, 7].includes(preview?.schemaVersion));
@@ -85,7 +92,13 @@ function showLogin(slug, preview, authFailure = null) {
   if (notice) {
     const guide = elements.guide;
     notice.replaceChildren();
-    if (isVoiceV5) {
+    if (identified) {
+      for (const copy of IDENTIFIED_LOGIN_NOTICES) {
+        const item = document.createElement("li");
+        item.textContent = copy;
+        notice.append(item);
+      }
+    } else if (isVoiceV5) {
       const heading = document.createElement("h2");
       heading.className = "login-heading";
       heading.textContent = "回答方法を選択してください";
@@ -115,7 +128,11 @@ function showLogin(slug, preview, authFailure = null) {
   }
   setPage({
     title: preview?.title || "アンケート",
-    description: authFailure === "account_not_found"
+    description: identified && authFailure === "account_not_found"
+      ? "このログイン方法の PlayNavi アカウントが見つかりませんでした。PlayNavi アプリで登録してから、もう一度開いてください。"
+      : identified && authFailure
+      ? "ログインを完了できませんでした。別のログイン方法をお試しください。"
+      : authFailure === "account_not_found"
       ? "このログイン方法に紐づくPlayNaviアカウントが見つかりませんでした。新規登録は行われていません。別のログイン方法を試すか、報酬なしで回答してください。"
       : authFailure
       ? "ログインを完了できませんでした。別のログイン方法を試すか、報酬なしで回答してください。"
@@ -135,6 +152,8 @@ function showLogin(slug, preview, authFailure = null) {
   }
   if (elements.guest) {
     elements.guest.onclick = () => createGuestSession(slug, elements.guest);
+    // 記名式はゲストでは答えられない (DB が LOGIN_REQUIRED を返す) ので、ボタンを出さない
+    setVisible(elements.guest, !identified);
   }
   setVisible(elements.login, true);
 }
@@ -174,15 +193,18 @@ function showResult(result) {
   if ([6, 7].includes(result.schemaVersion)) {
     elements.view?.classList.add("survey-schema-v5", "survey-schema-v6");
   }
+  const identified = result.identityMode === "identified";
   setPage({
     title: closed
       ? "アンケートは終了しました"
       : already
         ? "回答済みです"
+        : identified
+          ? "受け付けました"
         : conciseCompletion
           ? "回答受け付けました"
           : "回答ありがとうございました",
-    description: closed ? "このアンケートの受付は終了しています。" : conciseCompletion ? "" : "回答を受け付けました。",
+    description: closed ? "このアンケートの受付は終了しています。" : conciseCompletion || identified ? "" : "回答を受け付けました。",
   });
   if (elements.resultIcon) elements.resultIcon.textContent = closed ? "–" : "✓";
   if (elements.resultHeading) {
@@ -190,7 +212,9 @@ function showResult(result) {
       ? "受付終了"
       : already
         ? "回答済みです"
-        : conciseCompletion
+        : identified
+          ? "受け付けました"
+          : conciseCompletion
           ? "ご回答いただきありがとうございました"
           : "回答ありがとうございました";
   }
@@ -198,7 +222,11 @@ function showResult(result) {
     elements.resultDescription.textContent = closed
       ? "ご協力ありがとうございました。"
       : already
-        ? "このアンケートへの回答はすでに完了しています。"
+        ? identified
+          ? "このアンケートは 1 人 1 回です。あなたの回答は受け付け済みです。"
+          : "このアンケートへの回答はすでに完了しています。"
+        : identified
+          ? "PlayNavi のアカウントで受け付けました。このまま画面を閉じて構いません。"
         : result.schemaVersion === 7
           ? result.titleAwarded && result.titleName
             ? `称号「${result.titleName}」を付与しました。このまま画面を閉じて構いません。`
@@ -328,7 +356,23 @@ function renderQuestions(slug, survey) {
       }
       fieldset.append(legend);
 
-      if (question.type === "short_text") {
+      if (question.type === "consent") {
+        // 「確認しました」のチェック (記名式の応募の注意事項。TASK-20260930-006 B2)。付けた時だけ true
+        const label = document.createElement("label");
+        label.className = "choice";
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.name = `question-${question.id}`;
+        input.checked = values[question.id] === true;
+        input.addEventListener("change", (event) => {
+          values[question.id] = event.currentTarget.checked;
+          updateDraft();
+        });
+        const text = document.createElement("span");
+        text.textContent = "確認しました";
+        label.append(input, text);
+        fieldset.append(label);
+      } else if (question.type === "short_text") {
         const input = document.createElement("textarea");
         input.maxLength = question.maxLength;
         input.value = typeof values[question.id] === "string" ? values[question.id] : "";
@@ -2962,7 +3006,7 @@ async function submitSurvey(slug, survey, values, stepController, submissionToke
     if (!response.ok) throw new Error("submit failed");
     const parsed = parseSubmitResult(payload);
     if (["submitted", "already_answered"].includes(parsed.status)) clearDraft(slug);
-    showResult(parsed);
+    showResult({ ...parsed, identityMode: survey.identityMode });
   } catch {
     elements.error.textContent = "回答を送信できませんでした。入力内容はこの画面に保持されています。";
     setVisible(elements.error, true);
@@ -3093,7 +3137,13 @@ function showSurveyForm(slug, survey) {
   hideStates();
   elements.view?.classList.toggle("survey-schema-v5", [5, 6, 7].includes(survey.schemaVersion));
   elements.view?.classList.toggle("survey-schema-v6", [6, 7].includes(survey.schemaVersion));
-  setPage({ title: survey.title, description: survey.description });
+  setPage({
+    title: survey.title,
+    // 記名式は、回答がアカウントに結び付くことを最初に書く (TASK-20260930-006 B2)
+    description: survey.identityMode === "identified"
+      ? `【記名式】回答は PlayNavi のアカウントに結び付けて受け付けます。${survey.description ? ` ${survey.description}` : ""}`
+      : survey.description,
+  });
   if (survey.schemaVersion === 7) {
     const { values, submissionToken } = voiceV5Values(slug, survey.voice, 7);
     pruneVoiceV7(survey.voice, values);
