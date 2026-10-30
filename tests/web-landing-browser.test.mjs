@@ -5,6 +5,7 @@ import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { chromium } from "playwright-core";
+import { readWebOffTemplate } from "./fixtures/web-off-template.mjs";
 
 // Reuses the existing Survey visual tests' real browser + local HTTP boundary.
 // The resolver is a local fixture: this does not prove Vercel rewrites or EF/OS.
@@ -32,8 +33,8 @@ test("browser proves inactive default, PC short landing, mobile fallback and res
         response.end(await readFile(join(ROOT, url.pathname.slice(1))));
         return;
       }
-      let html = await readFile(join(ROOT, "index.html"), "utf8");
-      // Enable only fixture HTML; the deployed index.html has neither marker.
+      // TASK-20260923-002 一般公開: 配備する link.html は両方の印を持つ (playnavi.app)。「切」の動きは印を外して確かめる。
+      let html = await readWebOffTemplate();
       if (origin) html = html.replace("</head>", `<meta name="pn-web-origin" content="${origin}"></head>`)
         .replace('<div class="actions">', '<div class="actions"><a id="web-btn" class="button secondary hidden" href="#">Webで見る</a>');
       response.setHeader("Content-Type", "text/html");

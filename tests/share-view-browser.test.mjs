@@ -8,6 +8,7 @@ import { chromium } from "playwright-core";
 import sharp from "sharp";
 
 import { createSharePreviewHandler } from "../api/share-preview.mjs";
+import { readWebOffTemplate } from "./fixtures/web-off-template.mjs";
 
 // TASK-20261017-002 r3・r5 記録のページを本物の Chrome で開く。HTML は本物の api/share-preview.mjs が作り
 // (EF share-preview-meta / share-view は手元の見本 = C2 の形)、住所は本物のホスト名 (playnavi.app /
@@ -70,6 +71,7 @@ const VIEW = "https://meta.fixture/share-view";
 test("record page: the server embeds the content, Chrome shows it at once, masks spoilers and keeps today's page without it", async () => {
   const upstream = [];
   const handler = createSharePreviewHandler({
+    readTemplate: readWebOffTemplate,
     metaUrl: META,
     viewUrl: VIEW,
     fetchImpl: async (url) => {
@@ -103,7 +105,7 @@ test("record page: the server embeds the content, Chrome shows it at once, masks
       const vercelQuery = short ? { ...query, code: short[1] } : game && host === "links.playnavilab.com" ? { ...query, kind: "game", id: game[1], host } : null;
       if (!vercelQuery) {
         response.setHeader("Content-Type", "text/html");
-        response.end(await readFile(join(ROOT, "index.html")));
+        response.end(await readWebOffTemplate());
         return;
       }
       const recorder = {

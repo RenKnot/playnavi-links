@@ -1,7 +1,7 @@
 {
   "functions": {
     "api/share-preview.mjs": {
-      "includeFiles": "index.html",
+      "includeFiles": "link.html",
       "regions": ["hnd1"]
     },
     "api/og.mjs": {
@@ -101,6 +101,28 @@
         { "key": "X-Content-Type-Options", "value": "nosniff" },
         { "key": "X-Frame-Options", "value": "DENY" },
         { "key": "X-Robots-Tag", "value": "noindex, nofollow" }
+      ]
+    },
+    {
+      "source": "/:path((?!(?:api|assets|\\.well-known|a|s|surveys|survey-login-error|auth/steam/callback)(?:/|$)|(?:logo\\.png|og-fallback\\.png|link\\.html|robots\\.txt)$).*)",
+      "has": [
+        { "type": "host", "value": "playnavi.app" }
+      ],
+      "headers": [
+        { "key": "x-vercel-enable-rewrite-caching", "value": "0" },
+        { "key": "CDN-Cache-Control", "value": "no-store" },
+        { "key": "Vercel-CDN-Cache-Control", "value": "no-store" }
+      ]
+    },
+    {
+      "source": "/:path((?!(?:api|assets|\\.well-known|a|s|surveys|survey-login-error|auth/steam/callback)(?:/|$)|(?:logo\\.png|og-fallback\\.png|link\\.html|robots\\.txt)$).*)",
+      "has": [
+        { "type": "host", "value": { "re": "^playnavi-links-(?:[a-z0-9]+|git-bridge-[a-z0-9-]+)-masanobu-iwasakis-projects\\.vercel\\.app$" } }
+      ],
+      "headers": [
+        { "key": "x-vercel-enable-rewrite-caching", "value": "0" },
+        { "key": "CDN-Cache-Control", "value": "no-store" },
+        { "key": "Vercel-CDN-Cache-Control", "value": "no-store" }
       ]
     }
   ],
@@ -202,7 +224,7 @@
     },
     {
       "source": "/a",
-      "destination": "/index.html"
+      "destination": "/link.html"
     },
     {
       "source": "/s/:code",
@@ -259,7 +281,7 @@
     },
     {
       "source": "/surveys/:surveySlug",
-      "destination": "/index.html"
+      "destination": "/link.html"
     },
     {
       "source": "/privacy",
@@ -270,8 +292,40 @@
       "destination": "/help-claude.html"
     },
     {
+      "source": "/index.html",
+      "has": [
+        { "type": "host", "value": "playnavi.app" }
+      ],
+      "destination": "https://playnavi-web.vercel.app/"
+    },
+    {
+      "source": "/index.html",
+      "has": [
+        { "type": "host", "value": { "re": "^playnavi-links-(?:[a-z0-9]+|git-bridge-[a-z0-9-]+)-masanobu-iwasakis-projects\\.vercel\\.app$" } }
+      ],
+      "destination": "https://playnavi-web-v2-stg.vercel.app/"
+    },
+    {
+      "source": "/survey-login-error",
+      "destination": "/link.html"
+    },
+    {
+      "source": "/:path((?!(?:api|assets|\\.well-known|a|s|surveys|survey-login-error|auth/steam/callback)(?:/|$)|(?:logo\\.png|og-fallback\\.png|link\\.html|robots\\.txt)$).*)",
+      "has": [
+        { "type": "host", "value": "playnavi.app" }
+      ],
+      "destination": "https://playnavi-web.vercel.app/:path*"
+    },
+    {
+      "source": "/:path((?!(?:api|assets|\\.well-known|a|s|surveys|survey-login-error|auth/steam/callback)(?:/|$)|(?:logo\\.png|og-fallback\\.png|link\\.html|robots\\.txt)$).*)",
+      "has": [
+        { "type": "host", "value": { "re": "^playnavi-links-(?:[a-z0-9]+|git-bridge-[a-z0-9-]+)-masanobu-iwasakis-projects\\.vercel\\.app$" } }
+      ],
+      "destination": "https://playnavi-web-v2-stg.vercel.app/:path*"
+    },
+    {
       "source": "/(.*)",
-      "destination": "/index.html"
+      "destination": "/link.html"
     }
   ]
 }

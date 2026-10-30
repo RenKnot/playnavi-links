@@ -12,7 +12,7 @@ import {
   validShareView,
 } from "./_lib/share-preview.mjs";
 
-const TEMPLATE_PATH = join(process.cwd(), "index.html");
+const TEMPLATE_PATH = join(process.cwd(), "link.html");
 // The function runs in hnd1 next to the Tokyo Supabase project (vercel.json).
 // Cold Edge Function starts can exceed 1.5s, and a timed-out fetch leaves the
 // generic card in SNS caches, so allow up to 3s before falling back.

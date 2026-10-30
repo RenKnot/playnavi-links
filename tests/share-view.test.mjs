@@ -540,8 +540,8 @@ test("startShareView fills the page from the embedded JSON and leaves today's pa
   assert.equal(game.byId.get("share-view").classList.contains("hidden"), true);
 });
 
-test("index.html carries the share container (r7: no slogan line); the app module loads share-view lazily", async () => {
-  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+test("link.html carries the share container (r7: no slogan line); the app module loads share-view lazily", async () => {
+  const html = await readFile(new URL("../link.html", import.meta.url), "utf8");
   assert.match(html, /<article id="share-view" class="share-view hidden"><\/article>/);
   assert.equal(html.includes("share-soft"), false);
   assert.equal(html.includes("ゲームの記録を残そう"), false);
@@ -552,7 +552,7 @@ test("index.html carries the share container (r7: no slogan line); the app modul
   // The module is loaded only when the server embedded the content; both /s/<code> and canonical pages call it.
   assert.match(app, /if \(!document\.getElementById\("pn-share-view"\)\) return;/);
   // TASK-20261023-003 Q1=a: with a Web origin (the gateway candidate) the record page is skipped and the Web page opens;
-  // without it (the deployed index.html) both entries still draw the record page.
+  // without it (the deployed link.html) both entries still draw the record page.
   assert.match(app, /else void showShareView\(null\);\n    openShortLink\(code\);/);
   assert.match(app, /if \(directWeb && window\.location\.origin !== IOS_OPEN_APP_ORIGIN\) \{[\s\S]*?\n  \}\n  void showShareView\(target\);/);
   // The existing app-open flow is untouched: scheme first, store buttons after 2 s, /s/ -> canonical after 50 ms.

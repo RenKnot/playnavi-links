@@ -1,15 +1,22 @@
 import assert from "node:assert/strict";
-import { readFile, mkdtemp, readdir, rm, symlink, access } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
 import { webTargetFromPath } from "../assets/link-routing.mjs";
-import { GATEWAY_SOURCE, prepareWebGateway, writeCandidate } from "../scripts/prepare-web-gateway.mjs";
 
+// TASK-20260923-002 一般公開: playnavi.app は予約の住所以外を新しい Web (Vercel の playnavi-web) へ中継する。
+// 10/2 の候補の生成 (scripts/prepare-web-gateway.mjs) と同じ形を、実際の vercel.json / link.html に入れた。
+// links の配備ごとの住所 (Vercel のログインか共有リンクが要る) だけは、同じ形で STG の新しい Web へ中継し、公開の前と後の確かめに使う。
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
+const config = JSON.parse(await read("vercel.json"));
 const UUID = "00000000-0000-0000-0000-000000000001";
-const source = async () => ({ config: JSON.parse(await read("vercel.json")), html: await read("index.html"), previewSource: await read("api/share-preview.mjs"), upstreamOrigin: "https://playnavi-web-v2-stg.vercel.app", gatewayOrigin: "https://playnavi.app" });
+const PRODUCTION_WEB = "https://playnavi-web.vercel.app";
+const STAGING_WEB = "https://playnavi-web-v2-stg.vercel.app";
+const PREVIEW_HOST = { re: "^playnavi-links-(?:[a-z0-9]+|git-bridge-[a-z0-9-]+)-masanobu-iwasakis-projects\\.vercel\\.app$" };
+const relays = config.rewrites.filter(({ destination }) => /^https:\/\/playnavi-web(-v2-stg)?\.vercel\.app\//.test(destination));
+const relayFor = (host) => config.rewrites.find(({ source, has }) => source.startsWith("/:path((?!") && JSON.stringify(has) === JSON.stringify([{ type: "host", value: host }]));
+const GATEWAY_SOURCE = relayFor("playnavi.app").source;
+const matcher = new RegExp(`^/${GATEWAY_SOURCE.slice("/:path(".length, -1)}$`);
+const index = (pred) => config.rewrites.findIndex(pred);
 
 test("Web landing reuses strict canonical paths and only fixed Web origins", () => {
   // 2026-10-07: the diagnosis is public like a ranking, so its canonical path is a Web destination too.
@@ -20,81 +27,65 @@ test("Web landing reuses strict canonical paths and only fixed Web origins", () 
   for (const origin of ["", "http://playnavi.app", "https://playnavi.app/", "https://links.playnavilab.com", "https://playnavi-links.vercel.app", "https://evil.example", "https://playnavi.app@evil.example"]) assert.equal(webTargetFromPath("/game/42", origin), null);
 });
 
-test("candidate changes entrypoint atomically and preserves reserved contracts", async () => {
-  const original = await source();
-  const before = JSON.stringify(original);
-  const candidate = prepareWebGateway(original);
-  assert.equal(JSON.stringify(original), before);
-  assert.equal(candidate.config.functions["api/share-preview.mjs"].includeFiles, "link.html");
-  assert.match(candidate.previewSource, /join\(process.cwd\(\), "link.html"\)/);
-  assert.match(candidate.html, /name="pn-web-origin" content="https:\/\/playnavi.app"/);
-  assert.equal(candidate.config.rewrites.some(({ destination }) => destination === "/index.html"), false);
-  const matcher = new RegExp(`^/${GATEWAY_SOURCE.slice('/:path('.length, -1)}$`);
-  for (const path of ["/", "/game/42", "/login", "/auth/callback", "/_next/static/chunk.js", "/favicon.ico", "/users/uuid", "/users/uuid/best-games", "/users/uuid/diagnosis", "/catalogs/uuid", "/apple-touch-icon.png"]) assert.equal(matcher.test(path), true, path);
+test("the entry page is link.html so that / reaches the Web (static files win over rewrites on Vercel)", async () => {
+  await assert.rejects(read("index.html"), { code: "ENOENT" });
+  const html = await read("link.html");
+  assert.match(html, /<meta name="pn-web-origin" content="https:\/\/playnavi\.app">/);
+  assert.match(html, /<a id="web-btn" class="button secondary hidden" href="#">Webで見る<\/a>/);
+  assert.equal(config.functions["api/share-preview.mjs"].includeFiles, "link.html");
+  assert.match(await read("api/share-preview.mjs"), /join\(process\.cwd\(\), "link\.html"\)/);
+  assert.equal(config.rewrites.some(({ destination }) => destination === "/index.html"), false);
+  assert.deepEqual(config.rewrites.at(-1), { source: "/(.*)", destination: "/link.html" });
+});
+
+test("only playnavi.app relays to the production Web, only links deployment URLs relay to the STG Web", () => {
+  assert.equal(relays.length, 4, JSON.stringify(relays));
+  assert.equal(relayFor("playnavi.app").destination, `${PRODUCTION_WEB}/:path*`);
+  assert.equal(relayFor(PREVIEW_HOST).destination, `${STAGING_WEB}/:path*`);
+  assert.equal(relayFor(PREVIEW_HOST).source, GATEWAY_SOURCE);
+  const home = (host) => config.rewrites.find(({ source, has }) => source === "/index.html" && JSON.stringify(has) === JSON.stringify([{ type: "host", value: host }]));
+  assert.equal(home("playnavi.app").destination, `${PRODUCTION_WEB}/`);
+  assert.equal(home(PREVIEW_HOST).destination, `${STAGING_WEB}/`);
+  for (const relay of relays) assert.equal(relay.has?.length, 1, "every relay is host-bound");
+  // 確認用の決まりは、公開の住所 (playnavi.app・旧共有・links の固定の住所) と枝の別名には当たらない
+  const preview = new RegExp(PREVIEW_HOST.re);
+  // 配備ごとの住所と、bridge/ の枝の住所 (Vercel の共有リンクはこちらに付く。10/30 Emiya の共有リンク)
+  for (const host of ["playnavi-links-iemuwz581-masanobu-iwasakis-projects.vercel.app", "playnavi-links-6xvd1u1fp-masanobu-iwasakis-projects.vercel.app", "playnavi-links-git-bridge-tas-178c9e-masanobu-iwasakis-projects.vercel.app"]) assert.ok(preview.test(host), host);
+  for (const host of ["playnavi.app", "links.playnavilab.com", "playnavi-links.vercel.app", "playnavi-links-git-main-masanobu-iwasakis-projects.vercel.app", "evil.example", "playnavi-links-x-masanobu-iwasakis-projects.vercel.app.evil.example"]) assert.ok(!preview.test(host), host);
+});
+
+test("reserved paths stay on links; Web pages go through the relay", () => {
+  for (const path of ["/", "/game/42", "/login", "/auth/callback", "/oauth/consent", "/ai/return", "/app", "/search", "/share-image/log/1/2", "/csp-report", "/_next/static/chunk.js", "/users/uuid", "/users/uuid/best-games", "/users/uuid/diagnosis", "/catalogs/uuid", "/settings/ai-connections", "/library-import/steam"]) assert.equal(matcher.test(path), true, path);
   for (const path of ["/api", "/api/auth/start", "/api/auth/callback", "/api/survey/session/guest", "/api/unknown", "/assets/site.css", "/.well-known/apple-app-site-association", "/a", "/a/extra", "/s/code", "/surveys/slug", "/survey-login-error", "/auth/steam/callback", "/logo.png", "/og-fallback.png", "/robots.txt", "/link.html"]) assert.equal(matcher.test(path), false, path);
-  const gateway = candidate.config.rewrites.find(({ source }) => source === GATEWAY_SOURCE);
-  assert.deepEqual(gateway.has, [{ type: "host", value: "playnavi.app" }]);
-  assert.equal(gateway.destination, "https://playnavi-web-v2-stg.vercel.app/:path*");
-  for (const route of original.config.rewrites.filter(({ destination }) => destination !== "/index.html")) assert.ok(candidate.config.rewrites.some((entry) => JSON.stringify(entry) === JSON.stringify(route)));
-  assert.equal(candidate.config.headers.at(-1).headers.find(({ key }) => key === "x-vercel-enable-rewrite-caching").value, "0");
-  // A fixture hostname, not a claim that this Vercel resource exists.
-  const staging = prepareWebGateway({ ...original, gatewayOrigin: "https://fixture-gateway.vercel.app" });
-  assert.deepEqual(staging.config.rewrites.find(({ source }) => source === GATEWAY_SOURCE).has, [{ type: "host", value: "fixture-gateway.vercel.app" }]);
-  assert.deepEqual(staging.config.headers.at(-1).has, [{ type: "host", value: "fixture-gateway.vercel.app" }]);
-  assert.match(staging.html, /name="pn-web-origin" content="https:\/\/playnavi-web-v2-stg.vercel.app"/);
-  assert.equal(staging.config.rewrites.find(({ source }) => source === "/index.html").has[0].value, "fixture-gateway.vercel.app");
-});
-
-test("candidate rejects unreviewed protocols, origins and entrypoint drift", async () => {
-  const original = await source();
-  for (const upstreamOrigin of ["https://playnavi.app", "https://links.playnavilab.com", "https://playnavi-links.vercel.app", "http://localhost:3000", "https://example.com", "https://next.vercel.app/path", "https://next.vercel.app?token=x", "https://a:b@next.vercel.app", "https://next.vercel.app:123", "https://\tnext.vercel.app"]) assert.throws(() => prepareWebGateway({ ...original, upstreamOrigin }));
-  assert.throws(() => prepareWebGateway({ ...original, previewSource: "changed" }));
-  for (const gatewayOrigin of [undefined, "https://links.playnavilab.com", "https://playnavi-links.vercel.app", original.upstreamOrigin, "http://fixture-gateway.vercel.app", "https://evil.example", "https://fixture-gateway.vercel.app/path", "https://fixture-gateway.vercel.app?key=x", "https://user@fixture-gateway.vercel.app"]) assert.throws(() => prepareWebGateway({ ...original, gatewayOrigin }));
-});
-
-test("generation writes fresh non-secret release files and refuses overwrite", async () => {
-  const temp = await mkdtemp(join(tmpdir(), "pn-web-gateway-"));
-  try {
-    const output = join(temp, "candidate");
-    const originalHtml = await read("index.html");
-    const originalConfig = await read("vercel.json");
-    const origins = { upstreamOrigin: "https://playnavi-web-v2-stg.vercel.app", gatewayOrigin: "https://fixture-gateway.vercel.app" };
-    await writeCandidate({ output, ...origins });
-    assert.equal(await read("index.html"), originalHtml);
-    assert.equal(await read("vercel.json"), originalConfig);
-    const files = await readdir(output);
-    for (const excluded of ["index.html", ".git", ".env", "node_modules", "scripts", "tests", "docs"]) assert.ok(!files.includes(excluded), excluded);
-    assert.ok(files.includes("link.html"));
-    for (const file of ["apple-app-site-association", "assetlinks.json"]) assert.equal(await readFile(join(output, ".well-known", file), "utf8"), await read(`.well-known/${file}`));
-    await assert.rejects(writeCandidate({ output, ...origins }), { code: "EEXIST" });
-    const alias = join(temp, "checkout-alias");
-    await symlink(fileURLToPath(new URL("../", import.meta.url)), alias);
-    const insideCheckout = join(alias, "forbidden-candidate");
-    await assert.rejects(writeCandidate({ output: insideCheckout, ...origins }), /outside this checkout/);
-    await assert.rejects(access(insideCheckout), { code: "ENOENT" });
-  } finally { await rm(temp, { recursive: true, force: true }); }
-});
-
-test("AI connection (MCP) on playnavi.app goes to the mcp function before the Web relay and the fallback (V5 group 6)", async () => {
-  const original = await source();
-  const candidate = prepareWebGateway(original);
-  for (const config of [original.config, candidate.config]) {
-    const rewrites = config.rewrites;
-    const index = (pred) => rewrites.findIndex(pred);
-    const mcp = index(({ source: s, has }) => s === "/mcp" && has?.[0]?.value === "playnavi.app");
-    const mcpSub = index(({ source: s, has }) => s === "/mcp/:path*" && has?.[0]?.value === "playnavi.app");
-    assert.ok(mcp >= 0 && mcpSub >= 0, "playnavi.app /mcp rules exist");
-    assert.match(rewrites[mcp].destination, /^https:\/\/[a-z]+\.supabase\.co\/functions\/v1\/mcp$/);
-    assert.match(rewrites[mcpSub].destination, /^https:\/\/[a-z]+\.supabase\.co\/functions\/v1\/mcp\/:path\*$/);
-    // 他のホストでは止める (Web やリンクの画面に落とさない)
-    for (const s of ["/mcp", "/mcp/:path*"]) {
-      const other = index(({ source: x, has }) => x === s && !has);
-      assert.equal(rewrites[other].destination, "/api/legacy-route-disabled", s);
-      assert.ok(other > Math.max(mcp, mcpSub), "host rule wins first");
-    }
-    const relay = index(({ source: s }) => s === GATEWAY_SOURCE);
-    const fallback = index(({ source: s }) => s === "/(.*)");
-    for (const later of [relay, fallback].filter((i) => i >= 0)) assert.ok(later > mcpSub, "MCP routes come before the Web relay and the fallback");
+  // 先に決まる予約の住所: AI 連携・アプリの戻り・短縮リンク・アンケート・プライバシーポリシー・Claude の手順
+  const relay = index(({ source, has }) => source === GATEWAY_SOURCE && has[0].value === "playnavi.app");
+  for (const [source, host] of [["/mcp", "playnavi.app"], ["/mcp/:path*", "playnavi.app"], ["/ai-auth", "playnavi.app"], ["/ai-auth/:path*", "playnavi.app"], ["/api/share-links/:code", "playnavi.app"], ["/a"], ["/s/:code"], ["/surveys/:surveySlug"], ["/privacy"], ["/help/claude"], ["/auth/steam/callback"]]) {
+    const at = index((entry) => entry.source === source && (host ? entry.has?.[0]?.value === host : true));
+    assert.ok(at >= 0 && at < relay, `${source} is decided before the relay`);
   }
-  assert.ok(original.config.headers.some(({ source: s, headers }) => s === "/mcp(.*)" && headers.some(({ key, value }) => key === "Cache-Control" && value === "no-store")));
+});
+
+test("relayed responses are never cached by links (the Web has per-user pages)", () => {
+  for (const host of ["playnavi.app", PREVIEW_HOST]) {
+    const entry = config.headers.find(({ source, has }) => source === GATEWAY_SOURCE && JSON.stringify(has) === JSON.stringify([{ type: "host", value: host }]));
+    const headers = Object.fromEntries(entry.headers.map(({ key, value }) => [key, value]));
+    assert.deepEqual(headers, { "x-vercel-enable-rewrite-caching": "0", "CDN-Cache-Control": "no-store", "Vercel-CDN-Cache-Control": "no-store" });
+  }
+});
+
+test("AI connection (MCP) on playnavi.app goes to the mcp function before the Web relay and the fallback (V5 group 6)", () => {
+  const rewrites = config.rewrites;
+  const mcp = index(({ source: s, has }) => s === "/mcp" && has?.[0]?.value === "playnavi.app");
+  const mcpSub = index(({ source: s, has }) => s === "/mcp/:path*" && has?.[0]?.value === "playnavi.app");
+  assert.ok(mcp >= 0 && mcpSub >= 0, "playnavi.app /mcp rules exist");
+  assert.match(rewrites[mcp].destination, /^https:\/\/[a-z]+\.supabase\.co\/functions\/v1\/mcp$/);
+  assert.match(rewrites[mcpSub].destination, /^https:\/\/[a-z]+\.supabase\.co\/functions\/v1\/mcp\/:path\*$/);
+  // 他のホストでは止める (Web やリンクの画面に落とさない)
+  for (const s of ["/mcp", "/mcp/:path*"]) {
+    const other = index(({ source: x, has }) => x === s && !has);
+    assert.equal(rewrites[other].destination, "/api/legacy-route-disabled", s);
+    assert.ok(other > Math.max(mcp, mcpSub), "host rule wins first");
+  }
+  for (const later of [index(({ source: s }) => s === GATEWAY_SOURCE), index(({ source: s }) => s === "/(.*)")]) assert.ok(later > mcpSub, "MCP routes come before the Web relay and the fallback");
+  assert.ok(config.headers.some(({ source: s, headers }) => s === "/mcp(.*)" && headers.some(({ key, value }) => key === "Cache-Control" && value === "no-store")));
 });
