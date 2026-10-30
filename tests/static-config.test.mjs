@@ -63,6 +63,11 @@ test("production-only legacy routes and share preview stay ahead of safe fallbac
     "/api/share-links/:code",
     "/api/share-links/:code",
     "/api/share-links/:code",
+    "/oauth-client-metadata.json",
+    "/bluesky-auth/jwks.json",
+    "/bluesky-auth/callback",
+    "/oauth-client-metadata.json",
+    "/bluesky-auth/:path*",
     "/mcp",
     "/mcp/:path*",
     "/ai-auth",
@@ -121,6 +126,27 @@ test("production-only legacy routes and share preview stay ahead of safe fallbac
     assert.equal(routes[1].has, undefined);
     assert.equal(routes[1].destination, "/api/legacy-route-disabled");
   }
+  // Bluesky のログイン (TASK-20261021-002 10/30 Emiya「承認画面で Supabase の URL が出てんだけど…PlayNavi のドメインのにちゃんと差し替えて」):
+  // Bluesky が取りに来る 3 つ (設定の文書 = client_id・公開鍵・戻り) だけを、本番の EF bluesky-oauth へ playnavi.app から転送する。
+  // client_id は決まった形 https://playnavi.app/oauth-client-metadata.json (承認画面にホスト名だけが出る)。他のホスト・他の道は止める
+  const steamProject = config.rewrites.find((route) => route.source === "/auth/steam/callback").destination.split("/functions/")[0];
+  const bsky = {
+    "/oauth-client-metadata.json": "/functions/v1/bluesky-oauth/client-metadata.json",
+    "/bluesky-auth/jwks.json": "/functions/v1/bluesky-oauth/jwks.json",
+    "/bluesky-auth/callback": "/functions/v1/bluesky-oauth/callback",
+  };
+  for (const [source, path] of Object.entries(bsky)) {
+    const routes = config.rewrites.filter((route) => route.source === source);
+    assert.deepEqual(routes[0].has, [{ type: "host", value: "playnavi.app" }], source);
+    assert.equal(routes[0].destination, `${steamProject}${path}`, source);
+  }
+  for (const source of ["/oauth-client-metadata.json", "/bluesky-auth/:path*"]) {
+    const fallback = config.rewrites.filter((route) => route.source === source).at(-1);
+    assert.equal(fallback.has, undefined, source);
+    assert.equal(fallback.destination, "/api/legacy-route-disabled", source);
+  }
+  assert.equal(config.rewrites.filter((route) => route.destination.includes("/bluesky-oauth")).length, 3);
+
   for (const [source, productionHosts] of Object.entries(productionHostsBySource)) {
     const routes = config.rewrites.filter((route) => route.source === source);
     assert.equal(routes.length, productionHosts.length + 1);

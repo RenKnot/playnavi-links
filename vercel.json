@@ -64,6 +64,12 @@
       ]
     },
     {
+      "source": "/(oauth-client-metadata\\.json|bluesky-auth/.*)",
+      "headers": [
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" }
+      ]
+    },
+    {
       "source": "/mcp(.*)",
       "headers": [
         { "key": "Cache-Control", "value": "no-store" },
@@ -168,6 +174,35 @@
     },
     {
       "source": "/api/share-links/:code",
+      "destination": "/api/legacy-route-disabled"
+    },
+    {
+      "source": "/oauth-client-metadata.json",
+      "has": [
+        { "type": "host", "value": "playnavi.app" }
+      ],
+      "destination": "https://irbtguncoatqfikctreq.supabase.co/functions/v1/bluesky-oauth/client-metadata.json"
+    },
+    {
+      "source": "/bluesky-auth/jwks.json",
+      "has": [
+        { "type": "host", "value": "playnavi.app" }
+      ],
+      "destination": "https://irbtguncoatqfikctreq.supabase.co/functions/v1/bluesky-oauth/jwks.json"
+    },
+    {
+      "source": "/bluesky-auth/callback",
+      "has": [
+        { "type": "host", "value": "playnavi.app" }
+      ],
+      "destination": "https://irbtguncoatqfikctreq.supabase.co/functions/v1/bluesky-oauth/callback"
+    },
+    {
+      "source": "/oauth-client-metadata.json",
+      "destination": "/api/legacy-route-disabled"
+    },
+    {
+      "source": "/bluesky-auth/:path*",
       "destination": "/api/legacy-route-disabled"
     },
     {
