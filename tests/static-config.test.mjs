@@ -90,6 +90,7 @@ test("production-only legacy routes and share preview stay ahead of safe fallbac
     "/surveys/:surveySlug",
     "/privacy",
     "/help/claude",
+    "/help/chatgpt",
     // TASK-20260923-002 一般公開: 予約の住所が全部決まった後、最後の受け皿の直前で新しい Web へ中継する (tests/web-gateway.test.mjs)
     "/index.html",
     "/index.html",
@@ -406,4 +407,28 @@ test("playnavi.app/help/claude serves the Claude connection guide with the real 
   assert.match(html, /道具を全部「常に許可」/);
   assert.match(html, /確定するまで記録は変わりません/);
   assert.match(html, /id="trouble"/);
+});
+
+test("playnavi.app/help/chatgpt serves the ChatGPT early beta guide (TASK-20260930-006 B6)", async () => {
+  const config = JSON.parse(await readFile(new URL("../vercel.json", import.meta.url), "utf8"));
+  const help = config.rewrites.findIndex((r) => r.source === "/help/chatgpt");
+  const fallback = config.rewrites.findIndex((r) => r.source === "/(.*)");
+  assert.equal(config.rewrites[help]?.destination, "/help-chatgpt.html");
+  assert.ok(help >= 0 && help < fallback, "help rewrite must come before the catch-all");
+  const html = await readFile(new URL("../help-chatgpt.html", import.meta.url), "utf8");
+  // 本番の入口は Claude と同じ ai.playnavi.app (playnavi.app/mcp は ChatGPT の審査の間 STG)
+  assert.match(html, /https:\/\/ai\.playnavi\.app\/mcp/);
+  assert.doesNotMatch(html, /(?<!ai\.)playnavi\.app\/mcp/, "STG 向きの playnavi.app/mcp を案内しない");
+  // 先行ベータ: 承認された人だけ。止まった時の文 (EF ai-oauth BETA_NOT_APPROVED_MESSAGE) と同じ言い方で案内する
+  assert.match(html, /先行ベータ/);
+  assert.match(html, /承認された方だけ/);
+  assert.match(html, /パソコン/);
+  assert.match(html, /「理解したうえで続けます」/);
+  assert.match(html, /OAuth の詳細設定/);
+  assert.match(html, /アプリで使っているのと同じ方法/);
+  assert.match(html, /確定するまで記録は変わりません/);
+  assert.match(html, /一覧から入れ直して/);
+  assert.match(html, /<meta name="robots" content="noindex">/);
+  assert.match(html, /id="trouble"/);
+  assert.match(html, /\/privacy/);
 });
