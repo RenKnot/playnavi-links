@@ -1,4 +1,5 @@
-const QUESTION_TYPES = new Set(["single_choice", "multiple_choice", "short_text"]);
+// consent = 「確認しました」のチェック (必須・true だけ。記名式の応募の注意事項。TASK-20260930-006 B2)
+const QUESTION_TYPES = new Set(["single_choice", "multiple_choice", "short_text", "consent"]);
 const VOICE_KIND = "playnavi_voice_2026";
 const VOICE_V3_KIND = "playnavi_voice_2026_reviewed";
 const VOICE_V4_KIND = "playnavi_voice_2026_reviewed_segments";
@@ -251,7 +252,7 @@ function normalizeQuestion(question) {
   const prompt = text(question?.label, 1_000);
   if (!id || !QUESTION_TYPES.has(type) || !prompt) return null;
 
-  const options = type === "short_text" ? [] : normalizeOptions(question.options);
+  const options = type === "short_text" || type === "consent" ? [] : normalizeOptions(question.options);
   if (options === null) return null;
   const configuredMax = Number.isInteger(question.max_length) ? question.max_length : 500;
   const maxLength = Math.max(1, Math.min(2_000, configuredMax));
@@ -748,6 +749,8 @@ export function parseSurveyRead(payload, expectedSlug) {
   return {
     status: payload.response ? "already_answered" : "ok",
     schemaVersion: 1,
+    // 記名式 (回答を PlayNavi のアカウントに結び付ける。TASK-20260930-006 B2)。DB は記名式の時だけ identity_mode を返す
+    identityMode: payload.survey.identity_mode === "identified" ? "identified" : "anonymous",
     title: text(payload.survey.title, 500),
     description: typeof payload.survey.description === "string"
       ? payload.survey.description.slice(0, 2_000)
@@ -764,7 +767,8 @@ export function parseSurveyPreview(payload, expectedSlug) {
   }
   const survey = payload.survey;
   const title = survey?.slug === expectedSlug ? text(survey.title, 120) : null;
-  if (!title || !hasOnlyKeys(survey, ["slug", "title", "description", "schema_version"]) ||
+  if (!title || !hasOnlyKeys(survey, ["slug", "title", "description", "schema_version", "identity_mode"]) ||
+    ![undefined, "identified"].includes(survey.identity_mode) ||
     ![undefined, 1, 2, 3, 4, 5, 6, 7].includes(survey.schema_version)) {
     throw new SurveyContractError("invalid survey preview");
   }
@@ -774,6 +778,7 @@ export function parseSurveyPreview(payload, expectedSlug) {
       ? survey.description.slice(0, 2_000)
       : "",
     ...([5, 6, 7].includes(survey.schema_version) ? { schemaVersion: survey.schema_version } : {}),
+    ...(survey.identity_mode === "identified" ? { identityMode: "identified" } : {}),
   };
 }
 
@@ -1275,6 +1280,12 @@ export function validateAnswers(questions, values) {
       const selected = question.options.some((option) => option.value === value) ? value : "";
       if (question.required && !selected) missing.push(question.id);
       if (selected) answers[question.id] = selected;
+      continue;
+    }
+    if (question.type === "consent") {
+      // 「確認しました」は true だけを送る (DB も true だけ受ける)。付けていなければ必須の抜け
+      if (value === true) answers[question.id] = true;
+      else missing.push(question.id);
       continue;
     }
     const entered = typeof value === "string" ? value.trim().slice(0, question.maxLength) : "";
