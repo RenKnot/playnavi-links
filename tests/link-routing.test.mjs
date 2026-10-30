@@ -82,6 +82,8 @@ test("survey link (TASK-20260930-006) accepts exactly act=survey&s=<slug> and ma
   ]) {
     assert.equal(aiReturnTargetFromPath(path), null, path);
   }
+  // "&" left as the HTML form "&amp;" (copied out of Slack) still reads, and the canonical link is rebuilt with a plain "&"
+  assert.equal(aiReturnTargetFromPath("/a?act=survey&amp;s=chatgpt-beta-2026")?.canonicalPath, "/a?act=survey&s=chatgpt-beta-2026");
   assert.equal(surveyPageUrl("chatgpt-beta-2026"), `${CANONICAL_ORIGIN}/surveys/chatgpt-beta-2026`);
   assert.equal(surveyPageUrl("../x"), null);
   assert.equal(surveyPageUrl(null), null);

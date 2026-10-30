@@ -114,6 +114,10 @@ export function aiReturnTargetFromPath(path) {
   // This route is a separate app-return contract, never a short-link resolver
   // target. Rebuild the URL from known values before presenting a browser link.
   if (typeof path !== "string" || !path.startsWith("/a?")) return null;
+  // Links copied out of Slack and similar keep "&" as the HTML form "&amp;", which turns later keys into "amp;s".
+  // Read them as "&" (playnavi-app app/+native-intent.ts and lib/aiLaunch.ts do the same; TASK-20260930-006 10/30).
+  // A value's own "&" is %26 in a correctly built link, so it is untouched.
+  path = path.replace(/&amp;/gi, "&");
   let url;
   try {
     url = new URL(path, AI_RETURN_ORIGIN);
