@@ -6,6 +6,7 @@ import {
   AI_RETURN_ORIGIN,
   ResolveError,
   aiReturnTargetFromPath,
+  surveyPageUrl,
   webInboxUrl,
   canonicalTargetFromPath,
   isValidShortCode,
@@ -65,6 +66,25 @@ test("AI return link to the inbox accepts only act=inbox and maps PC to the Web 
   assert.equal(webInboxUrl("https://playnavi-web-v2-stg.vercel.app"), "https://playnavi-web-v2-stg.vercel.app/drafts");
   assert.equal(webInboxUrl("https://evil.example"), null);
   assert.equal(webInboxUrl(""), null);
+});
+
+test("survey link (TASK-20260930-006) accepts exactly act=survey&s=<slug> and maps PC to this site's answer page", () => {
+  assert.deepEqual(aiReturnTargetFromPath("/a?act=survey&s=chatgpt-beta-2026"), {
+    canonicalPath: "/a?act=survey&s=chatgpt-beta-2026",
+    canonicalUrl: `${AI_RETURN_ORIGIN}/a?act=survey&s=chatgpt-beta-2026`,
+    schemeUrl: "playnavi://a?act=survey&s=chatgpt-beta-2026",
+    survey: "chatgpt-beta-2026",
+  });
+  for (const path of [
+    "/a?act=survey", "/a?act=survey&s=", "/a?act=survey&s=Beta", "/a?act=survey&s=beta-", "/a?act=survey&s=-beta",
+    "/a?act=survey&s=a&s=b", "/a?act=survey&s=beta&g=42", "/a?act=survey&s=beta#x", "/a?act=survey&s=..%2Fadmin",
+    "/a?act=survey&s=beta&next=https://evil.example",
+  ]) {
+    assert.equal(aiReturnTargetFromPath(path), null, path);
+  }
+  assert.equal(surveyPageUrl("chatgpt-beta-2026"), `${CANONICAL_ORIGIN}/surveys/chatgpt-beta-2026`);
+  assert.equal(surveyPageUrl("../x"), null);
+  assert.equal(surveyPageUrl(null), null);
 });
 
 test("AI return link rejects unsupported actions and query injection", () => {

@@ -4,6 +4,7 @@ import {
   canonicalTargetFromPath,
   resolveShortLink,
   shortCodeFromPath,
+  surveyPageUrl,
   webInboxUrl,
   webTargetFromPath,
 } from "./link-routing.mjs";
@@ -202,6 +203,28 @@ function openCanonicalTarget(target) {
 
 function showAiReturnTarget(target) {
   hideActions();
+  if (target.survey) {
+    // SNS で配るアンケートのリンク (TASK-20260930-006。応募など)。PC はこのサイトの回答のページ (Apple・Google でログイン)、
+    // スマホはアプリで開く (アプリが無い人はストアへ。ブラウザで答えることもできる)
+    const surveyHref = surveyPageUrl(target.survey);
+    if (platform === "other" && surveyHref) {
+      setContent({ heading: "アンケートを開いています…", description: "そのままお待ちください。" });
+      window.location.replace(surveyHref);
+      return;
+    }
+    setContent({
+      heading: "PlayNaviアプリで回答する",
+      description: "下のボタンからアプリを開いてください。アプリをお持ちでない方は、ストアから入れてから、このリンクをもう一度開いてください。",
+    });
+    if (platform !== "other") configurePrimary("PlayNaviアプリで開く", manualHrefForCanonical(target));
+    if (surveyHref && elements.web) {
+      elements.web.href = surveyHref;
+      elements.web.textContent = "ブラウザで回答する";
+      setVisible(elements.web, true);
+    }
+    showStores();
+    return;
+  }
   if (target.inbox) {
     // AI 連携の「確認箱を開く」(TASK-20260930-006)。PC は Web の下書き画面、スマホはアプリの確認箱
     const webHref = webInboxUrl(webOrigin);
