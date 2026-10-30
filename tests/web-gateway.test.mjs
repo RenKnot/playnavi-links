@@ -11,7 +11,7 @@ const config = JSON.parse(await read("vercel.json"));
 const UUID = "00000000-0000-0000-0000-000000000001";
 const PRODUCTION_WEB = "https://playnavi-web.vercel.app";
 const STAGING_WEB = "https://playnavi-web-v2-stg.vercel.app";
-const PREVIEW_HOST = { re: "^playnavi-links-[a-z0-9]+-masanobu-iwasakis-projects\\.vercel\\.app$" };
+const PREVIEW_HOST = { re: "^playnavi-links-(?:[a-z0-9]+|git-bridge-[a-z0-9-]+)-masanobu-iwasakis-projects\\.vercel\\.app$" };
 const relays = config.rewrites.filter(({ destination }) => /^https:\/\/playnavi-web(-v2-stg)?\.vercel\.app\//.test(destination));
 const relayFor = (host) => config.rewrites.find(({ source, has }) => source.startsWith("/:path((?!") && JSON.stringify(has) === JSON.stringify([{ type: "host", value: host }]));
 const GATEWAY_SOURCE = relayFor("playnavi.app").source;
@@ -49,7 +49,8 @@ test("only playnavi.app relays to the production Web, only links deployment URLs
   for (const relay of relays) assert.equal(relay.has?.length, 1, "every relay is host-bound");
   // 確認用の決まりは、公開の住所 (playnavi.app・旧共有・links の固定の住所) と枝の別名には当たらない
   const preview = new RegExp(PREVIEW_HOST.re);
-  for (const host of ["playnavi-links-iemuwz581-masanobu-iwasakis-projects.vercel.app", "playnavi-links-6xvd1u1fp-masanobu-iwasakis-projects.vercel.app"]) assert.ok(preview.test(host), host);
+  // 配備ごとの住所と、bridge/ の枝の住所 (Vercel の共有リンクはこちらに付く。10/30 Emiya の共有リンク)
+  for (const host of ["playnavi-links-iemuwz581-masanobu-iwasakis-projects.vercel.app", "playnavi-links-6xvd1u1fp-masanobu-iwasakis-projects.vercel.app", "playnavi-links-git-bridge-tas-178c9e-masanobu-iwasakis-projects.vercel.app"]) assert.ok(preview.test(host), host);
   for (const host of ["playnavi.app", "links.playnavilab.com", "playnavi-links.vercel.app", "playnavi-links-git-main-masanobu-iwasakis-projects.vercel.app", "evil.example", "playnavi-links-x-masanobu-iwasakis-projects.vercel.app.evil.example"]) assert.ok(!preview.test(host), host);
 });
 
