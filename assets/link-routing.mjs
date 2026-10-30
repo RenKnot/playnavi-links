@@ -15,6 +15,8 @@ const AI_RETURN_ACTIONS = new Set(["game", "log", "wishlist", "moment", "review"
 // act=moment (V5 group 7): today's session id (play_sessions.id alphabet) and the
 // AI-written moment text. The app only uses them as editable initial values.
 const AI_RETURN_SESSION_PATTERN = /^[0-9A-HJKMNP-TV-Z]{8}$/;
+/** The app's survey slug shape (playnavi-app lib/surveySlug.ts SURVEY_SLUG_PATTERN) */
+const SURVEY_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 const AI_RETURN_TEXT_MAX = 2000;
 // Keys an action may add to act / g / src / at (missing = none; then i is required too).
 // moment: f=1 only together with s (the app's buildAiMomentReturnUrl sets f only when s is set).
@@ -99,6 +101,11 @@ export function webTargetFromPath(path, origin) {
 }
 
 /** PC で確認箱 (= Web の下書き画面) を開く先。知らない origin なら null */
+/** The survey answer page on this site (PC answers here, signing in with Apple or Google) */
+export function surveyPageUrl(slug) {
+  return SURVEY_SLUG_PATTERN.test(slug || "") ? `${CANONICAL_ORIGIN}/surveys/${slug}` : null;
+}
+
 export function webInboxUrl(origin) {
   return WEB_ORIGINS.includes(origin) ? `${origin}/drafts` : null;
 }
@@ -116,6 +123,21 @@ export function aiReturnTargetFromPath(path) {
   if (url.origin !== AI_RETURN_ORIGIN || url.pathname !== "/a" || url.hash) return null;
   const params = url.searchParams;
   const action = params.get("act");
+  // act=survey&s=<slug> (TASK-20260930-006): a survey link handed out on SNS (e.g. the ChatGPT beta application).
+  // Exactly these two keys; the slug has the surveys.slug shape. The app opens the survey with its own sign-in handoff.
+  if (action === "survey") {
+    const keys = [...params.keys()];
+    const slug = params.get("s");
+    if (keys.length !== 2 || !keys.includes("s") || params.getAll("s").length !== 1 ||
+        !SURVEY_SLUG_PATTERN.test(slug || "")) return null;
+    const canonicalPath = `/a?${new URLSearchParams({ act: "survey", s: slug })}`;
+    return {
+      canonicalPath,
+      canonicalUrl: `${AI_RETURN_ORIGIN}${canonicalPath}`,
+      schemeUrl: `playnavi:/${canonicalPath}`,
+      survey: slug,
+    };
+  }
   // act=inbox (TASK-20260930-006): the AI connection's "open the 確認箱" link. No other key is allowed.
   if (action === "inbox") {
     const keys = [...params.keys()];
