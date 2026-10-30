@@ -85,8 +85,15 @@ test("production-only legacy routes and share preview stay ahead of safe fallbac
     "/surveys/:surveySlug",
     "/privacy",
     "/help/claude",
+    // TASK-20260923-002 一般公開: 予約の住所が全部決まった後、最後の受け皿の直前で新しい Web へ中継する (tests/web-gateway.test.mjs)
+    "/index.html",
+    "/index.html",
+    "/survey-login-error",
+    sources.at(-3),
+    sources.at(-2),
     "/(.*)",
   ]);
+  assert.ok(sources.at(-3).startsWith("/:path((?!") && sources.at(-2) === sources.at(-3));
 
   // The allowlist differs per route because share links are minted on a host
   // that never serves the Steam callback.
@@ -134,7 +141,7 @@ test("production-only legacy routes and share preview stay ahead of safe fallbac
 test("share preview uses the original HTML and only the approved share routes", async () => {
   const config = await readJson("../vercel.json");
   assert.deepEqual(config.functions?.["api/share-preview.mjs"], {
-    includeFiles: "index.html",
+    includeFiles: "link.html",
     regions: ["hnd1"],
   });
   assert.equal(
@@ -167,7 +174,7 @@ test("share preview uses the original HTML and only the approved share routes", 
 test("AI return path receives the SPA and private document headers", async () => {
   const config = await readJson("../vercel.json");
   const route = config.rewrites.find((entry) => entry.source === "/a");
-  assert.equal(route?.destination, "/index.html");
+  assert.equal(route?.destination, "/link.html");
   assert.ok(config.rewrites.indexOf(route) < config.rewrites.findIndex((entry) => entry.source === "/(.*)"));
   const headers = Object.fromEntries(
     config.headers.find((entry) => entry.source === "/a").headers.map(({ key, value }) => [key, value]),
@@ -224,7 +231,7 @@ test("survey pages receive strict privacy and script policies", async () => {
   assert.match(surveyHeaders["Content-Security-Policy"], /script-src 'self'/);
   assert.doesNotMatch(surveyHeaders["Content-Security-Policy"], /unsafe-inline|https?:/);
 
-  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const html = await readFile(new URL("../link.html", import.meta.url), "utf8");
   assert.doesNotMatch(html, /<style|<script(?![^>]*\bsrc=)/);
 });
 
@@ -242,7 +249,7 @@ test("short-link documents and proxy responses are not cached or indexed", async
 
 test("user copy avoids version labels and store navigation remains explicit", async () => {
   const app = await readFile(new URL("../assets/app.mjs", import.meta.url), "utf8");
-  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const html = await readFile(new URL("../link.html", import.meta.url), "utf8");
   assert.doesNotMatch(`${app}\n${html}`, /新版|旧版|旧Store/);
   assert.match(
     app,
@@ -254,7 +261,7 @@ test("user copy avoids version labels and store navigation remains explicit", as
 test("survey code loads only on survey routes and login copy matches stored-data behavior", async () => {
   const app = await readFile(new URL("../assets/app.mjs", import.meta.url), "utf8");
   const surveyApp = await readFile(new URL("../assets/survey-app.mjs", import.meta.url), "utf8");
-  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const html = await readFile(new URL("../link.html", import.meta.url), "utf8");
 
   assert.doesNotMatch(app, /import\s*\{\s*startSurvey\s*\}\s*from/);
   assert.match(app, /const \{ startSurvey \} = await import\("\.\/survey-app\.mjs"\)/);

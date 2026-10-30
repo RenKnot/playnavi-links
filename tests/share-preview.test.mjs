@@ -19,7 +19,7 @@ import { createSharePreviewHandler, UPSTREAM_TIMEOUT_MS } from "../api/share-pre
 const CODE = "AbC_dEf-12345678";
 const USER = "12345678-1234-1234-1234-123456789abc";
 const RANKING = "abcdefab-cdef-cdef-cdef-abcdefabcdef";
-const template = await readFile(new URL("../index.html", import.meta.url), "utf8");
+const template = await readFile(new URL("../link.html", import.meta.url), "utf8");
 
 function responseRecorder() {
   const headers = new Map();
@@ -267,7 +267,7 @@ test("non-GET requests and a missing template do not fetch upstream", async () =
   assert.equal(missing.statusCode, 503);
 });
 
-test("the actual handler reads the root index.html file", async () => {
+test("the actual handler reads the root link.html file", async () => {
   const response = responseRecorder();
   await createSharePreviewHandler({
     fetchImpl: async () => ({ status: 404 }),
@@ -276,7 +276,7 @@ test("the actual handler reads the root index.html file", async () => {
   assert.equal(response.body.slice(response.body.indexOf("<body>")), template.slice(template.indexOf("<body>")));
 });
 
-test("renderer fails clearly if index.html has no closing head", () => {
+test("renderer fails clearly if link.html has no closing head", () => {
   assert.throws(() => renderPreviewHtml("<html><body></body></html>", GENERIC_CARD, "https://playnavi.app/"));
 });
 

@@ -5,7 +5,7 @@ Static fallback pages and domain-association files for PlayNavi links.
 ## Survey web app
 
 `/surveys/{survey_slug}` is a common PlayNavi-branded survey page. Static UI
-is kept in `index.html` and `assets/`; only authentication and survey requests
+is kept in `link.html` and `assets/`; only authentication and survey requests
 run in Vercel Functions under `/api`.
 
 An OTA-capable app opens
@@ -23,11 +23,18 @@ required Vercel/Supabase settings, security invariants, and rollout checks.
 
 ## Short-link web contract
 
-The optional new-Web landing is disabled in the deployed `index.html`.
-`docs/web-gateway-preparation.md` describes a separate, undeployed gateway
-candidate. Preparing it does not change this project's routing or authorize
-publication; the actual Vercel origin, cookie, protection, and cache checks
-must pass before a separately approved release.
+`playnavi.app` relays every path that links does not reserve to the new Web
+(Vercel project `playnavi-web`, `https://playnavi-web.vercel.app`). Reserved
+paths (`/api`, `/assets`, `/.well-known`, `/a`, `/s`, `/surveys`, `/mcp`,
+`/ai-auth`, `/privacy`, `/help/claude`, the old Steam callback and the static
+files) are decided before the relay. The entry page is `link.html` because
+static files win over rewrites on Vercel, so `/` reaches the Web. Each links
+deployment URL (`playnavi-links-<hash>-masanobu-iwasakis-projects.vercel.app`,
+protected by Vercel) relays the same way to the STG Web for checks before and
+after a release. Relayed responses are never cached by links. Rolling back the
+public Web = Vercel `playnavi-links` → Deployments → the previous one →
+Instant Rollback. See `docs/web-gateway-preparation.md` and
+`tests/web-gateway.test.mjs`.
 
 `/s/{16-character code}` resolves through the same-origin route
 `/api/share-links/{code}`. `vercel.json` proxies that request to the public

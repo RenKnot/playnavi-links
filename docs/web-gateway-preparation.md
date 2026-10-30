@@ -1,5 +1,10 @@
 # 新Webへの中継準備（TASK-20260923-002）
 
+> **2026-10-30 中継を実際の設定に入れた（一般公開の PR）。** 10/2 の候補の生成 (`scripts/prepare-web-gateway.mjs`) と同じ形を `vercel.json`・`link.html`・`api/share-preview.mjs` に入れ、生成の道具は役目を終えたので外した。
+> 中継先は `https://playnavi-web.vercel.app`（本番 DB の新しい Web）。links の配備ごとの住所（Vercel の保護つき）だけは同じ形で STG の新しい Web (`https://playnavi-web-v2-stg.vercel.app`) へ中継し、公開の前後の確かめに使う。
+> Web 側は、中継越しでも転送・同じサイトの確認を利用者の住所で行う (playnavi-app `web/src/lib/http/publicOrigin.ts`)。
+> 試験は `tests/web-gateway.test.mjs`（予約の住所・中継の向き・links で貯めない・AI 連携が先）と、「切」の版の記録の画面 (`tests/fixtures/web-off-template.mjs`)。以下は 10/2 時点の準備の記録。
+
 一般公開の切替は未許可。既存 `vercel.json` と `index.html` はそのまま配備し、新Web導線は既定OFFにする。別の生成物でのみ、入口HTML改名と中継設定、短縮リンクのWeb着地を確認できる。生成は配備ではない。中継元と中継先の両住所は必須引数で、推測した既定値は持たない。
 
 ```text

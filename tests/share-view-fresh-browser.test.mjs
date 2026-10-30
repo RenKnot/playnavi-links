@@ -8,6 +8,7 @@ import { chromium } from "playwright-core";
 import sharp from "sharp";
 
 import { createSharePreviewHandler } from "../api/share-preview.mjs";
+import { readWebOffTemplate } from "./fixtures/web-off-template.mjs";
 
 // TASK-20261026-003 B4・B5 (運営者 10/29): 記録のページを本物の Chrome で開き、
 //   B4 変換中の動画は「動画を準備中」のままにせず、変換が終わる (EF が再生の住所を返す) とページを読み直さずにその場で再生できる形になる
@@ -43,6 +44,7 @@ test("B4・B5: 変換中の動画は終わるとその場で再生できる形�
   let videoReady = false;
   let viewCalls = 0;
   const handler = createSharePreviewHandler({
+    readTemplate: readWebOffTemplate,
     metaUrl: "https://meta.fixture/share-preview-meta",
     viewUrl: "https://meta.fixture/share-view",
     fetchImpl: async (url) => {
@@ -60,7 +62,7 @@ test("B4・B5: 変換中の動画は終わるとその場で再生できる形�
         return;
       }
       const game = /^\/game\/([^/]+)$/.exec(url.pathname);
-      if (!game) { response.setHeader("Content-Type", "text/html"); response.end(await readFile(join(ROOT, "index.html"))); return; }
+      if (!game) { response.setHeader("Content-Type", "text/html"); response.end(await readWebOffTemplate()); return; }
       const recorder = {
         setHeader: (name, value) => response.setHeader(name, value),
         status(status) { response.statusCode = status; return this; },

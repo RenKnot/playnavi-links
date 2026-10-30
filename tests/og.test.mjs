@@ -257,7 +257,7 @@ function recorder() {
     send(body) { this.body = body; return this; },
   };
 }
-const template = await readFile(new URL("../index.html", import.meta.url), "utf8");
+const template = await readFile(new URL("../link.html", import.meta.url), "utf8");
 const tag = (html, name) => html.match(new RegExp(`<meta (?:property|name)="${name}" content="([^"]*)">`))?.[1];
 const version = (large) => createHash("sha256").update(JSON.stringify(large)).digest("hex").slice(0, 12);
 

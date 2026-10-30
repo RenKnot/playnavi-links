@@ -60,9 +60,9 @@ async function startFixtureServer() {
       }
 
       const relativePath = url.pathname === `/surveys/${SLUG}` || url.pathname === "/"
-        ? "index.html"
+        ? "link.html"
         : decodeURIComponent(url.pathname).replace(/^\/+/, "");
-      if (relativePath.includes("..") || !/^(?:index\.html|logo\.png|assets\/[a-z0-9_./-]+)$/i.test(relativePath)) {
+      if (relativePath.includes("..") || !/^(?:link\.html|logo\.png|assets\/[a-z0-9_./-]+)$/i.test(relativePath)) {
         response.writeHead(404).end();
         return;
       }

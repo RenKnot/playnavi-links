@@ -233,7 +233,7 @@ function markRecordPage(template) {
 export function renderPreviewHtml(template, card, url, largeImage = null, shareView = null) {
   if (shareView) template = markRecordPage(template);
   const headClose = template.indexOf("</head>");
-  if (headClose < 0) throw new Error("index.html has no closing head tag");
+  if (headClose < 0) throw new Error("link.html has no closing head tag");
   const insertion = template.lastIndexOf("\n", headClose) + 1;
   const tags = (largeImage
     ? [

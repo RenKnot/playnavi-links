@@ -44,8 +44,8 @@ async function fixtureServer() {
         }));
         return;
       }
-      const relative = url.pathname === `/surveys/${SLUG}` ? "index.html" : decodeURIComponent(url.pathname).replace(/^\/+/, "");
-      if (relative.includes("..") || !/^(?:index\.html|logo\.png|assets\/[a-z0-9_./-]+)$/i.test(relative)) {
+      const relative = url.pathname === `/surveys/${SLUG}` ? "link.html" : decodeURIComponent(url.pathname).replace(/^\/+/, "");
+      if (relative.includes("..") || !/^(?:link\.html|logo\.png|assets\/[a-z0-9_./-]+)$/i.test(relative)) {
         response.writeHead(404).end();
         return;
       }

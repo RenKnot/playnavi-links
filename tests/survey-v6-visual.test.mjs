@@ -103,8 +103,8 @@ async function fixtureServer(payload = surveyV6Payload, slug = SLUG) {
         }));
         return;
       }
-      const relative = url.pathname === `/surveys/${slug}` ? "index.html" : decodeURIComponent(url.pathname).replace(/^\/+/, "");
-      if (relative.includes("..") || !/^(?:index\.html|logo\.png|assets\/[a-z0-9_./-]+)$/i.test(relative)) {
+      const relative = url.pathname === `/surveys/${slug}` ? "link.html" : decodeURIComponent(url.pathname).replace(/^\/+/, "");
+      if (relative.includes("..") || !/^(?:link\.html|logo\.png|assets\/[a-z0-9_./-]+)$/i.test(relative)) {
         response.writeHead(404).end();
         return;
       }
