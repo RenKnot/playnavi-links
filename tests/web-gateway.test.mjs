@@ -59,7 +59,7 @@ test("reserved paths stay on links; Web pages go through the relay", () => {
   for (const path of ["/api", "/api/auth/start", "/api/auth/callback", "/api/survey/session/guest", "/api/unknown", "/assets/site.css", "/.well-known/apple-app-site-association", "/a", "/a/extra", "/s/code", "/surveys/slug", "/survey-login-error", "/auth/steam/callback", "/logo.png", "/og-fallback.png", "/robots.txt", "/link.html"]) assert.equal(matcher.test(path), false, path);
   // 先に決まる予約の住所: AI 連携・アプリの戻り・短縮リンク・アンケート・プライバシーポリシー・Claude の手順
   const relay = index(({ source, has }) => source === GATEWAY_SOURCE && has[0].value === "playnavi.app");
-  for (const [source, host] of [["/mcp", "playnavi.app"], ["/mcp/:path*", "playnavi.app"], ["/ai-auth", "playnavi.app"], ["/ai-auth/:path*", "playnavi.app"], ["/api/share-links/:code", "playnavi.app"], ["/oauth-client-metadata.json", "playnavi.app"], ["/bluesky-auth/jwks.json", "playnavi.app"], ["/bluesky-auth/callback", "playnavi.app"], ["/a"], ["/s/:code"], ["/surveys/:surveySlug"], ["/privacy"], ["/help/claude"], ["/auth/steam/callback"]]) {
+  for (const [source, host] of [["/mcp", "playnavi.app"], ["/mcp/:path*", "playnavi.app"], ["/ai-auth", "playnavi.app"], ["/ai-auth/:path*", "playnavi.app"], ["/api/share-links/:code", "playnavi.app"], ["/oauth-client-metadata.json", "playnavi.app"], ["/bluesky-auth/jwks.json", "playnavi.app"], ["/bluesky-auth/callback", "playnavi.app"], ["/a"], ["/s/:code"], ["/surveys/:surveySlug"], ["/privacy"], ["/help/claude"], ["/help/chatgpt"], ["/auth/steam/callback"]]) {
     const at = index((entry) => entry.source === source && (host ? entry.has?.[0]?.value === host : true));
     assert.ok(at >= 0 && at < relay, `${source} is decided before the relay`);
   }
