@@ -435,6 +435,11 @@ test("playnavi.app/help/chatgpt serves the ChatGPT early beta guide (TASK-202609
   assert.doesNotMatch(html, /MCP アプリを作成|「カスタマイズ」→「プラグイン」|Create MCP app/);
   assert.match(html, /アプリと同じ方法（Apple または Google）でログイン/);
   assert.match(html, /確定するまで記録は変わりません/);
+  // 11/4 Emiya「強制ではないが利便性のために…推奨する旨を、わかりやすい手順とともに」(ChatGPT の「プラグイン設定 > PlayNavi > 権限」の画面 = 11/4 17:14 の写真)
+  assert.match(html, /（任意・おすすめ）毎回の確認を省く設定にします/);
+  assert.match(html, /「管理」→「権限」を開きます/);
+  assert.match(html, /「すべてのツールを許可」を選びます/);
+  assert.match(html, /「低リスクのツールを許可」）のままでもご利用いただけます/);
   assert.match(html, /公式プラグインから追加し直して/);
   // 11/4 14:50 Emiya「「一覧に載る前〜」…「自分で足す形」…AIが雑に和訳しました、みたいな文章全部やめろ」
   assert.doesNotMatch(html, /一覧に載|自分で足|足す|足した|先行ベータ|つなぎ方|頁/);
