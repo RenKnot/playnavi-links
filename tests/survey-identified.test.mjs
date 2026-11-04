@@ -98,8 +98,8 @@ test("記名式のアンケート: ログインの前・回答・送信の後", 
       try {
         await page.locator("#survey-login").waitFor({ state: "visible" });
         const notice = await page.locator("#survey-login .login-notice").innerText();
-        assert.match(notice, /記名式です。回答は PlayNavi のアカウントに結び付けて受け付けます/);
-        assert.match(notice, /未登録の方は、PlayNavi アプリで登録してから/);
+        assert.match(notice, /記名式です。ログインした PlayNavi アカウントで回答します/);
+        assert.match(notice, /まだ登録していない方は、先に PlayNavi アプリで登録してください/);
         assert.equal(await page.locator("#guest-login").isVisible(), false);
         assert.equal(await page.locator("#google-login").isVisible(), true);
         await shot(page, "identified-login-390");
@@ -113,7 +113,7 @@ test("記名式のアンケート: ログインの前・回答・送信の後", 
       const { context, page } = await openPage(browser, server.origin);
       try {
         await page.locator("#survey-form").waitFor({ state: "visible" });
-        assert.match(await page.locator("#survey-description").innerText(), /^【記名式】回答は PlayNavi のアカウントに結び付けて受け付けます。/);
+        assert.match(await page.locator("#survey-description").innerText(), /^【記名式】ログインした PlayNavi アカウントで回答します。/);
         const consent = page.locator('input[name="question-agree_notice"]');
         assert.equal(await consent.getAttribute("type"), "checkbox");
         assert.match(await page.locator('[data-question-id="agree_notice"]').innerText(), /確認しました/);
