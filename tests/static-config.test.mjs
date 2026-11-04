@@ -419,8 +419,8 @@ test("playnavi.app/help/chatgpt serves the ChatGPT early beta guide (TASK-202609
   // 本番の入口は Claude と同じ ai.playnavi.app (playnavi.app/mcp は ChatGPT の審査の間 STG)
   assert.match(html, /https:\/\/ai\.playnavi\.app\/mcp/);
   assert.doesNotMatch(html, /(?<!ai\.)playnavi\.app\/mcp/, "STG 向きの playnavi.app/mcp を案内しない");
-  // 先行ベータ: 承認された人だけ。止まった時の文 (EF ai-oauth BETA_NOT_APPROVED_MESSAGE) と同じ言い方で案内する
-  assert.match(html, /先行ベータ/);
+  // ベータ版: 承認された人だけ。止まった時の文 (EF ai-oauth BETA_NOT_APPROVED_MESSAGE。前の版も今の版も「承認された方だけ」を含む) と同じ言い方で案内する
+  assert.match(html, /ベータ版/);
   assert.match(html, /承認された方だけ/);
   assert.match(html, /パソコン/);
   assert.match(html, /「理解したうえで続けます」/);
@@ -430,7 +430,10 @@ test("playnavi.app/help/chatgpt serves the ChatGPT early beta guide (TASK-202609
   assert.match(html, /OAuth の詳細設定/);
   assert.match(html, /アプリで使っているのと同じ方法/);
   assert.match(html, /確定するまで記録は変わりません/);
-  assert.match(html, /一覧から入れ直して/);
+  assert.match(html, /公式プラグインから追加し直して/);
+  // 11/4 14:50 Emiya「「一覧に載る前〜」…「自分で足す形」…AIが雑に和訳しました、みたいな文章全部やめろ」
+  assert.doesNotMatch(html, /一覧に載|自分で足|足す|足した|先行ベータ|つなぎ方|頁/);
+  assert.match(html, /ベータ版に関するご意見/);
   // 10/31 17:53 Emiya: 感想はできればハッシュタグで SNS へ・難しい人は問い合わせ・リクエスト (アプリのメニューの名前 = app/(drawer)/AppDrawerContent.tsx)
   assert.match(html, /id="feedback"/);
   assert.match(html, /#PlayNaviChatGPT/);

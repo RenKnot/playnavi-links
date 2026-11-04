@@ -79,8 +79,8 @@ function hideStates() {
 
 /** 記名式 (回答を PlayNavi のアカウントに結び付ける。TASK-20260930-006 B2) のログインの案内 */
 const IDENTIFIED_LOGIN_NOTICES = [
-  "このアンケートは記名式です。回答は PlayNavi のアカウントに結び付けて受け付けます。",
-  "PlayNavi に登録済みの Apple または Google でログインしてください。未登録の方は、PlayNavi アプリで登録してから開いてください。",
+  "このアンケートは記名式です。ログインした PlayNavi アカウントで回答します。",
+  "PlayNavi に登録している Apple または Google のアカウントでログインしてください。まだ登録していない方は、先に PlayNavi アプリで登録してください。",
 ];
 
 function showLogin(slug, preview, authFailure = null) {
@@ -131,7 +131,7 @@ function showLogin(slug, preview, authFailure = null) {
   setPage({
     title: preview?.title || "アンケート",
     description: identified && authFailure === "account_not_found"
-      ? "このログイン方法の PlayNavi アカウントが見つかりませんでした。PlayNavi アプリで登録してから、もう一度開いてください。"
+      ? "このアカウントは PlayNavi に登録されていません。PlayNavi アプリで登録したときと同じ方法でログインするか、先にアプリで登録してください。"
       : identified && authFailure
       ? "ログインを完了できませんでした。別のログイン方法をお試しください。"
       : authFailure === "account_not_found"
@@ -226,10 +226,10 @@ function showResult(result) {
       ? "ご協力ありがとうございました。"
       : already
         ? identified
-          ? "このアンケートは 1 人 1 回です。あなたの回答は受け付け済みです。"
+          ? "このアンケートには 1 回だけ回答できます。あなたの回答はすでに受け付けています。"
           : "このアンケートへの回答はすでに完了しています。"
         : identified
-          ? "PlayNavi のアカウントで受け付けました。このまま画面を閉じて構いません。"
+          ? "ログインした PlayNavi アカウントで受け付けました。このまま画面を閉じてかまいません。"
         : result.schemaVersion === 7
           ? result.titleAwarded && result.titleName
             ? `称号「${result.titleName}」を付与しました。このまま画面を閉じて構いません。`
@@ -364,9 +364,14 @@ function renderQuestions(slug, survey) {
         // 「確認しました」のチェック (記名式の応募の注意事項。TASK-20260930-006 B2)。付けた時だけ true
         // 見出し (label) の下に説明の文 (detail) を本文として出す (11/4 Emiya「結局何を問われてるのかわからん」)
         if (question.detail) {
-          const detail = document.createElement("p");
+          // 改行ごとに段落にして、段落の間を少し空ける (11/4 Emiya「伝わりやすいワーディング」)
+          const detail = document.createElement("div");
           detail.className = "question-detail";
-          detail.textContent = question.detail;
+          for (const paragraph of question.detail.split("\n")) {
+            const line = document.createElement("span");
+            line.textContent = paragraph;
+            detail.append(line);
+          }
           fieldset.append(detail);
         }
         const label = document.createElement("label");
@@ -3152,7 +3157,7 @@ function showSurveyForm(slug, survey) {
     title: survey.title,
     // 記名式は、回答がアカウントに結び付くことを最初に書く (TASK-20260930-006 B2)。案内の前に 1 行で分けて出す (11/4 Emiya「平文改行なしで読みにくすぎる」)
     description: survey.identityMode === "identified"
-      ? `【記名式】回答は PlayNavi のアカウントに結び付けて受け付けます。${survey.description ? `\n${survey.description}` : ""}`
+      ? `【記名式】ログインした PlayNavi アカウントで回答します。${survey.description ? `\n${survey.description}` : ""}`
       : survey.description,
   });
   if (survey.schemaVersion === 7) {
