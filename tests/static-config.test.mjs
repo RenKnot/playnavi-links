@@ -422,13 +422,18 @@ test("playnavi.app/help/chatgpt serves the ChatGPT early beta guide (TASK-202609
   // ベータ版: 承認された人だけ。止まった時の文 (EF ai-oauth BETA_NOT_APPROVED_MESSAGE。前の版も今の版も「承認された方だけ」を含む) と同じ言い方で案内する
   assert.match(html, /ベータ版/);
   assert.match(html, /承認された方だけ/);
-  assert.match(html, /パソコン/);
+  // 11/4 17:2x Emiya の iPhone (Safari の chatgpt.com): スマートフォンのブラウザでも追加できる → パソコンだけと書かない
+  assert.match(html, /パソコンでもスマートフォンでもできます/);
+  assert.doesNotMatch(html, /スマートフォンの ChatGPT アプリでは設定できません|パソコンで・/);
   assert.match(html, /「理解したうえで続けます」/);
-  // 11/4 Emiya の実機 (ChatGPT の画面): 左のメニューの「プラグイン」→ 右上の「追加」→「カスタム MCP サーバーを追加」
-  assert.match(html, /左のメニューの「プラグイン」を開き、右上の「追加」→「カスタム MCP サーバーを追加」/);
+  // 11/4 Emiya の実機 (ChatGPT の画面): 左のメニューの「プラグイン」→ 右上の「追加」(スマートフォンは「＋」)→「カスタム MCP サーバーを追加」
+  assert.match(html, /左のメニュー（スマートフォンは左上のボタン）の「プラグイン」を開き、右上の「追加」（スマートフォンは「＋」）から「カスタム MCP サーバーを追加」/);
+  // 11/4 Emiya「名前とURL入れることと、同意のチェックをつけるっていう3箇所だけ…それ以外のところは見ない&触らない」
+  assert.match(html, /次の 3 か所だけ入力して「作成」を押します/);
+  assert.match(html, /ほかの項目は、触らずにそのままで大丈夫です/);
+  assert.doesNotMatch(html, /接続タイプ|OAuth の詳細設定|アイコン・説明/);
   assert.doesNotMatch(html, /MCP アプリを作成|「カスタマイズ」→「プラグイン」|Create MCP app/);
-  assert.match(html, /OAuth の詳細設定/);
-  assert.match(html, /アプリで使っているのと同じ方法/);
+  assert.match(html, /アプリと同じ方法（Apple または Google）でログイン/);
   assert.match(html, /確定するまで記録は変わりません/);
   assert.match(html, /公式プラグインから追加し直して/);
   // 11/4 14:50 Emiya「「一覧に載る前〜」…「自分で足す形」…AIが雑に和訳しました、みたいな文章全部やめろ」
