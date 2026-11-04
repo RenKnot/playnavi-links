@@ -1,0 +1,68 @@
+{
+  "slug": "chatgpt-beta-apply",
+  "title": "ChatGPT 連携 先行ベータの応募",
+  "description": "ChatGPT との会話で、あなたの PlayNavi の記録を使えるようになる先行ベータの応募です。\n募集の期間：11月5日（木）10:00〜11月7日（土）23:59\nまず、参加の前に知っておいてほしいこと 4 つを確かめてください。",
+  "questions": [
+    {
+      "id": "pc_setup",
+      "type": "consent",
+      "required": true,
+      "label": "パソコンで 1 回だけ設定します",
+      "detail": "承認されたら、パソコンのブラウザで ChatGPT（chatgpt.com）を開き、PlayNavi を足す設定を 1 回だけ行います（5 分ほど）。手順は承認のお知らせでお送りします。途中で ChatGPT が「カスタム MCP サーバーの利用にはリスクが伴います」と表示しますが、一覧に載る前の、自分で足す形のときに必ず出るものです。ChatGPT のプランは問いません。"
+    },
+    {
+      "id": "beta_risk",
+      "type": "consent",
+      "required": true,
+      "label": "開発中の機能です",
+      "detail": "不具合や変更があります。ChatGPT 側の仕様などで連携できない場合や、予告なく先行ベータを終える場合もあります（終わっても PlayNavi の記録は残ります）。ChatGPT の一覧に PlayNavi が正式に載ったら、自分で足した PlayNavi を消して、一覧から入れ直してください。"
+    },
+    {
+      "id": "approval",
+      "type": "consent",
+      "required": true,
+      "label": "承認は締め切りの後にまとめて行います",
+      "detail": "募集の締め切りの後に、応募した方をまとめて承認し、PlayNavi アプリの通知でお知らせします。ご利用の開始はその後です。応募が多い時は、期間の途中でも受付を締め切ることがあります。"
+    },
+    {
+      "id": "share_request",
+      "type": "consent",
+      "required": true,
+      "label": "感想のお願い",
+      "detail": "使ってみた感想を、できれば指定のハッシュタグを付けて SNS に投稿してください。感想を受け付ける専用の窓口がまだ無く、ハッシュタグだと集めやすく助かります。SNS が難しい方は、アプリのメニューの「問い合わせ・リクエスト」から送ってください。ハッシュタグは承認のお知らせでお伝えします。投稿しなくても参加できます。"
+    },
+    {
+      "id": "chatgpt_plan",
+      "type": "single_choice",
+      "required": true,
+      "label": "お使いの ChatGPT のプランを選んでください",
+      "options": [
+        "無料",
+        "Go",
+        "Plus",
+        "Pro",
+        "Business・Enterprise・Edu",
+        "分からない"
+      ]
+    },
+    {
+      "id": "pc",
+      "type": "single_choice",
+      "required": true,
+      "label": "設定に使うパソコンを選んでください",
+      "options": [
+        "Windows",
+        "Mac",
+        "Chromebook",
+        "その他"
+      ]
+    },
+    {
+      "id": "wish",
+      "type": "short_text",
+      "required": false,
+      "label": "ChatGPT と PlayNavi でやってみたいこと（任意）",
+      "max_length": 200
+    }
+  ]
+}

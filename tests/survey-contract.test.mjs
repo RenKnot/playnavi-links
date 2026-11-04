@@ -177,3 +177,18 @@ test("版 1 の全種類: ページが作った答えを窓口が受け付ける
     assert.equal(validSubmission({ answers: { agree_notice: value, plan: "Pro" }, submission_token: token }), false);
   }
 });
+
+test("確認のチェックの説明の文 (detail): consent だけ・1〜600 字。ほかの種類や空・長すぎは読まない (TASK-20260930-006 11/4)", () => {
+  const withDetail = structuredClone(identifiedPayload);
+  withDetail.survey.questions[0].detail = "パソコンで 1 回だけ設定します。";
+  assert.equal(parseSurveyRead(withDetail, "identified-test").questions[0].detail, "パソコンで 1 回だけ設定します。");
+  assert.equal(parseSurveyRead(identifiedPayload, "identified-test").questions[0].detail, null);
+  for (const bad of ["", "x".repeat(601), 1]) {
+    const broken = structuredClone(identifiedPayload);
+    broken.survey.questions[0].detail = bad;
+    assert.throws(() => parseSurveyRead(broken, "identified-test"), SurveyContractError);
+  }
+  const onChoice = structuredClone(identifiedPayload);
+  onChoice.survey.questions[1].detail = "x";
+  assert.throws(() => parseSurveyRead(onChoice, "identified-test"), SurveyContractError);
+});

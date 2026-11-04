@@ -176,6 +176,8 @@ p { margin: 0 0 24px; color: var(--muted); font-size: 14px; line-height: 1.7; }
 .survey-progress-track { height: 7px; overflow: hidden; border-radius: 999px; background: #e4eef1; }
 .survey-progress-track span { display: block; width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--primary), var(--primary-dark)); transition: width .2s ease; }
 .survey-step-page { display: grid; gap: 14px; }
+/* 版 1 は全ページを先に作り、今のページ以外を hidden で隠す。上の display: grid が hidden に勝って全ページが並んでいた (TASK-20260930-006 11/4 の写真の「1 / 3」) */
+.survey-step-page[hidden] { display: none; }
 .voice-step-page { animation: step-in .18s ease-out; }
 @keyframes step-in { from { opacity: 0; transform: translateY(5px); } }
 .voice-page-title { margin: 2px 0 0; text-align: left; font-size: 20px; }
@@ -190,6 +192,18 @@ p { margin: 0 0 24px; color: var(--muted); font-size: 14px; line-height: 1.7; }
 [data-error-id] { scroll-margin-block: 72px 140px; }
 .question-card[aria-invalid="true"] { border-color: var(--danger); box-shadow: 0 0 0 2px rgba(189, 62, 69, .10); }
 .question legend { width: 100%; margin-bottom: 14px; font-size: 16px; font-weight: 700; line-height: 1.6; }
+/* 版 1 の設問の見出しは枠の中に置く。fieldset の legend は枠の上辺に載るので、2 行以上の見出しが枠からはみ出していた
+   (TASK-20260930-006 11/4 Emiya の iPhone の写真)。float にすると legend は枠の中の 1 行目になる (WebKit・Chrome・Firefox) */
+.question-v1 > legend { float: left; padding: 0; }
+.question-v1 > legend + * { clear: both; }
+.question-v1 > legend .required { white-space: nowrap; }
+/* 確認のチェックの説明の文 (見出しの下・チェックの上) */
+.question-detail { margin: 0 0 14px; color: var(--text); font-size: 15px; font-weight: 400; line-height: 1.8; }
+/* 改行のある案内は 1 行ずつ左にそろえる (1 行目が記名式の注意なら少し小さく) */
+#survey-description.survey-description-lines { white-space: pre-line; text-align: left; min-height: 0; line-height: 1.8; }
+#survey-guide.survey-description-lines { white-space: pre-line; }
+/* 題は日本語を空白の所で折り返す (「ChatGPT 連携 先 / 行ベータ」と語の途中で切れないように)。空白の無い長い題はどこでも折り返す */
+#survey-title { word-break: keep-all; overflow-wrap: anywhere; }
 .required { margin-left: 8px; color: var(--danger); font-size: 12px; }
 .schema-v5-step .v5-question-heading,
 .schema-v6-step .v5-question-heading {
