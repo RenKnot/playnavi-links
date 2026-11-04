@@ -424,6 +424,9 @@ test("playnavi.app/help/chatgpt serves the ChatGPT early beta guide (TASK-202609
   assert.match(html, /承認された方だけ/);
   assert.match(html, /パソコン/);
   assert.match(html, /「理解したうえで続けます」/);
+  // 11/4 Emiya の実機 (ChatGPT の画面): 左のメニューの「プラグイン」→ 右上の「追加」→「カスタム MCP サーバーを追加」
+  assert.match(html, /左のメニューの「プラグイン」を開き、右上の「追加」→「カスタム MCP サーバーを追加」/);
+  assert.doesNotMatch(html, /MCP アプリを作成|「カスタマイズ」→「プラグイン」|Create MCP app/);
   assert.match(html, /OAuth の詳細設定/);
   assert.match(html, /アプリで使っているのと同じ方法/);
   assert.match(html, /確定するまで記録は変わりません/);
