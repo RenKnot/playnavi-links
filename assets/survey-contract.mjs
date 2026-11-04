@@ -254,12 +254,17 @@ function normalizeQuestion(question) {
 
   const options = type === "short_text" || type === "consent" ? [] : normalizeOptions(question.options);
   if (options === null) return null;
+  // 確認のチェック (consent) の説明の文 (見出し = label の下に出す本文。任意。TASK-20260930-006 11/4)。ほかの種類には付けない
+  const hasDetail = question?.detail !== undefined;
+  const detail = hasDetail ? text(question.detail, 600) : null;
+  if (hasDetail && (!detail || type !== "consent")) return null;
   const configuredMax = Number.isInteger(question.max_length) ? question.max_length : 500;
   const maxLength = Math.max(1, Math.min(2_000, configuredMax));
   return {
     id,
     type,
     prompt,
+    detail,
     required: question.required === true,
     options,
     maxLength,

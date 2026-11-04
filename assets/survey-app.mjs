@@ -61,6 +61,8 @@ function setPage({ title, description, loading = false, descriptionTone = "defau
   if (elements.title) elements.title.textContent = title;
   if (elements.description) {
     elements.description.textContent = description;
+    // 改行のある案内 (版 1 の記名式の応募など) は、1 行ずつ左にそろえて出す。1 段落の短い案内は今までどおり中央 (TASK-20260930-006 11/4)
+    elements.description.classList.toggle("survey-description-lines", /\n/.test(description || ""));
     elements.description.classList.toggle("auth-warning", descriptionTone === "warning");
     if (descriptionTone === "warning") elements.description.setAttribute("role", "alert");
     else elements.description.removeAttribute("role");
@@ -141,6 +143,7 @@ function showLogin(slug, preview, authFailure = null) {
   });
   if (elements.guide && !isVoiceV5) {
     elements.guide.textContent = preview?.description || "";
+    elements.guide.classList.toggle("survey-description-lines", /\n/.test(preview?.description || ""));
     setVisible(elements.guide, Boolean(preview?.description));
   }
   const returnTo = `/surveys/${slug}`;
@@ -344,11 +347,12 @@ function renderQuestions(slug, survey) {
 
     for (const question of pageQuestions) {
       const fieldset = document.createElement("fieldset");
-      fieldset.className = "question question-card";
+      fieldset.className = "question question-card question-v1";
       fieldset.dataset.questionId = question.id;
       const legend = document.createElement("legend");
       legend.textContent = question.prompt;
-      if (question.required) {
+      // 確認のチェック (consent) は必ず付ける物なので「必須」を並べない (4 つ並ぶと読みにくい。「感想のお願い」の横の必須は意味が逆に見える)
+      if (question.required && question.type !== "consent") {
         const required = document.createElement("span");
         required.className = "required";
         required.textContent = "必須";
@@ -358,6 +362,13 @@ function renderQuestions(slug, survey) {
 
       if (question.type === "consent") {
         // 「確認しました」のチェック (記名式の応募の注意事項。TASK-20260930-006 B2)。付けた時だけ true
+        // 見出し (label) の下に説明の文 (detail) を本文として出す (11/4 Emiya「結局何を問われてるのかわからん」)
+        if (question.detail) {
+          const detail = document.createElement("p");
+          detail.className = "question-detail";
+          detail.textContent = question.detail;
+          fieldset.append(detail);
+        }
         const label = document.createElement("label");
         label.className = "choice";
         const input = document.createElement("input");
@@ -3139,9 +3150,9 @@ function showSurveyForm(slug, survey) {
   elements.view?.classList.toggle("survey-schema-v6", [6, 7].includes(survey.schemaVersion));
   setPage({
     title: survey.title,
-    // 記名式は、回答がアカウントに結び付くことを最初に書く (TASK-20260930-006 B2)
+    // 記名式は、回答がアカウントに結び付くことを最初に書く (TASK-20260930-006 B2)。案内の前に 1 行で分けて出す (11/4 Emiya「平文改行なしで読みにくすぎる」)
     description: survey.identityMode === "identified"
-      ? `【記名式】回答は PlayNavi のアカウントに結び付けて受け付けます。${survey.description ? ` ${survey.description}` : ""}`
+      ? `【記名式】回答は PlayNavi のアカウントに結び付けて受け付けます。${survey.description ? `\n${survey.description}` : ""}`
       : survey.description,
   });
   if (survey.schemaVersion === 7) {
