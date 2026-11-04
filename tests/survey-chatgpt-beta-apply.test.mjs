@@ -2,9 +2,10 @@
 // 11/4 Emiya の iPhone の写真「冒頭の案内がごちゃごちゃ平文改行なしで読みにくすぎる」「設問が枠をはみ出まくってる」「結局何を問われてるのかわからん」:
 // - 案内は 1 行ずつ左にそろう (記名式の注意 → 何の機能か → 募集期間 → 次の 4 点をご確認ください)
 // - 1 ページ目 = 参加の前の 4 つ。見出しが枠の中に収まり、見出しの下に説明の文、その下に「確認しました」。「必須」は並べない
-// - 2 ページ目 = 問いの形の 3 問 (プラン・パソコン・ひとこと)
+// - 2 ページ目 = 問いの形の 3 問 (プラン・端末・ひとこと)
 // 11/4 14:50 Emiya「雑に和訳した感じがすごい」「「一覧に載る前〜」…「自分で足す形」…AIが雑に和訳しました、みたいな文章全部やめろ」:
-// - 利用者に向けた言い方 (「パソコンでの設定作業が必要です」「ベータ版に関するご意見のお願い」)。訳し言葉・運営の都合の言い方を使わない
+// - 利用者に向けた言い方 (「最初に一度、ChatGPT での設定が必要です」「ベータ版に関するご意見のお願い」)。訳し言葉・運営の都合の言い方を使わない
+// 11/4 17:2x Emiya の iPhone: スマートフォンのブラウザでも追加できる → 「パソコンで」「スマートフォンでは設定できません」と書かない
 // 中身は playnavi-supabase sql/pending/2026-11-04-task20260930-006-chatgpt-beta-wording.sql と同じ (tests/fixtures/chatgpt-beta-apply-survey.json)。
 // 写真は OUT_DIR があればそこへ書く。BROWSER=webkit なら WebKit (iPhone の Safari と同じ描き方。playwright の webkit が要る)
 import assert from "node:assert/strict";
@@ -31,11 +32,11 @@ async function launch() {
 
 test("ChatGPT 連携のベータ版の参加申し込み: 訳し言葉・運営の都合の言い方を使わない (11/4 14:50 Emiya)", () => {
   const text = [fixture.title, fixture.description, ...fixture.questions.flatMap((q) => [q.label, q.detail || "", ...(q.options || [])])].join("\n");
-  for (const phrase of ["一覧に載", "自分で足", "足す", "足した", "先行ベータ", "応募", "承認は", "まとめて行い", "感想のお願い", "1 回だけ設定", "分からない"]) {
+  for (const phrase of ["一覧に載", "自分で足", "足す", "足した", "先行ベータ", "応募", "承認は", "まとめて行い", "感想のお願い", "1 回だけ設定", "分からない", "スマートフォンでは設定できません", "パソコンでの設定", "パソコンのブラウザ", "使うパソコン"]) {
     assert.doesNotMatch(text, new RegExp(phrase), `「${phrase}」を使わない`);
   }
   const consent = fixture.questions.filter((q) => q.type === "consent").map((q) => q.label);
-  assert.deepEqual(consent, ["パソコンでの設定作業が必要です", "ベータ版のため、内容の変更や提供の終了があります", "ご利用開始は、PlayNavi アプリの通知でお知らせします", "ベータ版に関するご意見のお願い"]);
+  assert.deepEqual(consent, ["最初に一度、ChatGPT での設定が必要です", "ベータ版のため、内容の変更や提供の終了があります", "ご利用開始は、PlayNavi アプリの通知でお知らせします", "ベータ版に関するご意見のお願い"]);
 });
 
 const surveyPayload = {
@@ -138,7 +139,7 @@ test("ChatGPT 連携のベータ版の参加申し込み: 案内は 1 行ずつ�
     await page.locator('[data-question-id="chatgpt_plan"]').waitFor({ state: "visible" });
     assert.equal(await page.locator(`[data-question-id="${consentIds[0]}"]`).isVisible(), false, "2 ページ目に 1 ページ目の確認は出ない");
     assert.match(await page.locator('[data-question-id="chatgpt_plan"] > legend').innerText(), /^お使いの ChatGPT のプランを教えてください/);
-    assert.match(await page.locator('[data-question-id="pc"] > legend').innerText(), /^設定に使うパソコンを教えてください/);
+    assert.match(await page.locator('[data-question-id="pc"] > legend').innerText(), /^設定に使う端末を教えてください/);
     for (const box of await legendBoxes(page)) {
       assert.ok(box.legendTop >= box.cardTop + 1, `${box.id}: 見出しが枠の上辺にかかっている`);
     }
