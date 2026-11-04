@@ -428,6 +428,11 @@ test("playnavi.app/help/chatgpt serves the ChatGPT early beta guide (TASK-202609
   assert.match(html, /アプリで使っているのと同じ方法/);
   assert.match(html, /確定するまで記録は変わりません/);
   assert.match(html, /一覧から入れ直して/);
+  // 10/31 17:53 Emiya: 感想はできればハッシュタグで SNS へ・難しい人は問い合わせ・リクエスト (アプリのメニューの名前 = app/(drawer)/AppDrawerContent.tsx)
+  assert.match(html, /id="feedback"/);
+  assert.match(html, /#PlayNaviChatGPT/);
+  assert.match(html, /「問い合わせ・リクエスト」/);
+  assert.match(html, /「機能追加リクエスト」/);
   assert.match(html, /<meta name="robots" content="noindex">/);
   assert.match(html, /id="trouble"/);
   assert.match(html, /\/privacy/);
