@@ -331,6 +331,10 @@
       "destination": "/help-chatgpt.html"
     },
     {
+      "source": "/help/chatgpt/prompts",
+      "destination": "/help-chatgpt-prompts.html"
+    },
+    {
       "source": "/index.html",
       "has": [
         { "type": "host", "value": "playnavi.app" }

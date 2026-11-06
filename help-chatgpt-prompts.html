@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ChatGPT × PlayNavi おすすめの頼み方 | PlayNavi</title>
+<meta name="description" content="ChatGPT に PlayNavi をつないだら試してほしい 5 つの頼み方。採点の癖・積みゲーの反乱報告書・ほしいもの裁判・ゲーマー健康診断・わたしってこんなゲーマーです。文をコピーして貼るだけ。">
+<link rel="icon" href="/favicon.ico">
+<!-- 文の正本は playnavi-app docs/design/TASK-20261106-002-chatgpt-prompts/xlen.py (TWO_STEP_1 / TWO_STEP_2)。変える時は両方を直し、tests/static-config.test.mjs の 280 の検査を通す -->
+<style>
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;color:#1d2a30;background:#fff;line-height:1.8}
+main{max-width:760px;margin:0 auto;padding:32px 20px 64px}
+h1{font-size:1.6rem;margin:0 0 8px}
+h2{font-size:1.15rem;margin:0 0 .4em}
+p,li{font-size:.95rem}
+a{color:#1f7f8f}
+.note{font-size:.85rem;color:#5b6b70}
+.how{background:#eef4f6;border-radius:12px;padding:12px 16px;margin:.5em 0 1.5em}
+.how ol{margin:.3em 0 0;padding-left:1.3em}
+.case{border-top:1px solid #e3eaec;padding-top:1.4em;margin-top:1.6em}
+.step{margin:.8em 0 0}
+.label{font-size:.85rem;font-weight:600;color:#1f7f8f;margin-bottom:.2em}
+.prompt{white-space:pre-wrap;word-break:break-all;font-family:inherit;font-size:.92rem;background:#f6f8f9;border:1px solid #d9e3e6;border-radius:10px;padding:12px 14px;margin:0}
+.copy{margin-top:.4em;font:inherit;font-size:.9rem;padding:6px 16px;border-radius:999px;border:1px solid #1f7f8f;background:#fff;color:#1f7f8f;cursor:pointer}
+.copy.done{background:#1f7f8f;color:#fff}
+</style>
+</head>
+<body>
+<main>
+<h1>ChatGPT × PlayNavi おすすめの頼み方</h1>
+<p>ChatGPT に PlayNavi をつなぐと、あなたの記録を読んだ ChatGPT に、ふだんは出てこない角度で遊んでもらえます。ここでは、出来上がりを 1 枚の画像にして SNS に貼れる 5 つの頼み方を集めました。</p>
+<div class="how">
+<strong>使い方</strong>
+<ol>
+<li>先に ChatGPT に PlayNavi をつないでおきます（<a href="/help/chatgpt">つなぎ方</a>）。</li>
+<li>「1 段目」をコピーして ChatGPT に貼り、答えが出るまで待ちます（記録が多い人は数分かかることがあります）。</li>
+<li>答えが出たら「2 段目」をコピーして貼ると、画像が 1 枚できます。保存して、<strong>#PlayNavi</strong> を付けて投稿してください。</li>
+</ol>
+</div>
+<section class="case" id="p1">
+<h2>採点の癖を暴く</h2>
+<p>あなたの細かい評価 6 項目の平均から「快適さには厳しいのに、心が動くと 10 点」のような採点の癖を数字で言い当て、次の 1 本まで選びます。画像は学術論文の形。</p>
+<p class="note">例の写真は準備中です（出来上がりは毎回少し違います）。</p>
+<div class="step"><div class="label">1 段目（これを貼る）</div><pre class="prompt" id="p1a">PlayNaviで、細かい評価6項目の平均と総合の満足度と一番ずれる項目を数字で出し、採点の癖を3行で少し意地悪に暴いて。項目ごとに実際のゲームと点数を証拠にした所見も。合う未プレイの1本はカードで。画像は作らず、最後に『画像に載せる文字』を、題名・6項目の数字と所見・癖3行・その1本で</pre><button type="button" class="copy" data-copy="p1a">コピー</button></div>
+<div class="step"><div class="label">2 段目（答えが出たら貼る）</div><pre class="prompt" id="p1b">上の『画像に載せる文字』を1字も変えず省かず載せた画像を1枚だけ作って(試しの画像なし、文字は小さくてよい)。見た目: 白い紙の学術論文の1ページ。明朝体・2段組・表1は項目と数字と所見、一番ずれた項目だけ赤。黒・灰・赤だけ。ロゴ・ゲームの絵・キラキラ・英字の飾りなし。4:5</pre><button type="button" class="copy" data-copy="p1b">コピー</button></div>
+</section>
+<section class="case" id="p2">
+<h2>積みゲーたちの反乱兆候に関する報告書</h2>
+<p>あなたの記録を証拠に、焦った監視係が積みゲーたちの派閥と不満をまとめます。画像は机の上の極秘文書の形。</p>
+<p class="note">例の写真は準備中です（出来上がりは毎回少し違います）。</p>
+<div class="step"><div class="label">1 段目（これを貼る）</div><pre class="prompt" id="p2a">PlayNaviで、積みゲーと最近の記録で『積みゲーたちの反乱兆候に関する報告書』を焦る監視係の口調で。証拠は意外な記録を自由に。派閥ごとに名前・代表作・本数・声・メモ。反乱寸前の1本はカードで。画像もファイルも作らず、『画像に載せる文字』を、派閥名と本数と声とメモ・決議・反乱寸前で</pre><button type="button" class="copy" data-copy="p2a">コピー</button></div>
+<div class="step"><div class="label">2 段目（答えが出たら貼る）</div><pre class="prompt" id="p2b">上の『画像に載せる文字』を1字も変えず省かず載せた画像を1枚だけ作って(試しの画像なし、文字は小さくてよい)。見た目: 黄ばんだ機密文書の写真。赤い「極秘」の印・黒塗り・ホチキス・黄色い付箋、反乱寸前の題名は赤ペンで丸。派閥は表で。ロゴ・ゲームの絵・キラキラ・英字の飾りなし。4:5</pre><button type="button" class="copy" data-copy="p2b">コピー</button></div>
+</section>
+<section class="case" id="p3">
+<h2>ほしいもの裁判</h2>
+<p>積みゲーと評価を証拠に、毒舌の裁判官がほしいものを「買ってよし」「判決延期」「却下」に分け、無罪放免の 1 本を決めます。画像は判決書の形。</p>
+<p class="note">例の写真は準備中です（出来上がりは毎回少し違います）。</p>
+<div class="step"><div class="label">1 段目（これを貼る）</div><pre class="prompt" id="p3a">PlayNaviで、ほしいものを裁判に。毒舌裁判官が積みゲーと点数を証拠に『買ってよし』『判決延期(積みゲー先)』『却下』に分け、判決ごとに本数・総評・代表3本に一言。無罪放免の1本(即買え)も。画像もファイルも作らず、『画像に載せる文字』を、判決ごとの本数と総評・代表の一言・無罪放免と理由で</pre><button type="button" class="copy" data-copy="p3a">コピー</button></div>
+<div class="step"><div class="label">2 段目（答えが出たら貼る）</div><pre class="prompt" id="p3b">上の『画像に載せる文字』を1字も変えず省かず載せた画像を1枚だけ作って(試しの画像なし、文字は小さくてよい)。見た目: 本物の判決書。白い紙・横書きの明朝体・「判決」「主文」「理由」の見出し、被告ごとの一言は表、裁判長の署名と朱肉の印。黒と朱だけ。木づち・ロゴ・ゲームの絵なし。4:5</pre><button type="button" class="copy" data-copy="p3b">コピー</button></div>
+</section>
+<section class="case" id="p4">
+<h2>ゲーマー健康診断</h2>
+<p>積みゲー・ほしいもの・クリア率など 10 項目を、あなたの記録の実際の数で A〜E 判定。医師の所見と処方箋の 1 本も。画像は健康診断の結果通知の形。</p>
+<p class="note">例の写真は準備中です（出来上がりは毎回少し違います）。</p>
+<div class="step"><div class="label">1 段目（これを貼る）</div><pre class="prompt" id="p4a">PlayNaviで、記録から積みゲー・ほしいもの・クリア率・中断率・甘口度・感想率・機種偏り・ジャンル偏食など10項目を実数とA〜E、項目ごとに毒舌の医師のひとこと。所見と処方箋(先に遊ぶ積みゲー)も。画像は作らず、『画像に載せる文字』を、10項目の数と判定とひとこと・総合判定・所見・処方箋で</pre><button type="button" class="copy" data-copy="p4a">コピー</button></div>
+<div class="step"><div class="label">2 段目（答えが出たら貼る）</div><pre class="prompt" id="p4b">上の『画像に載せる文字』を1字も変えず省かず載せた画像を1枚だけ作って(試しの画像なし、文字は小さくてよい)。見た目: 健康診断の結果通知。水色の罫線の表(項目・数・判定・ひとこと)、判定は丸囲みのA〜E(Eは赤)、赤い印「要精密検査」、処方箋はクリップ留め。医者・ロゴ・ゲームの絵なし。4:5</pre><button type="button" class="copy" data-copy="p4b">コピー</button></div>
+</section>
+<section class="case" id="p5">
+<h2>わたしってこんなゲーマーです</h2>
+<p>記録と感想から、好きなジャンル・積みゲーの山・口癖などを、ドット絵のあなたのまわりに並べた 1 枚にします。</p>
+<p class="note">例の写真は準備中です（出来上がりは毎回少し違います）。</p>
+<div class="step"><div class="label">1 段目（これを貼る）</div><pre class="prompt" id="p5a">PlayNaviで、記録・感想・モーメントから、好きなジャンル・機種・クリア数・積みゲー・ほしいもの・10点の数・口癖・一番語った1本を実数で、それぞれに毒のあるツッコミ。肩書きとひとことも。画像は作らず、最後に『画像に載せる文字』を、8個の中身とツッコミ・肩書き・ひとことで(1行20字まで)</pre><button type="button" class="copy" data-copy="p5a">コピー</button></div>
+<div class="step"><div class="label">2 段目（答えが出たら貼る）</div><pre class="prompt" id="p5b">上の『画像に載せる文字』を1字も変えず省かず載せた画像を1枚だけ作って(試しの画像なし、文字は小さくてよい)。見た目: 紺の夜空と格子の床。真ん中にコントローラーを持つ2頭身のドット絵キャラと名札、まわりに白い二重枠のRPGの窓8個(中身とツッコミ)。実写・アニメ顔・ロゴ・ゲームの絵なし。3:4</pre><button type="button" class="copy" data-copy="p5b">コピー</button></div>
+</section>
+<section class="case" id="notes">
+<h2>知っておいてほしいこと</h2>
+<ul>
+<li>画像の数字や名前は、文の答えと見比べてください。ChatGPT の画像は、まれに文字を写し間違えます。違っていたら「数字が文と違う。直して」と頼むと作り直します。</li>
+<li>画像の見た目は毎回少し違います。ロゴやゲームの絵は入れない指定にしています。</li>
+<li>記録が少ないと中身も薄くなります。PlayNavi に遊んだゲームと評価を入れてから試すのがおすすめです。</li>
+<li>うまくいかないときは <a href="/help/chatgpt#trouble">つなぎ方のページの「うまくいかないとき」</a> をご覧ください。</li>
+</ul>
+</section>
+</main>
+<script type="module" src="/assets/help-prompts.mjs"></script>
+</body>
+</html>

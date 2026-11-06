@@ -91,6 +91,7 @@ test("production-only legacy routes and share preview stay ahead of safe fallbac
     "/privacy",
     "/help/claude",
     "/help/chatgpt",
+    "/help/chatgpt/prompts",
     // TASK-20260923-002 一般公開: 予約の住所が全部決まった後、最後の受け皿の直前で新しい Web へ中継する (tests/web-gateway.test.mjs)
     "/index.html",
     "/index.html",
@@ -453,4 +454,35 @@ test("playnavi.app/help/chatgpt serves the ChatGPT early beta guide (TASK-202609
   assert.match(html, /<meta name="robots" content="noindex">/);
   assert.match(html, /id="trouble"/);
   assert.match(html, /\/privacy/);
+});
+
+// X (旧 Twitter) の重み付き文字数 (twitter-text v3: 下の範囲は 1、それ以外は 2、URL は 23)。playnavi-app docs/design/TASK-20261106-002-chatgpt-prompts/xlen.py と同じ
+const X_SINGLE = [[0, 4351], [8192, 8205], [8208, 8223], [8242, 8247]];
+const xWeight = (s) => [...s.replace(/https?:\/\/\S+/g, "x".repeat(23))].reduce((n, c) => n + (X_SINGLE.some(([a, b]) => c.codePointAt(0) >= a && c.codePointAt(0) <= b) ? 1 : 2), 0);
+
+test("playnavi.app/help/chatgpt/prompts serves the 5 recommended prompts, each half within X's 280 (TASK-20261106-002)", async () => {
+  const config = JSON.parse(await readFile(new URL("../vercel.json", import.meta.url), "utf8"));
+  const page = config.rewrites.findIndex((r) => r.source === "/help/chatgpt/prompts");
+  const fallback = config.rewrites.findIndex((r) => r.source === "/(.*)");
+  assert.equal(config.rewrites[page]?.destination, "/help-chatgpt-prompts.html");
+  assert.ok(page >= 0 && page < fallback, "prompts rewrite must come before the catch-all");
+  const html = await readFile(new URL("../help-chatgpt-prompts.html", import.meta.url), "utf8");
+  assert.doesNotMatch(html, /noindex/, "配る公開ページなので検索から隠さない");
+  assert.match(html, /href="\/help\/chatgpt"/, "先につなぎ方へ案内する");
+  // 5 本 × (1 段目 + 2 段目) = 10 個。どれも X の 1 投稿 (280) に収まる = 公式 X の返信にそのまま貼れる
+  const prompts = [...html.matchAll(/<pre class="prompt" id="(p[1-5][ab])">([\s\S]*?)<\/pre>/g)];
+  assert.deepEqual(prompts.map((m) => m[1]), ["p1a", "p1b", "p2a", "p2b", "p3a", "p3b", "p4a", "p4b", "p5a", "p5b"]);
+  const unescape = (s) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&amp;/g, "&");
+  for (const [, id, body] of prompts) {
+    const text = unescape(body);
+    assert.ok(xWeight(text) <= 280, `${id} is ${xWeight(text)} > 280`);
+    if (id.endsWith("a")) assert.match(text, /^PlayNaviで、/, `${id} は PlayNavi で始める`);
+    if (id.endsWith("a")) assert.match(text, /画像に載せる文字/, `${id} は画像に載せる文字を出させる`);
+    if (id.endsWith("b")) assert.match(text, /^上の『画像に載せる文字』を1字も変えず省かず載せた画像を1枚だけ作って/, `${id} は 1 段目の文字だけで 1 枚`);
+    if (id.endsWith("b")) assert.match(text, /ロゴ/, `${id} はロゴを入れない`);
+  }
+  // コピーのボタンは pre ごとに 1 つ、動かす script は同じ場所の assets (CSP は無いが、他のページと同じく inline を置かない)
+  assert.equal((html.match(/<button type="button" class="copy" data-copy="p[1-5][ab]">/g) ?? []).length, 10);
+  assert.match(html, /<script type="module" src="\/assets\/help-prompts\.mjs"><\/script>/);
+  await readFile(new URL("../assets/help-prompts.mjs", import.meta.url), "utf8");
 });
