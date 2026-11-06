@@ -301,6 +301,13 @@
       "destination": "/api/share-preview?kind=diagnosis&id=:id"
     },
     {
+      "source": "/users/:id/recap/:period",
+      "has": [
+        { "type": "host", "value": "links.playnavilab.com" }
+      ],
+      "destination": "/api/share-preview?kind=recap&id=:id&period=:period"
+    },
+    {
       "source": "/users/:id",
       "has": [
         { "type": "host", "value": "links.playnavilab.com" }

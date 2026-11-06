@@ -46,6 +46,14 @@ export function allowedImageUrl(value) {
     return false;
   }
 }
+// Web が描くリンクカードの住所 (playnavi.app/share-image/...。playnavi.app の /share-image は vercel.json が Web へ渡す)
+const WEB_CARD_IMAGE_PATH = /^\/share-image\/recap\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[0-9]{4}(?:-h[12]|-(?:0[1-9]|1[0-2]))?$/;
+export function webCardImageUrl(value) {
+  if (!allowedImageUrl(value)) return false;
+  const url = new URL(value);
+  return url.hostname === "playnavi.app" && url.hash === "" && WEB_CARD_IMAGE_PATH.test(url.pathname) &&
+    url.search === "?format=card";
+}
 function axis(value) {
   onlyKeys(value);
   const left = text(value.left);
@@ -308,6 +316,11 @@ export function validLarge(large) {
           color: large.color,
           axes: large.axes.map(axis),
         };
+      case "image":
+        // TASK-20261106-001 プレイまとめ: Web のリンクカード (1200×630) の住所だけ。描かずにそのまま og:image にする
+        onlyKeys(large);
+        if (!webCardImageUrl(large.image_url)) fail();
+        return { layout: "image", image_url: large.image_url };
       default:
         return null;
     }

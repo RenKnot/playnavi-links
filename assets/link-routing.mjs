@@ -44,6 +44,9 @@ const CANONICAL_PATTERNS = [
   { type: "tier_list", pattern: new RegExp(`^/users/${UUID_PATTERN}/tier-lists/${UUID_PATTERN}(?:\\?remix=1)?$`) },
   { type: "best_games", pattern: new RegExp(`^/users/${UUID_PATTERN}/best-games$`) },
   { type: "diagnosis", pattern: new RegExp(`^/users/${UUID_PATTERN}/diagnosis$`) },
+  // TASK-20261106-001 プレイまとめ: /users/{owner}/recap/{期間}。期間は 2026 / 2026-h1・2026-h2 / 2026-01〜2026-12 の小文字だけ
+  // (playnavi-app lib/playRecapContract.ts playRecapPath・supabase _shared/shortLinkContract.ts と同じ)。/users/{id} より先に置く
+  { type: "recap", pattern: new RegExp(`^/users/${UUID_PATTERN}/recap/[0-9]{4}(?:-h[12]|-(?:0[1-9]|1[0-2]))?$`) },
   { type: "user", pattern: new RegExp(`^/users/${UUID_PATTERN}$`) },
   { type: "catalog", pattern: new RegExp(`^/catalogs/${UUID_PATTERN}$`) },
 ];

@@ -46,6 +46,8 @@ async function fetchLarge(target, fetchImpl, metaUrl) {
   if (payload?.status !== "ok") throw new Error("share-preview-meta not ok");
   const large = validLarge(payload.card?.large);
   if (!large) throw new Error("share-preview-meta has no valid large card");
+  // TASK-20261106-001: layout "image" はこの口で描かない (リンクカードは Web の絵の住所を直接使う)
+  if (large.layout === "image") throw new Error("share-preview-meta large card is an image URL");
   return large;
 }
 

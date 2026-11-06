@@ -34,6 +34,7 @@ const PROFILE = {
   layout: "profile", name: "Ao", avatar_url: AVATAR, background_url: null,
   stats: { total: 10, playing: 1, completed: 2, streaming_completed: 3, dropped: 1, want_to_play: 3 },
 };
+const RECAP_IMAGE = { layout: "image", image_url: "https://playnavi.app/share-image/recap/12345678-1234-1234-1234-123456789abc/2026-h1?format=card" };
 const GRID = { layout: "grid", title: "Best", subtitle: "Ranking", ranked: true, cover_urls: [COVER, COVER2], total_count: 12 };
 
 test("validLarge accepts the three layouts and normalizes key order", () => {
@@ -221,6 +222,8 @@ test("upstream failures, missing large cards and bad parameters redirect to the 
     [async () => { throw new Error("timeout"); }, `/api/og?code=${CODE}`],
     [upstream(GAME).fetchImpl, "/api/og?code=bad"],
     [upstream(GAME).fetchImpl, `/api/og?code=${CODE}&x=1`],
+    // TASK-20261106-001: プレイまとめ (layout "image") はこの口で描かない (リンクカードは Web の絵を直接使う)
+    [upstream(RECAP_IMAGE).fetchImpl, `/api/og?code=${CODE}`],
   ];
   for (const [fetchImpl, path] of cases) {
     await withServer(createOgHandler({ fetchImpl, fontLoader }), async (origin) => {
@@ -1056,3 +1059,18 @@ for (const [name, raw] of R11_PATTERNS) {
     assert.ok(body.length <= JPEG_MAX_BYTES, `${body.length} bytes`);
   });
 }
+
+test("validLarge accepts the play recap image layout only for our Web link card URL (TASK-20261106-001)", () => {
+  assert.deepEqual(validLarge({ ...RECAP_IMAGE, extra: 1 }), RECAP_IMAGE);
+  for (const image_url of [
+    "https://playnavi.app/share-image/recap/12345678-1234-1234-1234-123456789abc/2026-h1?format=4x5",
+    "https://playnavi.app/share-image/recap/12345678-1234-1234-1234-123456789abc/2026-h1?format=card&x=1",
+    "https://playnavi.app/share-image/recap/12345678-1234-1234-1234-123456789abc/2026-H1?format=card",
+    "https://playnavi.app/share-image/tier-list/12345678-1234-1234-1234-123456789abc/2026?format=card",
+    "https://images.igdb.com/share-image/recap/12345678-1234-1234-1234-123456789abc/2026?format=card",
+    "https://playnavi.app:8443/share-image/recap/12345678-1234-1234-1234-123456789abc/2026?format=card",
+    null,
+  ]) {
+    assert.equal(validLarge({ layout: "image", image_url }), null, String(image_url));
+  }
+});
