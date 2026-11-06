@@ -62,6 +62,8 @@ test("playnavi.app sends /mcp and /ai-auth to the same production project as ai.
   assert.equal(as.issuer, "https://playnavi.app");
   for (const k of ["authorization_endpoint", "token_endpoint", "revocation_endpoint"]) assert.ok(as[k].startsWith("https://playnavi.app/ai-auth/"), k);
   assert.equal(as.client_id_metadata_document_supported, true);
+  // 11/6: 本番の窓口は戻りに iss を付ける (RFC 9207。playnavi-supabase ai-oauth/handler.ts の metadata() と同じ)
+  assert.equal(as.authorization_response_iss_parameter_supported, true);
   assert.deepEqual(JSON.parse(await read(".well-known/oauth-protected-resource/mcp")),
     { resource: "https://playnavi.app/mcp", authorization_servers: ["https://playnavi.app"], bearer_methods_supported: ["header"], resource_name: "PlayNavi" });
   // 2 つの置き場の案内は、住所の違いを除いて同じ中身 (本番の EF の metadata() が 1 つだから)
