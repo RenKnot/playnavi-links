@@ -410,43 +410,44 @@ test("playnavi.app/help/claude serves the Claude connection guide with the real 
   assert.match(html, /id="trouble"/);
 });
 
-test("playnavi.app/help/chatgpt serves the ChatGPT early beta guide (TASK-20260930-006 B6)", async () => {
+test("playnavi.app/help/chatgpt serves the ChatGPT guide for the published plugin (TASK-20260930-006, 11/6 公開)", async () => {
   const config = JSON.parse(await readFile(new URL("../vercel.json", import.meta.url), "utf8"));
   const help = config.rewrites.findIndex((r) => r.source === "/help/chatgpt");
   const fallback = config.rewrites.findIndex((r) => r.source === "/(.*)");
   assert.equal(config.rewrites[help]?.destination, "/help-chatgpt.html");
   assert.ok(help >= 0 && help < fallback, "help rewrite must come before the catch-all");
   const html = await readFile(new URL("../help-chatgpt.html", import.meta.url), "utf8");
-  // 本番の入口は Claude と同じ ai.playnavi.app (playnavi.app/mcp は ChatGPT の審査の間 STG)
-  assert.match(html, /https:\/\/ai\.playnavi\.app\/mcp/);
-  assert.doesNotMatch(html, /(?<!ai\.)playnavi\.app\/mcp/, "STG 向きの playnavi.app/mcp を案内しない");
-  // ベータ版: 承認された人だけ。止まった時の文 (EF ai-oauth BETA_NOT_APPROVED_MESSAGE。前の版も今の版も「承認された方だけ」を含む) と同じ言い方で案内する
-  assert.match(html, /ベータ版/);
-  assert.match(html, /承認された方だけ/);
-  // 11/4 17:2x Emiya の iPhone (Safari の chatgpt.com): スマートフォンのブラウザでも追加できる → パソコンだけと書かない
-  assert.match(html, /パソコンでもスマートフォンでもできます/);
-  assert.doesNotMatch(html, /スマートフォンの ChatGPT アプリでは設定できません|パソコンで・/);
-  assert.match(html, /「理解したうえで続けます」/);
-  // 11/4 Emiya の実機 (ChatGPT の画面): 左のメニューの「プラグイン」→ 右上の「追加」(スマートフォンは「＋」)→「カスタム MCP サーバーを追加」
-  assert.match(html, /左のメニュー（スマートフォンは左上のボタン）の「プラグイン」を開き、右上の「追加」（スマートフォンは「＋」）から「カスタム MCP サーバーを追加」/);
-  // 11/4 Emiya「名前とURL入れることと、同意のチェックをつけるっていう3箇所だけ…それ以外のところは見ない&触らない」
-  assert.match(html, /次の 3 か所だけ入力して「作成」を押します/);
-  assert.match(html, /ほかの項目は、触らずにそのままで大丈夫です/);
-  assert.doesNotMatch(html, /接続タイプ|OAuth の詳細設定|アイコン・説明/);
-  assert.doesNotMatch(html, /MCP アプリを作成|「カスタマイズ」→「プラグイン」|Create MCP app/);
-  assert.match(html, /アプリと同じ方法（Apple または Google）でログイン/);
+  // 11/6 Emiya「パブリッシュも押しました」: 公開ページ (Emiya が貼った住所) を開くボタンと、プラグインで探す道
+  assert.match(html, /<a class="add" href="https:\/\/chatgpt\.com\/plugins\/plugin_asdk_app_6ac8eb791dc48191b4b611f969f65ad2">ChatGPT で PlayNavi を開く<\/a>/);
+  assert.match(html, /「プラグイン」で「PlayNavi」と探しても開けます/);
+  // 11/6 Emiya「設定の仕方、めちゃくちゃ簡単だと思うので、それがちゃんと伝わるメッセージやUIにしてください。ごちゃごちゃ書いたり、たんぱくにかいたりしてると、つたわらない」
+  // → 最初の画面に「3 ステップ」・URL の入力が要らない・大きなボタン・3 つの手順・「これで完了」。細かい話は下の .more へ
+  assert.match(html, /3 ステップでつながります/);
+  assert.match(html, /URL の入力も、むずかしい設定もいりません/);
+  const three = /<ol class="three" id="steps">([\s\S]*?)<\/ol>/.exec(html)?.[1] ?? "";
+  assert.equal((three.match(/<li>/g) ?? []).length, 3, "exactly three steps");
+  assert.match(three, /「追加」を押す/);
+  assert.match(three, /PlayNavi にログイン/);
+  assert.match(three, /「連携する」を押す/);
+  assert.match(html, /これで完了です/);
+  assert.ok(html.indexOf('class="three"') < html.indexOf('class="more"'), "the details come after the three steps");
+  // 公開の後は、URL を入れる手順も「承認された方だけ」も案内しない (誰でも使える)
+  assert.doesNotMatch(html, /カスタム MCP サーバーを追加|理解したうえで続けます|承認された方だけ|ご利用開始のお知らせが届いた方/);
+  assert.doesNotMatch(html, /<code>https:\/\/(ai\.)?playnavi\.app\/mcp<\/code>/, "the address to type is not part of the steps any more");
+  // ベータ版の手順で足した人: そのまま使える・切り替える時は「個人用」の物を消す
+  assert.match(html, /id="beta"/);
+  assert.match(html, /そのままお使いいただけます/);
+  assert.match(html, /「個人用」にある PlayNavi を削除/);
+  assert.match(html, /アプリと同じ方法（Apple か Google）で/);
   assert.match(html, /確定するまで記録は変わりません/);
-  // 11/4 Emiya「強制ではないが利便性のために…推奨する旨を、わかりやすい手順とともに」(ChatGPT の「プラグイン設定 > PlayNavi > 権限」の画面 = 11/4 17:14 の写真)
-  assert.match(html, /（任意・おすすめ）毎回の確認を省く設定にします/);
-  assert.match(html, /「管理」→「権限」を開きます/);
-  assert.match(html, /「すべてのツールを許可」を選びます/);
-  assert.match(html, /「低リスクのツールを許可」）のままでもご利用いただけます/);
-  assert.match(html, /公式プラグインから追加し直して/);
+  // 11/4 Emiya「強制ではないが利便性のために…推奨する旨を、わかりやすい手順とともに」(細かい話の側に残す)
+  assert.match(html, /（任意）毎回の確認を省く/);
+  assert.match(html, /「管理」→「権限」で「すべてのツールを許可」/);
+  // 写真はモーメント 1 件に 4 枚まで送れる (playnavi-supabase mcp/handler.ts MAX_PHOTOS)。前の「送れません」は誤り
+  assert.match(html, /1 件に 4 枚まで送れます/);
+  assert.doesNotMatch(html, /写真や動画は ChatGPT から送れません/);
   // 11/4 14:50 Emiya「「一覧に載る前〜」…「自分で足す形」…AIが雑に和訳しました、みたいな文章全部やめろ」
   assert.doesNotMatch(html, /一覧に載|自分で足|足す|足した|先行ベータ|つなぎ方|頁/);
-  assert.match(html, /ベータ版に関するご意見/);
-  // 10/31 17:53 Emiya: 感想はできればハッシュタグで SNS へ・難しい人は問い合わせ・リクエスト (アプリのメニューの名前 = app/(drawer)/AppDrawerContent.tsx)
-  assert.match(html, /id="feedback"/);
   assert.match(html, /#PlayNaviChatGPT/);
   assert.match(html, /「問い合わせ・リクエスト」/);
   assert.match(html, /「機能追加リクエスト」/);
