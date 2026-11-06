@@ -210,28 +210,28 @@
       "has": [
         { "type": "host", "value": "playnavi.app" }
       ],
-      "destination": "https://wffhdhdxdrmobgojxddo.supabase.co/functions/v1/mcp"
+      "destination": "https://irbtguncoatqfikctreq.supabase.co/functions/v1/mcp/site/playnavi.app"
     },
     {
       "source": "/mcp/:path*",
       "has": [
         { "type": "host", "value": "playnavi.app" }
       ],
-      "destination": "https://wffhdhdxdrmobgojxddo.supabase.co/functions/v1/mcp/:path*"
+      "destination": "https://irbtguncoatqfikctreq.supabase.co/functions/v1/mcp/site/playnavi.app/:path*"
     },
     {
       "source": "/ai-auth",
       "has": [
         { "type": "host", "value": "playnavi.app" }
       ],
-      "destination": "https://wffhdhdxdrmobgojxddo.supabase.co/functions/v1/ai-oauth"
+      "destination": "https://irbtguncoatqfikctreq.supabase.co/functions/v1/ai-oauth/site/playnavi.app"
     },
     {
       "source": "/ai-auth/:path*",
       "has": [
         { "type": "host", "value": "playnavi.app" }
       ],
-      "destination": "https://wffhdhdxdrmobgojxddo.supabase.co/functions/v1/ai-oauth/:path*"
+      "destination": "https://irbtguncoatqfikctreq.supabase.co/functions/v1/ai-oauth/site/playnavi.app/:path*"
     },
     {
       "source": "/mcp",
