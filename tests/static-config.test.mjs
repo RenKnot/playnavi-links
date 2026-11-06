@@ -443,8 +443,9 @@ test("playnavi.app/help/chatgpt serves the ChatGPT guide for the published plugi
   // 11/4 Emiya「強制ではないが利便性のために…推奨する旨を、わかりやすい手順とともに」(細かい話の側に残す)
   assert.match(html, /（任意）毎回の確認を省く/);
   assert.match(html, /「管理」→「権限」で「すべてのツールを許可」/);
-  // 写真はモーメント 1 件に 4 枚まで送れる (playnavi-supabase mcp/handler.ts MAX_PHOTOS)。前の「送れません」は誤り
-  assert.match(html, /1 件に 4 枚まで送れます/);
+  // 写真はモーメント 1 件に 10 枚まで送れる (playnavi-supabase mcp/handler.ts MAX_PHOTOS。11/6 に 4 → 10、supabase #751)。前の「送れません」は誤り
+  assert.match(html, /1 件に 10 枚まで送れます/);
+  assert.doesNotMatch(html, /4 枚まで/);
   assert.doesNotMatch(html, /写真や動画は ChatGPT から送れません/);
   // 11/4 14:50 Emiya「「一覧に載る前〜」…「自分で足す形」…AIが雑に和訳しました、みたいな文章全部やめろ」
   assert.doesNotMatch(html, /一覧に載|自分で足|足す|足した|先行ベータ|つなぎ方|頁/);
