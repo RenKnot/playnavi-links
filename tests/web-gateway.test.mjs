@@ -78,8 +78,9 @@ test("AI connection (MCP) on playnavi.app goes to the mcp function before the We
   const mcp = index(({ source: s, has }) => s === "/mcp" && has?.[0]?.value === "playnavi.app");
   const mcpSub = index(({ source: s, has }) => s === "/mcp/:path*" && has?.[0]?.value === "playnavi.app");
   assert.ok(mcp >= 0 && mcpSub >= 0, "playnavi.app /mcp rules exist");
-  assert.match(rewrites[mcp].destination, /^https:\/\/[a-z]+\.supabase\.co\/functions\/v1\/mcp$/);
-  assert.match(rewrites[mcpSub].destination, /^https:\/\/[a-z]+\.supabase\.co\/functions\/v1\/mcp\/:path\*$/);
+  // 11/6 から本番。道の先頭に playnavi.app から来た印 /site/playnavi.app (tests/ai-gateway.test.mjs)
+  assert.match(rewrites[mcp].destination, /^https:\/\/[a-z]+\.supabase\.co\/functions\/v1\/mcp\/site\/playnavi\.app$/);
+  assert.match(rewrites[mcpSub].destination, /^https:\/\/[a-z]+\.supabase\.co\/functions\/v1\/mcp\/site\/playnavi\.app\/:path\*$/);
   // 他のホストでは止める (Web やリンクの画面に落とさない)
   for (const s of ["/mcp", "/mcp/:path*"]) {
     const other = index(({ source: x, has }) => x === s && !has);

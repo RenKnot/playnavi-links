@@ -115,7 +115,7 @@ test("production-only legacy routes and share preview stay ahead of safe fallbac
     ],
   };
   // AI 連携 (MCP と専用鍵の窓口、V5 群6)。住所は playnavi.app (OpenAI の住所確認)。
-  // 転送先は 1 つの Supabase プロジェクトにそろえる (審査中は STG、本番へ切り替える時に全部を本番へ)。他のホストでは止める
+  // 転送先は 1 つの Supabase プロジェクトにそろえる (11/6 から本番。道の先頭に /site/playnavi.app の印)。他のホストでは止める
   const aiSources = ["/mcp", "/mcp/:path*", "/ai-auth", "/ai-auth/:path*"];
   const aiRoutes = aiSources.map((source) => config.rewrites.filter((route) => route.source === source));
   const aiProject = /^https:\/\/([a-z]+)\.supabase\.co\/functions\/v1\//.exec(aiRoutes[0][0].destination)?.[1];
@@ -124,6 +124,7 @@ test("production-only legacy routes and share preview stay ahead of safe fallbac
     assert.equal(routes.length, 2);
     assert.deepEqual(routes[0].has, [{ type: "host", value: "playnavi.app" }]);
     assert.ok(routes[0].destination.startsWith(`https://${aiProject}.supabase.co/functions/v1/`), routes[0].source);
+    assert.match(routes[0].destination, /^https:\/\/[a-z]+\.supabase\.co\/functions\/v1\/(mcp|ai-oauth)\/site\/playnavi\.app(\/:path\*)?$/, routes[0].source);
     assert.equal(routes[1].has, undefined);
     assert.equal(routes[1].destination, "/api/legacy-route-disabled");
   }
