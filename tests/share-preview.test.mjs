@@ -95,6 +95,7 @@ test("canonical routes retain their own URL and send exactly one path parameter 
     [{ kind: "catalog", id: USER }, `/catalogs/${USER}`],
     [{ kind: "best_games", id: USER }, `/users/${USER}/best-games`],
     [{ kind: "diagnosis", id: USER }, `/users/${USER}/diagnosis`],
+    [{ kind: "recap", id: USER, period: "2026-h1" }, `/users/${USER}/recap/2026-h1`],
   ];
   for (const [query, path] of cases) {
     const target = previewTarget({ headers: { host: "links.playnavilab.com" }, query });
@@ -107,7 +108,7 @@ test("canonical routes retain their own URL and send exactly one path parameter 
   assert.equal(previewTarget({ headers: { host: "playnavi.app" }, query: { kind: "game", id: "42" } }), null);
 });
 
-test("Vercel's matched host query stays out of all nine canonical cards", () => {
+test("Vercel's matched host query stays out of all ten canonical cards", () => {
   const host = "links.playnavilab.com";
   const cases = [
     [{ kind: "game", id: "42" }, "/game/42"],
@@ -119,6 +120,7 @@ test("Vercel's matched host query stays out of all nine canonical cards", () => 
     [{ kind: "catalog", id: USER }, `/catalogs/${USER}`],
     [{ kind: "best_games", id: USER }, `/users/${USER}/best-games`],
     [{ kind: "diagnosis", id: USER }, `/users/${USER}/diagnosis`],
+    [{ kind: "recap", id: USER, period: "2026-h1" }, `/users/${USER}/recap/2026-h1`],
   ];
   for (const [query, path] of cases) {
     assert.deepEqual(previewTarget({ headers: { host }, query: { ...query, host } }), {
@@ -498,3 +500,49 @@ test("r5: renderPreviewHtml without a share view is unchanged", () => {
   const url = "https://playnavi.app/s/x";
   assert.equal(renderPreviewHtml(template, GENERIC_CARD, url), renderPreviewHtml(template, GENERIC_CARD, url, null, null));
 });
+
+const CARD_IMAGE = "https://images.igdb.com/igdb/image/upload/t_cover_big/x.jpg";
+
+// TASK-20261106-001 プレイまとめ: EF が layout "image" で渡した Web のリンクカード (1200×630) を、描き直さずに大きいカードの絵にする
+test("a play recap card uses the Web link card as the large og:image (no /api/og)", async () => {
+  const image = `https://playnavi.app/share-image/recap/${USER}/2026?format=card`;
+  const card = { title: "ゆいの2026年プレイまとめ", description: "プレイまとめを見る", image_url: image, large: { layout: "image", image_url: image } };
+  for (const request of [
+    { query: { code: CODE } },
+    { headers: { host: "links.playnavilab.com" }, query: { kind: "recap", id: USER, period: "2026" } },
+  ]) {
+    const fetched = [];
+    const response = await invoke(request, {
+      fetchImpl: async (url) => {
+        fetched.push(String(url));
+        return { status: 200, json: async () => ({ status: "ok", card }) };
+      },
+    });
+    assert.equal(tag(response.body, "og:title"), "ゆいの2026年プレイまとめ");
+    assert.equal(tag(response.body, "og:image"), escapeHtmlAttribute(image));
+    assert.equal(tag(response.body, "twitter:image"), escapeHtmlAttribute(image));
+    assert.equal(tag(response.body, "twitter:card"), "summary_large_image");
+    assert.equal(tag(response.body, "og:image:width"), "1200");
+    assert.equal(fetched.filter((url) => url.startsWith(PREVIEW_META_URL)).length, 1);
+  }
+});
+
+test("a recap image that is not our Web link card falls back to the small card", async () => {
+  for (const image_url of [
+    "https://images.igdb.com/igdb/image/upload/t_720p/abc.jpg",
+    `https://playnavi.app/share-image/recap/${USER}/2026?format=4x5`,
+    `https://playnavi.app/share-image/recap/${USER}/2026-H1?format=card`,
+    `https://playnavi.app/api/og?code=${CODE}`,
+    `http://playnavi.app/share-image/recap/${USER}/2026?format=card`,
+  ]) {
+    const response = await invoke({ query: { code: CODE } }, {
+      fetchImpl: async () => ({
+        status: 200,
+        json: async () => ({ status: "ok", card: { title: "題", description: "説明", image_url: CARD_IMAGE, large: { layout: "image", image_url } } }),
+      }),
+    });
+    assert.equal(tag(response.body, "twitter:card"), "summary", image_url);
+    assert.equal(tag(response.body, "og:image"), CARD_IMAGE);
+  }
+});
+
