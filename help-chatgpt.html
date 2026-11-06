@@ -32,8 +32,12 @@ th{background:#f4f8f9;white-space:nowrap}
 .three{list-style:none;margin:0 auto;padding:0;max-width:420px;counter-reset:s}
 .three li{counter-increment:s;display:flex;align-items:center;gap:14px;background:#f4f8f9;border-radius:14px;padding:14px 16px;margin:0 0 10px;font-size:1.02rem;font-weight:700}
 .three li::before{content:counter(s);flex:none;width:34px;height:34px;border-radius:50%;background:#1f7f8f;color:#fff;font-size:1.05rem;display:flex;align-items:center;justify-content:center}
+.three .nw{white-space:nowrap}
 .three li small{display:block;font-weight:400;font-size:.8rem;color:#5b6b70}
 .done{text-align:center;font-weight:700;color:#1f7f8f;margin:6px 0 0}
+.movie{margin:18px auto 0;max-width:300px;text-align:center}
+.movie video{display:block;width:100%;height:auto;border-radius:18px;background:#0c161a}
+.movie figcaption{font-size:.8rem;color:#5b6b70;margin-top:6px}
 .say{max-width:420px;margin:0 auto}
 .say p{background:#eef4f6;border-radius:16px 16px 16px 4px;padding:10px 14px;margin:0 0 8px;font-size:.95rem}
 .more{margin-top:40px;font-size:.9rem;color:#3c4b50}
@@ -51,11 +55,15 @@ th{background:#f4f8f9;white-space:nowrap}
 </div>
 
 <ol class="three" id="steps">
-<li><span>開いた画面で「追加」を押す<small>ボタンの名前が「接続」のこともあります</small></span></li>
-<li><span>PlayNavi にログイン<small>アプリと同じ方法（Apple か Google）で</small></span></li>
+<li><span>開いた画面で<span class="nw">「プラグインを</span><span class="nw">インストール」を押す</span><small>画面によって「追加」「接続」のこともあります</small></span></li>
+<li><span>PlayNavi にログイン<small>アプリと同じ方法<span class="nw">（Apple か Google）で</span></small></span></li>
 <li><span>「連携する」を押す</span></li>
 </ol>
 <p class="done">これで完了です</p>
+<figure class="movie">
+<video src="/assets/help/chatgpt-setup.mp4" poster="/assets/help/chatgpt-setup-poster.jpg" controls muted playsinline preload="none" width="828" height="1792"></video>
+<figcaption>実際の画面（iPhone・約 1 分・音なし）</figcaption>
+</figure>
 
 <h2>あとは話しかけるだけ</h2>
 <div class="say">
@@ -86,7 +94,7 @@ th{background:#f4f8f9;white-space:nowrap}
 <p>取り扱う情報は、<a href="/privacy">プライバシーポリシー</a> の「6-2. AI サービスとの連携」をご覧ください。</p>
 
 <h2>Connect ChatGPT to PlayNavi (English)</h2>
-<p>Three steps, no address to type: open <a href="https://chatgpt.com/plugins/plugin_asdk_app_6ac8eb791dc48191b4b611f969f65ad2">PlayNavi in ChatGPT</a> (or search "PlayNavi" in Plugins) and press Add, sign in to PlayNavi the same way you do in the app (Apple or Google), then press 連携する. Changes the AI asks for wait as drafts in the PlayNavi inbox until you confirm them. Optional: Plugins → PlayNavi → 管理 (Manage) → 権限 (Permissions) → 「すべてのツールを許可」 stops ChatGPT asking each time. If you added PlayNavi as a custom MCP server during the beta, it keeps working; to switch, delete that one under Plugins → 個人用 (Personal) first. Feedback: #PlayNaviChatGPT, or 問い合わせ・リクエスト in the app menu.</p>
+<p>Three steps, no address to type: open <a href="https://chatgpt.com/plugins/plugin_asdk_app_6ac8eb791dc48191b4b611f969f65ad2">PlayNavi in ChatGPT</a> (or search "PlayNavi" in Plugins) and press 「プラグインをインストール」 (Install plugin; on some screens 追加 / Add or 接続 / Connect), sign in to PlayNavi the same way you do in the app (Apple or Google), then press 連携する. Changes the AI asks for wait as drafts in the PlayNavi inbox until you confirm them. Optional: Plugins → PlayNavi → 管理 (Manage) → 権限 (Permissions) → 「すべてのツールを許可」 stops ChatGPT asking each time. If you added PlayNavi as a custom MCP server during the beta, it keeps working; to switch, delete that one under Plugins → 個人用 (Personal) first. Feedback: #PlayNaviChatGPT, or 問い合わせ・リクエスト in the app menu.</p>
 </div>
 </main>
 </body>

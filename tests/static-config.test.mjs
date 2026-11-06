@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import test from "node:test";
 
 const readJson = async (path) => JSON.parse(await readFile(new URL(path, import.meta.url), "utf8"));
@@ -426,10 +426,20 @@ test("playnavi.app/help/chatgpt serves the ChatGPT guide for the published plugi
   assert.match(html, /URL の入力も、むずかしい設定もいりません/);
   const three = /<ol class="three" id="steps">([\s\S]*?)<\/ol>/.exec(html)?.[1] ?? "";
   assert.equal((three.match(/<li>/g) ?? []).length, 3, "exactly three steps");
-  assert.match(three, /「追加」を押す/);
+  // 11/6 Emiya の録画 (iPhone の ChatGPT): ボタンの名前は「プラグインをインストール」(前の「追加」は実物と違った)
+  assert.match(three.replace(/<[^>]+>/g, ""), /「プラグインをインストール」を押す/);
+  assert.match(three, /<span class="nw">「プラグインを<\/span><span class="nw">インストール」を押す<\/span>/, "the button name only breaks after 「プラグインを」");
   assert.match(three, /PlayNavi にログイン/);
   assert.match(three, /「連携する」を押す/);
   assert.match(html, /これで完了です/);
+  // 11/6 Emiya「セットアップから1つ頼んで見るところまでの動画…編集してくれる？」: 3 つの手順のすぐ下に実際の画面の動画 (SNS の投稿と同じ物)
+  const movie = /<figure class="movie">([\s\S]*?)<\/figure>/.exec(html)?.[1] ?? "";
+  assert.match(movie, /<video src="\/assets\/help\/chatgpt-setup\.mp4" poster="\/assets\/help\/chatgpt-setup-poster\.jpg" controls muted playsinline preload="none"/);
+  assert.ok(html.indexOf('class="three"') < html.indexOf('class="movie"') && html.indexOf('class="movie"') < html.indexOf('class="more"'), "the video sits right under the three steps");
+  for (const asset of ["chatgpt-setup.mp4", "chatgpt-setup-poster.jpg"]) {
+    const size = (await stat(new URL(`../assets/help/${asset}`, import.meta.url))).size;
+    assert.ok(size > 10_000 && size < 10_000_000, `${asset} is ${size} bytes (the page loads it on phones)`);
+  }
   assert.ok(html.indexOf('class="three"') < html.indexOf('class="more"'), "the details come after the three steps");
   // 公開の後は、URL を入れる手順も「承認された方だけ」も案内しない (誰でも使える)
   assert.doesNotMatch(html, /カスタム MCP サーバーを追加|理解したうえで続けます|承認された方だけ|ご利用開始のお知らせが届いた方/);
@@ -438,7 +448,7 @@ test("playnavi.app/help/chatgpt serves the ChatGPT guide for the published plugi
   assert.match(html, /id="beta"/);
   assert.match(html, /そのままお使いいただけます/);
   assert.match(html, /「個人用」にある PlayNavi を削除/);
-  assert.match(html, /アプリと同じ方法（Apple か Google）で/);
+  assert.match(html.replace(/<[^>]+>/g, ""), /アプリと同じ方法（Apple か Google）で/);
   assert.match(html, /確定するまで記録は変わりません/);
   // 11/4 Emiya「強制ではないが利便性のために…推奨する旨を、わかりやすい手順とともに」(細かい話の側に残す)
   assert.match(html, /（任意）毎回の確認を省く/);
