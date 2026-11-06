@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ChatGPT 連携の設定方法（ベータ版） | PlayNavi</title>
-<meta name="description" content="ChatGPT に PlayNavi を追加する設定方法（ベータ版の参加者向け）。パソコンでもスマートフォンのブラウザでもできます。">
+<title>ChatGPT 連携の設定方法 | PlayNavi</title>
+<meta name="description" content="ChatGPT に PlayNavi を追加する設定方法。ChatGPT のプラグインから PlayNavi を追加して、PlayNavi にログインするだけです。">
 <meta name="robots" content="noindex">
 <link rel="icon" href="/favicon.ico">
 <style>
@@ -21,7 +21,7 @@ code{background:#eef4f6;border-radius:6px;padding:2px 6px;font-size:.95em;word-b
 .steps ul{margin:.25em 0 0;padding-left:1.2em}
 .steps ul li{font-size:.9rem;color:#3c4b50}
 .ok{background:#eef4f6;border-radius:12px;padding:12px 16px;margin:.5em 0}
-.beta{background:#fff6e5;border-radius:12px;padding:12px 16px;margin:.5em 0 1em}
+.add{display:inline-block;margin:4px 0 8px;padding:12px 22px;border-radius:12px;background:#1f7f8f;color:#fff;font-weight:700;text-decoration:none}
 table{border-collapse:collapse;margin:.5em 0;font-size:.9rem}
 th,td{border:1px solid #d9e3e6;padding:6px 10px;text-align:left;vertical-align:top}
 th{background:#f4f8f9;white-space:nowrap}
@@ -30,60 +30,53 @@ th{background:#f4f8f9;white-space:nowrap}
 <body>
 <main>
 <h1>ChatGPT 連携の設定方法</h1>
-<p>ChatGPT に PlayNavi を追加すると、会話の中で次に遊ぶゲームを相談したり、遊んだゲームのことを話すだけでモーメントやログの下書きを作ったりできます。</p>
-<div class="beta">現在は<strong>ベータ版</strong>です。<strong>ご利用開始のお知らせが届いた方</strong>がご利用いただけます。</div>
+<p>ChatGPT に PlayNavi を追加すると、会話の中で次に遊ぶゲームを相談したり、遊んだゲームのことを話すだけでモーメントやログの下書きを作ったりできます。PlayNavi のアカウントを登録している方なら、どなたでもお使いいただけます。</p>
 
 <h2 id="steps">設定の手順</h2>
-<p>パソコンでもスマートフォンでもできます。設定は最初の一度だけです。</p>
+<p>設定は最初の一度だけです。</p>
 <ol class="steps">
-  <li><strong>ブラウザで <a href="https://chatgpt.com/">chatgpt.com</a> を開き、ログインします</strong>
-    スマートフォンは、ChatGPT のアプリではなく Safari や Chrome などのブラウザで開いてください。ChatGPT は無料プランでもご利用いただけます。
-  </li>
-  <li><strong>左のメニュー（スマートフォンは左上のボタン）の「プラグイン」を開き、右上の「追加」（スマートフォンは「＋」）から「カスタム MCP サーバーを追加」を選びます</strong></li>
-  <li><strong>次の 3 か所だけ入力して「作成」を押します</strong>
-    <table>
-      <tr><th>名前</th><td><code>PlayNavi</code></td></tr>
-      <tr><th>URL</th><td><code>https://ai.playnavi.app/mcp</code>（「https://example.com/mcp」と薄く出ている欄）</td></tr>
-      <tr><th>チェック</th><td>「理解したうえで続けます」</td></tr>
-    </table>
-    ほかの項目は、触らずにそのままで大丈夫です。チェックの上に出る「カスタム MCP サーバーの利用にはリスクが伴います」は、PlayNavi が ChatGPT の公式プラグインとして公開されるまで必ず表示される注意です。
-  </li>
-  <li><strong>PlayNavi のログイン画面で、アプリと同じ方法（Apple または Google）でログインし、「連携する」を押します</strong>
-    ChatGPT の画面に戻れば設定は完了です。
-  </li>
-  <li><strong>新しいチャットで「PlayNavi で私のプロフィールを見せて」と話しかけてみましょう</strong></li>
-  <li><strong>（任意・おすすめ）毎回の確認を省く設定にします</strong>
-    PlayNavi にできることは多いため、そのままでは頼む内容が少し変わるたびに ChatGPT が許可を求めてきます。次の設定で、この確認を省けます。
-    <ul>
-      <li>ChatGPT の「プラグイン」で PlayNavi を開き、「管理」→「権限」を開きます</li>
-      <li>「すべてのツールを許可」を選びます</li>
-    </ul>
-    <div class="ok">「高リスク」と表示されますが、PlayNavi では、記録の追加・変更・削除はすべて PlayNavi の確認箱に下書きとして届き、あなたが確定するまで記録は変わりません（チェックイン・チェックアウトや希望価格など一部は、その場で反映されます）。確認を残したい場合は、最初の設定（「低リスクのツールを許可」）のままでもご利用いただけます。</div>
-  </li>
+<li><strong>下のボタンで、ChatGPT の PlayNavi のページを開きます</strong>
+<a class="add" href="https://chatgpt.com/plugins/plugin_asdk_app_6ac8eb791dc48191b4b611f969f65ad2">ChatGPT で PlayNavi を開く</a>
+ChatGPT にログインしていない時は、先にログインしてください。ChatGPT の「プラグイン」で「PlayNavi」を検索しても開けます。
+</li>
+<li><strong>PlayNavi のページで「追加」を押します</strong>
+表示が「接続」などになっている場合も、同じボタンです。
+</li>
+<li><strong>PlayNavi のログイン画面で、アプリと同じ方法（Apple または Google）でログインし、「連携する」を押します</strong>
+ChatGPT の画面に戻れば設定は完了です。
+</li>
+<li><strong>新しいチャットで「PlayNavi で私のプロフィールを見せて」と話しかけてみましょう</strong></li>
+<li><strong>（任意・おすすめ）毎回の確認を省く設定にします</strong>
+PlayNavi にできることは多いため、そのままでは頼む内容が少し変わるたびに ChatGPT が許可を求めてきます。次の設定で、この確認を省けます。
+<ul>
+<li>ChatGPT の「プラグイン」で PlayNavi を開き、「管理」→「権限」を開きます</li>
+<li>「すべてのツールを許可」を選びます</li>
+</ul>
+<div class="ok">「高リスク」と表示されますが、PlayNavi では、記録の追加・変更・削除はすべて PlayNavi の確認箱に下書きとして届き、あなたが確定するまで記録は変わりません（チェックイン・チェックアウトや希望価格など一部は、その場で反映されます）。確認を残したい場合は、最初の設定（「低リスクのツールを許可」）のままでもご利用いただけます。</div>
+</li>
 </ol>
 
-<h2 id="feedback">ベータ版に関するご意見</h2>
+<h2 id="beta">ベータ版の手順で追加した方へ</h2>
+<p>ベータ版の手順（カスタム MCP サーバー）で追加した PlayNavi も、そのままお使いいただけます。上の手順の PlayNavi に切り替える場合は、ChatGPT の「プラグイン」の「個人用」にある PlayNavi を削除してから、上の手順で追加してください。両方を残すと、ChatGPT に PlayNavi が 2 つ並びます。</p>
+
+<h2 id="feedback">ご意見・ご感想</h2>
 <p>使ってみたご意見・ご感想を、<strong>#PlayNaviChatGPT</strong> を付けて SNS に投稿していただけるとうれしいです。難しい方は、PlayNavi アプリのメニューの「問い合わせ・リクエスト」から、種類「機能追加リクエスト」でお送りください。どちらも任意です。</p>
 
 <h2 id="trouble">うまくいかないとき</h2>
 <ul>
-  <li><strong>「承認された方だけ」と表示される：</strong>PlayNavi アプリと違う方法でログインしているかもしれません。アプリと同じ方法（Apple または Google）でログインし直してください。お知らせがまだ届いていない場合は、届くまでお待ちください。</li>
-  <li><strong>自分の記録が表示されない：</strong>ChatGPT の「プラグイン」から PlayNavi を削除し、手順 2 から設定し直してください。</li>
-  <li><strong>ChatGPT が PlayNavi を使わずに答える：</strong>「PlayNavi で」と付けて話しかけてみてください。</li>
+<li><strong>自分の記録が表示されない：</strong>PlayNavi アプリと違う方法でログインしているかもしれません。ChatGPT の「プラグイン」から PlayNavi を削除し、手順 1 から、アプリと同じ方法（Apple または Google）でログインし直してください。</li>
+<li><strong>ChatGPT が PlayNavi を使わずに答える：</strong>「PlayNavi で」と付けて話しかけてみてください。</li>
 </ul>
 
 <h2>ご利用にあたって</h2>
 <ul>
-  <li>追加した PlayNavi の「提供元」「開発者」には、あなたの ChatGPT の名前が表示されます。あなたのアカウントで追加したためです。</li>
-  <li>PlayNavi が ChatGPT の公式プラグインとして公開された後は、この手順で追加した PlayNavi を削除し、公式プラグインから追加し直していただく必要があります（その際は PlayNavi アプリでお知らせします）。</li>
-  <li>ベータ版は予告なく終了する場合があります。終了しても、PlayNavi の記録はそのまま残ります。</li>
-  <li>写真や動画は ChatGPT から送れません。PlayNavi アプリか Web の確認箱で下書きに追加してください。</li>
-  <li>連携の解除は、PlayNavi アプリの「設定 → AIとプレイログの設定 → 連携中の AI と渡す内容」か、ChatGPT の「プラグイン」からできます。</li>
+<li>モーメントの写真は、ChatGPT に貼って 1 件に 4 枚まで送れます。動画と、5 枚目からの写真は、PlayNavi アプリか Web の確認箱で下書きに追加してください。</li>
+<li>連携の解除は、PlayNavi アプリの「設定 → AIとプレイログの設定 → 連携中の AI と渡す内容」か、ChatGPT の「プラグイン」からできます。</li>
 </ul>
 <p>取り扱う情報は、<a href="/privacy">プライバシーポリシー</a> の「6-2. AI サービスとの連携」をご覧ください。</p>
 
-<h2>Connect ChatGPT to PlayNavi (English, beta)</h2>
-<p>Beta: only accounts that received the start-of-use notice in the PlayNavi app can connect. On a computer or a phone browser (not the ChatGPT app), open chatgpt.com, open Plugins, then Add (+ on a phone) → Add custom MCP server (カスタム MCP サーバーを追加). Fill in only three things: name <code>PlayNavi</code>, URL <code>https://ai.playnavi.app/mcp</code>, and tick "I understand and want to continue". Leave everything else as it is and press Create. Sign in to PlayNavi with the same method you use in the app (Apple or Google) and press 連携する. Every change the AI asks for waits as a draft in the PlayNavi inbox until you confirm it. Optional: to stop ChatGPT asking for approval each time, open PlayNavi in Plugins → 管理 (Manage) → 権限 (Permissions) and choose 「すべてのツールを許可」 (Allow all tools). Feedback: #PlayNaviChatGPT on social media, or 問い合わせ・リクエスト in the app menu (both optional).</p>
+<h2>Connect ChatGPT to PlayNavi (English)</h2>
+<p>Anyone with a registered PlayNavi account can use it. Open <a href="https://chatgpt.com/plugins/plugin_asdk_app_6ac8eb791dc48191b4b611f969f65ad2">PlayNavi in ChatGPT</a> (or search "PlayNavi" in ChatGPT's Plugins), press Add, then sign in to PlayNavi with the same method you use in the app (Apple or Google) and press 連携する. Every change the AI asks for waits as a draft in the PlayNavi inbox until you confirm it. Optional: to stop ChatGPT asking for approval each time, open PlayNavi in Plugins → 管理 (Manage) → 権限 (Permissions) and choose 「すべてのツールを許可」 (Allow all tools). If you added PlayNavi as a custom MCP server during the beta, it keeps working; to switch, delete that one under Plugins → 個人用 (Personal) first. Feedback: #PlayNaviChatGPT on social media, or 問い合わせ・リクエスト in the app menu (both optional).</p>
 </main>
 </body>
 </html>
