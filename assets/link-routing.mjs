@@ -100,6 +100,30 @@ export function webTargetFromPath(path, origin) {
   return `${origin}${target.canonicalPath}`;
 }
 
+// TASK-20261107-002 (Q5): the Web records where a visitor came from with one query key, `via`.
+// Values used by links: `share` (this relay hands a shared link over to the Web) and `links`
+// (the links home and the /help pages). Only Web destinations get it, never app / store URLs.
+export const WEB_VIA_SHARE = "share";
+export const WEB_VIA_LINKS = "links";
+
+function withVia(href, via) {
+  const hashAt = href.indexOf("#");
+  const head = hashAt < 0 ? href : href.slice(0, hashAt);
+  const hash = hashAt < 0 ? "" : href.slice(hashAt);
+  return `${head}${head.includes("?") ? "&" : "?"}via=${via}${hash}`;
+}
+
+/** The URL the relay moves a shared link to (its Web page + via=share). Unknown origin = null */
+export function webHandoffUrl(path, origin) {
+  const href = webTargetFromPath(path, origin);
+  return href ? withVia(href, WEB_VIA_SHARE) : null;
+}
+
+/** The Web top for the links home's 「PCで使う（Web版）」. Unknown origin = null */
+export function webHomeUrl(origin) {
+  return WEB_ORIGINS.includes(origin) ? withVia(`${origin}/`, WEB_VIA_LINKS) : null;
+}
+
 /** PC で確認箱 (= Web の下書き画面) を開く先。知らない origin なら null */
 /** The survey answer page on this site (PC answers here, signing in with Apple or Google) */
 export function surveyPageUrl(slug) {

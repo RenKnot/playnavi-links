@@ -91,6 +91,10 @@ test("production-only legacy routes and share preview stay ahead of safe fallbac
     "/privacy",
     "/help/claude",
     "/help/chatgpt",
+    // TASK-20261107-002: robots.txt per host (playnavi.app and its check deployments / everything else)
+    "/robots.txt",
+    "/robots.txt",
+    "/robots.txt",
     // TASK-20260923-002 一般公開: 予約の住所が全部決まった後、最後の受け皿の直前で新しい Web へ中継する (tests/web-gateway.test.mjs)
     "/index.html",
     "/index.html",
@@ -196,7 +200,31 @@ test("share preview uses the original HTML and only the approved share routes", 
   assert.ok(sources.indexOf("/users/:id/best-games") < sources.indexOf("/users/:id"));
   assert.ok(sources.indexOf("/users/:id/diagnosis") < sources.indexOf("/users/:id"));
   assert.ok(sources.indexOf("/s/:code") < sources.indexOf("/(.*)"));
-  assert.equal(await readFile(new URL("../robots.txt", import.meta.url), "utf8"), "User-agent: *\nAllow: /\n");
+});
+
+// TASK-20261107-002 (§5-a 2): playnavi.app's robots.txt mirrors the Web's production rules
+// (playnavi-app web/src/app/robots.ts: allow /, disallow /auth/ and /oauth/) and names its sitemap.
+// links.playnavilab.com keeps today's file: Google asks each site's robots.txt to name that site's own
+// sitemap (developers.google.com/search/docs/crawling-indexing/sitemaps/build-sitemap, "cross-submit").
+// A static robots.txt would win over these rewrites on Vercel, so none may exist.
+test("robots.txt is chosen per host: playnavi.app names its sitemap, links keeps allow-all", async () => {
+  const config = await readJson("../vercel.json");
+  await assert.rejects(readFile(new URL("../robots.txt", import.meta.url)), { code: "ENOENT" });
+  const routes = config.rewrites.filter((route) => route.source === "/robots.txt");
+  const relay = config.rewrites.find((route) => route.source.startsWith("/:path((?!") && route.has?.[0]?.value === "playnavi.app");
+  const checkHost = config.rewrites.find((route) => route.source.startsWith("/:path((?!") && route.has?.[0]?.value?.re);
+  assert.deepEqual(routes, [
+    { source: "/robots.txt", has: [{ type: "host", value: "playnavi.app" }], destination: "/robots-playnavi-app.txt" },
+    { source: "/robots.txt", has: checkHost.has, destination: "/robots-playnavi-app.txt" },
+    { source: "/robots.txt", destination: "/robots-links.txt" },
+  ]);
+  const at = config.rewrites.indexOf(routes[2]);
+  assert.ok(at < config.rewrites.indexOf(relay) && at < config.rewrites.findIndex((route) => route.source === "/(.*)"));
+  assert.equal(
+    await readFile(new URL("../robots-playnavi-app.txt", import.meta.url), "utf8"),
+    "User-agent: *\nAllow: /\nDisallow: /auth/\nDisallow: /oauth/\n\nSitemap: https://playnavi.app/sitemap.xml\n",
+  );
+  assert.equal(await readFile(new URL("../robots-links.txt", import.meta.url), "utf8"), "User-agent: *\nAllow: /\n");
 });
 
 test("AI return path receives the SPA and private document headers", async () => {
@@ -397,6 +425,8 @@ test("playnavi.app/help/claude serves the Claude connection guide with the real 
   assert.equal(config.rewrites[help]?.destination, "/help-claude.html");
   assert.ok(help >= 0 && help < fallback, "help rewrite must come before the catch-all");
   const html = await readFile(new URL("../help-claude.html", import.meta.url), "utf8");
+  // TASK-20261107-002: one link to the Web top, marked via=links (absolute: links.playnavilab.com/ is the links home)
+  assert.match(html, /<p><a href="https:\/\/playnavi\.app\/\?via=links">PCで使う（Web版）<\/a><\/p>/);
   // 10/27: Claude は本番の入口 ai.playnavi.app (playnavi.app/mcp は ChatGPT の審査の間 STG)
   assert.match(html, /https:\/\/ai\.playnavi\.app\/mcp/);
   assert.match(html, /カスタムコネクタを追加/);
@@ -417,6 +447,8 @@ test("playnavi.app/help/chatgpt serves the ChatGPT guide for the published plugi
   assert.equal(config.rewrites[help]?.destination, "/help-chatgpt.html");
   assert.ok(help >= 0 && help < fallback, "help rewrite must come before the catch-all");
   const html = await readFile(new URL("../help-chatgpt.html", import.meta.url), "utf8");
+  // TASK-20261107-002: one link to the Web top, marked via=links (absolute: links.playnavilab.com/ is the links home)
+  assert.match(html, /<p><a href="https:\/\/playnavi\.app\/\?via=links">PCで使う（Web版）<\/a><\/p>/);
   // 11/6 Emiya「パブリッシュも押しました」: 公開ページ (Emiya が貼った住所) を開くボタンと、プラグインで探す道
   assert.match(html, /<a class="add" href="https:\/\/chatgpt\.com\/plugins\/plugin_asdk_app_6ac8eb791dc48191b4b611f969f65ad2">ChatGPT で PlayNavi を開く<\/a>/);
   assert.match(html, /「プラグイン」で「PlayNavi」と探しても開けます/);

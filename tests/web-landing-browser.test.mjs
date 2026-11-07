@@ -64,13 +64,14 @@ test("browser proves inactive default, PC short landing, mobile fallback and res
     await context.addCookies([{ name: "fixture_private", value: "must-not-send", url: base }]);
     payload = { ...payload, target_type: "log", canonical_path: `/game/42?logId=${UUID}` };
     await page.goto(`${base}/s/${CODE}`);
-    await page.waitForURL(`https://playnavi.app/game/42?logId=${UUID}`);
-    check("PC short link opens fixed Web origin with exact logId", page.url() === `https://playnavi.app/game/42?logId=${UUID}`);
+    // TASK-20261107-002: the relay's hand-off to the Web adds via=share after the exact canonical query
+    await page.waitForURL(`https://playnavi.app/game/42?logId=${UUID}&via=share`);
+    check("PC short link opens fixed Web origin with exact logId (+ via=share)", page.url() === `https://playnavi.app/game/42?logId=${UUID}&via=share`);
     check("real same-origin resolver requests omit cookies", requests.length === 2 && requests.every((request) => request.method === "GET" && request.cookie === undefined));
     // TASK-20261023-003 Q1=a: canonical links open the Web page right away (PC and phones)
     await page.goto(`${base}/game/42?logId=${UUID}`);
-    await page.waitForURL(`https://playnavi.app/game/42?logId=${UUID}`);
-    check("canonical PC link opens the exact Web page", page.url() === `https://playnavi.app/game/42?logId=${UUID}`);
+    await page.waitForURL(`https://playnavi.app/game/42?logId=${UUID}&via=share`);
+    check("canonical PC link opens the exact Web page (+ via=share)", page.url() === `https://playnavi.app/game/42?logId=${UUID}&via=share`);
 
     for (const userAgent of ["iPhone", "Android"]) {
       const mobile = await browser.newContext({ userAgent, viewport: { width: 390, height: 844 } });
@@ -78,11 +79,11 @@ test("browser proves inactive default, PC short landing, mobile fallback and res
       mobilePage.on("pageerror", (error) => errors.push(error.message));
       await mobilePage.route("https://playnavi.app/**", (route) => route.fulfill({ contentType: "text/html", body: "<h1>Web target</h1>" }));
       await mobilePage.goto(`${base}/s/${CODE}`, { waitUntil: "commit" });
-      await mobilePage.waitForURL(`https://playnavi.app/game/42?logId=${UUID}`);
-      check(`${userAgent} short link opens the Web page without an app attempt`, mobilePage.url() === `https://playnavi.app/game/42?logId=${UUID}`);
+      await mobilePage.waitForURL(`https://playnavi.app/game/42?logId=${UUID}&via=share`);
+      check(`${userAgent} short link opens the Web page without an app attempt`, mobilePage.url() === `https://playnavi.app/game/42?logId=${UUID}&via=share`);
       await mobilePage.goto(`${base}/game/42?logId=${UUID}`, { waitUntil: "commit" });
-      await mobilePage.waitForURL(`https://playnavi.app/game/42?logId=${UUID}`);
-      check(`${userAgent} canonical link opens the Web page`, mobilePage.url() === `https://playnavi.app/game/42?logId=${UUID}`);
+      await mobilePage.waitForURL(`https://playnavi.app/game/42?logId=${UUID}&via=share`);
+      check(`${userAgent} canonical link opens the Web page`, mobilePage.url() === `https://playnavi.app/game/42?logId=${UUID}&via=share`);
       // The Web page's "アプリで開く・入れる" goes to the iOS manual-open origin, which must keep the app handoff.
       await mobilePage.route("https://playnavi-links.vercel.app/**", async (route) => {
         const url = new URL(route.request().url());
@@ -101,11 +102,17 @@ test("browser proves inactive default, PC short landing, mobile fallback and res
     payload = { status: "ok", code: CODE, target_type: "diagnosis", canonical_path: `/users/${UUID}/diagnosis` };
     await page.goto(`${base}/s/${CODE}`);
     // 2026-10-07 (Q1=b): the diagnosis is public like a ranking; its short link opens the canonical Web page.
-    await page.waitForURL(`https://playnavi.app/users/${UUID}/diagnosis`);
-    check("diagnosis short link opens the canonical Web page", page.url() === `https://playnavi.app/users/${UUID}/diagnosis`);
+    await page.waitForURL(`https://playnavi.app/users/${UUID}/diagnosis?via=share`);
+    check("diagnosis short link opens the canonical Web page", page.url() === `https://playnavi.app/users/${UUID}/diagnosis?via=share`);
     await page.goto(`${base}/users/${UUID}/diagnosis`);
-    await page.waitForURL(`https://playnavi.app/users/${UUID}/diagnosis`);
-    check("diagnosis canonical link opens the Web page", page.url() === `https://playnavi.app/users/${UUID}/diagnosis`);
+    await page.waitForURL(`https://playnavi.app/users/${UUID}/diagnosis?via=share`);
+    check("diagnosis canonical link opens the Web page", page.url() === `https://playnavi.app/users/${UUID}/diagnosis?via=share`);
+    // TASK-20261107-002: the links home shows 「PCで使う（Web版）」 with the store buttons (Web top + via=links)
+    await page.goto(`${base}/`);
+    await page.getByText("ゲームとの出会いを、もっと楽しく", { exact: true }).waitFor();
+    check("links home offers the Web top with via=links next to the stores", await page.locator("#store-buttons #pc-web-btn").isVisible() &&
+      await page.locator("#pc-web-btn").getAttribute("href") === "https://playnavi.app/?via=links" &&
+      await page.locator("#pc-web-btn").innerText() === "PCで使う（Web版）");
     await page.goto(`${base}/a?act=log&g=42&src=claude&i=stuck&at=1790645000000`);
     await page.getByText("PlayNaviに戻る", { exact: true }).waitFor();
     check("AI return has no Web action", !await page.locator("#web-btn").isVisible());
@@ -123,6 +130,9 @@ test("browser proves inactive default, PC short landing, mobile fallback and res
     await page.goto(`${base}/game/42`);
     await page.getByText("PlayNaviでリンクを開く", { exact: true }).waitFor();
     check("unsafe HTML origin stays disabled", !await page.locator("#web-btn").isVisible());
+    await page.goto(`${base}/`);
+    await page.getByText("ゲームとの出会いを、もっと楽しく", { exact: true }).waitFor();
+    check("unsafe HTML origin shows no Web button on the home", !await page.locator("#pc-web-btn").isVisible());
     check("no browser runtime errors", errors.length === 0);
     console.log(JSON.stringify({ checks: assertions.length, pass: assertions.length, boundary: "real Chrome + local HTTP; resolver fixture; Vercel/EF/OS not verified" }));
     await context.close();
