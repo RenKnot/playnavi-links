@@ -331,6 +331,24 @@
       "destination": "/help-chatgpt.html"
     },
     {
+      "source": "/robots.txt",
+      "has": [
+        { "type": "host", "value": "playnavi.app" }
+      ],
+      "destination": "/robots-playnavi-app.txt"
+    },
+    {
+      "source": "/robots.txt",
+      "has": [
+        { "type": "host", "value": { "re": "^playnavi-links-(?:[a-z0-9]+|git-bridge-[a-z0-9-]+)-masanobu-iwasakis-projects\\.vercel\\.app$" } }
+      ],
+      "destination": "/robots-playnavi-app.txt"
+    },
+    {
+      "source": "/robots.txt",
+      "destination": "/robots-links.txt"
+    },
+    {
       "source": "/index.html",
       "has": [
         { "type": "host", "value": "playnavi.app" }

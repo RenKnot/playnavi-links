@@ -36,6 +36,15 @@ public Web = Vercel `playnavi-links` → Deployments → the previous one →
 Instant Rollback. See `docs/web-gateway-preparation.md` and
 `tests/web-gateway.test.mjs`.
 
+When the relay moves a shared link to the Web it appends `via=share` after the
+canonical query (`webHandoffUrl` in `assets/link-routing.mjs`); the links home
+and the `/help` pages link to the Web top with `via=links`. App, universal and
+store links never carry `via`. `/robots.txt` is chosen per host in
+`vercel.json`: `playnavi.app` (and the protected check deployments) get
+`robots-playnavi-app.txt` (the Web's production rules + its sitemap), every
+other host gets `robots-links.txt`. No static `robots.txt` may exist, because a
+static file would win over these rewrites.
+
 `/s/{16-character code}` resolves through the same-origin route
 `/api/share-links/{code}`. `vercel.json` proxies that request to the public
 Supabase Edge Function `short-links-resolve`.
