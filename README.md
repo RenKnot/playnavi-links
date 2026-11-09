@@ -68,7 +68,7 @@ project, `vercel.json` answers them before any other rule (host condition
 
 | Old path | Answer |
 |---|---|
-| `/`, `/home`, `/new-page` | 301 `https://playnavi.app/about` |
+| `/`, `/home`, `/new-page` | 301 `https://playnavi.app/` (11/9 Emiya: 動いて見せる紹介を playnavi.app のトップにし、/about は会社として伝えたいことのページにする) |
 | `/news`, `/news/category/*`, `/news/tag/*`, deeper `/news/*/*` | 301 `https://playnavi.app/news` |
 | `/news/:slug` | 301 `https://playnavi.app/news/:slug` |
 | `/press`, `/contact` | 301 `https://playnavi.app/press`, `/contact` |
@@ -76,7 +76,7 @@ project, `vercel.json` answers them before any other rule (host condition
 | any other `/s/*` | 301 `https://playnavi.app/press` |
 | `/terms`, `/privacypolicy`, `/legal` | **200**, the same file as playnavi.app (temporary, below) |
 | `/robots.txt` | 200 `robots-links.txt` (allow all, so crawlers see the 301s) |
-| everything else | 301 `https://playnavi.app/about` |
+| everything else | 301 `https://playnavi.app/` |
 
 All redirects use `"statusCode": 301` (Google's change of address expects
 301). Matching is on the path only, exact and case-sensitive (`/terms/` or

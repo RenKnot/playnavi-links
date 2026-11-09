@@ -32,8 +32,8 @@ const moved = (result) => (result.kind === "redirect" ? `${result.status} ${resu
 
 test("old company-site hosts: every page is a 301 to playnavi.app", () => {
   const expected = {
-    "/": `${NEW}/about`,
-    "/home": `${NEW}/about`,
+    "/": `${NEW}/`,
+    "/home": `${NEW}/`,
     "/news": `${NEW}/news`,
     "/news/playnaviaiclaudepcweb": `${NEW}/news/playnaviaiclaudepcweb`,
     "/news/playnavi-major-announcement": `${NEW}/news/playnavi-major-announcement`,
@@ -44,24 +44,24 @@ test("old company-site hosts: every page is a 301 to playnavi.app", () => {
     "/news/2026/11/post": `${NEW}/news`,
     "/press": `${NEW}/press`,
     "/contact": `${NEW}/contact`,
-    "/new-page": `${NEW}/about`,
+    "/new-page": `${NEW}/`,
     "/s/other-file.pdf": `${NEW}/press`,
     [`/s/${SHARE_CODE}`]: `${NEW}/press`,
     "/s": `${NEW}/press`,
     // everything else, including the paths links serves on its own hosts
-    "/privacy": `${NEW}/about`,
-    "/terms/": `${NEW}/about`,
-    "/Terms": `${NEW}/about`,
-    "/terms.html": `${NEW}/about`,
-    "/privacy.html": `${NEW}/about`,
-    "/favicon.ico": `${NEW}/about`,
-    "/link.html": `${NEW}/about`,
-    "/sitemap.xml": `${NEW}/about`,
-    "/a": `${NEW}/about`,
-    "/game/42": `${NEW}/about`,
-    "/api/share-links/x": `${NEW}/about`,
-    "/.well-known/apple-app-site-association": `${NEW}/about`,
-    "/unknown/deep/path": `${NEW}/about`,
+    "/privacy": `${NEW}/`,
+    "/terms/": `${NEW}/`,
+    "/Terms": `${NEW}/`,
+    "/terms.html": `${NEW}/`,
+    "/privacy.html": `${NEW}/`,
+    "/favicon.ico": `${NEW}/`,
+    "/link.html": `${NEW}/`,
+    "/sitemap.xml": `${NEW}/`,
+    "/a": `${NEW}/`,
+    "/game/42": `${NEW}/`,
+    "/api/share-links/x": `${NEW}/`,
+    "/.well-known/apple-app-site-association": `${NEW}/`,
+    "/unknown/deep/path": `${NEW}/`,
   };
   for (const file of PRESS_FILES) expected[`/s/${file}`] = `${NEW}/press/files/${file}`;
   for (const host of OLD_HOSTS) {
@@ -121,7 +121,7 @@ test("old-host rules come before every other rule and never match other hosts", 
   assert.equal(config.rewrites.filter(isOld).length, 4);
   assert.equal(config.headers.some(isOld), false);
   // the old-host catch-all answers everything except the exception and robots.txt
-  assert.deepEqual(config.redirects[12], { source: "/:path((?!(?:terms|privacypolicy|legal|robots\\.txt)$).*)", has: OLD_HOST, destination: `${NEW}/about`, statusCode: 301 });
+  assert.deepEqual(config.redirects[12], { source: "/:path((?!(?:terms|privacypolicy|legal|robots\\.txt)$).*)", has: OLD_HOST, destination: `${NEW}/`, statusCode: 301 });
   const re = new RegExp(OLD_HOST[0].value.re);
   for (const host of OLD_HOSTS) assert.ok(re.test(host), host);
   for (const host of ["links.playnavilab.com", "playnavi.app", "evilplaynavilab.com", "playnavilab.com.evil.example", "wwwxplaynavilab.com", "www.playnavilab.co", "playnavi-links.vercel.app"]) assert.equal(re.test(host), false, host);
