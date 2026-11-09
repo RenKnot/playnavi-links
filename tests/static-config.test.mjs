@@ -56,6 +56,12 @@ test("production-only legacy routes and share preview stay ahead of safe fallbac
   const config = await readJson("../vercel.json");
   const sources = config.rewrites.map(({ source }) => source);
   assert.deepEqual(sources, [
+    // TASK-20261107-002: old company-site hosts (playnavilab.com / www) first — the temporary legal-page
+    // exception (200 with the single copy) and robots.txt (tests/company-site.test.mjs)
+    "/terms",
+    "/privacypolicy",
+    "/legal",
+    "/robots.txt",
     "/auth/steam/callback",
     "/auth/steam/callback",
     "/auth/steam/callback",
@@ -89,6 +95,9 @@ test("production-only legacy routes and share preview stay ahead of safe fallbac
     "/catalogs/:id",
     "/surveys/:surveySlug",
     "/privacy",
+    // TASK-20261107-002: the legal pages move off Squarespace to playnavi.app (served like /privacy)
+    "/terms",
+    "/legal",
     "/help/claude",
     "/help/chatgpt",
     // TASK-20261107-002: robots.txt per host (playnavi.app and its check deployments / everything else)
@@ -210,7 +219,7 @@ test("share preview uses the original HTML and only the approved share routes", 
 test("robots.txt is chosen per host: playnavi.app names its sitemap, links keeps allow-all", async () => {
   const config = await readJson("../vercel.json");
   await assert.rejects(readFile(new URL("../robots.txt", import.meta.url)), { code: "ENOENT" });
-  const routes = config.rewrites.filter((route) => route.source === "/robots.txt");
+  const routes = config.rewrites.filter((route) => route.source === "/robots.txt" && !route.has?.[0]?.value?.re?.includes("playnavilab"));
   const relay = config.rewrites.find((route) => route.source.startsWith("/:path((?!") && route.has?.[0]?.value === "playnavi.app");
   const checkHost = config.rewrites.find((route) => route.source.startsWith("/:path((?!") && route.has?.[0]?.value?.re);
   assert.deepEqual(routes, [
@@ -404,7 +413,7 @@ test("playnavi.app/privacy serves the full privacy policy, including the AI conn
   const page = await readFile(new URL("../privacy.html", import.meta.url), "utf8");
   for (const s of ["<title>プライバシーポリシー | PlayNavi</title>", "PlayNavi Lab", "6-2. AI サービスとの連携", "(4) 保持期間", "Connecting AI services", "contact@playnavilab.com"]) assert.ok(page.includes(s), s);
   // 10/29 (TASK-20261028-005): 10/25 の改定 (6-1 に PlayNavi AI・画像から取り込む機能で送る物) を写す。
-  // 公式 www.playnavilab.com/privacypolicy を改定したら、scripts/check-privacy-copy.mjs で差を見てこのページも直す
+  // Squarespace が動いている間は scripts/check-legal-copies.mjs で公式 www.playnavilab.com/privacypolicy と比べる (README「Company site」)
   for (const s of ["最終更新日：2026年10月25日", "(1) PlayNavi AI（話して、または文字を入力して操作を頼む機能）", "(3) 画像から取り込む機能", "これらの機能でも、メールアドレスやパスワードをAIサービスへ送信しません。"]) assert.ok(page.includes(s), s);
   assert.doesNotMatch(page, /<script/i);
 });
