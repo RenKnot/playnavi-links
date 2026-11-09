@@ -5,6 +5,8 @@ import {
   resolveShortLink,
   shortCodeFromPath,
   surveyPageUrl,
+  webHandoffUrl,
+  webHomeUrl,
   webInboxUrl,
   webTargetFromPath,
 } from "./link-routing.mjs";
@@ -26,6 +28,7 @@ const elements = {
   iosStore: document.getElementById("ios-store-btn"),
   androidStore: document.getElementById("android-store-btn"),
   web: document.getElementById("web-btn"),
+  pcWeb: document.getElementById("pc-web-btn"),
 };
 const webOrigin = document.querySelector?.('meta[name="pn-web-origin"]')?.content || "";
 
@@ -59,6 +62,7 @@ function hideActions() {
   setVisible(elements.retry, false);
   setVisible(elements.stores, false);
   setVisible(elements.web, false);
+  setVisible(elements.pcWeb, false);
 }
 
 function showWeb(target) {
@@ -86,6 +90,12 @@ function showHome() {
   });
   configurePrimary("PlayNaviアプリを開く", "playnavi://");
   showStores();
+  // TASK-20261107-002: the Web version sits with the store buttons (via=links). No Web origin = no button
+  const pcWebHref = webHomeUrl(webOrigin);
+  if (pcWebHref && elements.pcWeb) {
+    elements.pcWeb.href = pcWebHref;
+    setVisible(elements.pcWeb, true);
+  }
 }
 
 function showSurveyLoginFailure() {
@@ -147,7 +157,8 @@ function openCanonicalTarget(target) {
   // TASK-20261023-003 Q1=a: 正規の住所の形のリンク (短縮リンクが作れなかった時の代わり・前に配った物) も、
   // Web 版がある時はスマホも PC もすぐ Web 版へ。Web 版の「アプリで開く・入れる」から来た時
   // (iOS の手動起動の住所 = IOS_OPEN_APP_ORIGIN) だけは、今までどおりアプリを開きに行く
-  const directWeb = webTargetFromPath(target.canonicalPath, webOrigin);
+  // TASK-20261107-002: the hand-off carries via=share (the manual 「Webで見る」 below stays as it is)
+  const directWeb = webHandoffUrl(target.canonicalPath, webOrigin);
   if (directWeb && window.location.origin !== IOS_OPEN_APP_ORIGIN) {
     document.documentElement.classList.remove("pn-rec-page");
     hideActions();
@@ -272,7 +283,8 @@ async function openShortLink(code) {
     // TASK-20261023-003 Q1=a (Emiya 10/25): Web 版がある時は、スマホも PC と同じくすぐ Web 版のその画面へ移る。
     // アプリがある人は、このページが開く前に OS の関連付け (/s/* は apple-app-site-association・assetlinks の対象) でアプリが開く。
     // Web 版の画面の下の「アプリで開く・入れる」は lib/appLinks の入口 (このサイトの openCanonicalTarget) へ戻ってアプリを開く
-    const webHref = showWeb(target);
+    // TASK-20261107-002: the hand-off carries via=share so the Web can count visits from shared links
+    const webHref = showWeb(target) && webHandoffUrl(target.canonicalPath, webOrigin);
     if (webHref) {
       setContent({ heading: "共有された内容を開いています…", description: "そのままお待ちください。", loading: true });
       window.location.replace(webHref);

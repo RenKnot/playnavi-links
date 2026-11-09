@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /auth/
+Disallow: /oauth/
+
+Sitemap: https://playnavi.app/sitemap.xml
