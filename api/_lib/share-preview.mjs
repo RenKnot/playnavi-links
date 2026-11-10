@@ -80,6 +80,8 @@ export function previewTarget(request) {
   const rankingId = single(query.rankingId);
   const listId = single(query.listId);
   const logId = single(query.logId);
+  // TASK-20261106-001: /users/{id}/recap/{period}
+  const period = single(query.period);
   // TASK-20261017-002: /game/{id}?logId={log}&moment={memory} (Vercel passes the
   // original query through the /game/:id rewrite). moment needs logId.
   const moment = logId === null ? null : single(query.moment);
@@ -96,6 +98,9 @@ export function previewTarget(request) {
       break;
     case "diagnosis":
       path = `/users/${id}/diagnosis`;
+      break;
+    case "recap":
+      path = `/users/${id}/recap/${period}`;
       break;
     case "ranking":
       path = `/users/${ownerId}/custom-rankings/${rankingId}`;
@@ -119,6 +124,7 @@ export function previewTarget(request) {
     user: ["id", "kind"],
     best_games: ["id", "kind"],
     diagnosis: ["id", "kind"],
+    recap: ["id", "kind", "period"],
     ranking: ["kind", "ownerId", "rankingId"],
     tier_list: ["kind", "listId", "ownerId"],
     catalog: ["id", "kind"],
@@ -168,8 +174,10 @@ export function validCard(payload) {
 }
 
 // The large card image URL for a validated card, or null for the small card.
+// TASK-20261106-001: layout "image" (プレイまとめ) は絵を描かず、EF が渡した Web のリンクカードの住所をそのまま使う
 export function largeCardImageUrl(card, target) {
   if (!card?.large || !target?.upstreamParam) return null;
+  if (card.large.layout === "image") return card.large.image_url;
   return largeImageUrl(target.upstreamParam, target.upstreamValue, card.large);
 }
 

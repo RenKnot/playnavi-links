@@ -98,6 +98,8 @@ async function fetchLarge(target, fetchImpl, metaUrl, started) {
       if (payload?.status !== "ok") throw metaFailure("meta_not_ok", { permanent: true });
       const large = validLarge(payload.card?.large);
       if (!large) throw metaFailure("meta_invalid", { permanent: true });
+      // TASK-20261106-001: layout "image" (プレイまとめ) はこの口で描かない (リンクカードは Web の絵の住所を直接使う)
+      if (large.layout === "image") throw metaFailure("meta_invalid", { permanent: true });
       return large;
     } catch (error) {
       if (error?.permanent === true) throw error;

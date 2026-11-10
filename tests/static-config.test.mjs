@@ -91,6 +91,7 @@ test("production-only legacy routes and share preview stay ahead of safe fallbac
     "/users/:ownerId/tier-lists/:listId",
     "/users/:id/best-games",
     "/users/:id/diagnosis",
+    "/users/:id/recap/:period",
     "/users/:id",
     "/catalogs/:id",
     "/surveys/:surveySlug",
@@ -195,6 +196,7 @@ test("share preview uses the original HTML and only the approved share routes", 
     ["/users/:ownerId/tier-lists/:listId", "/api/share-preview?kind=tier_list&ownerId=:ownerId&listId=:listId"],
     ["/users/:id/best-games", "/api/share-preview?kind=best_games&id=:id"],
     ["/users/:id/diagnosis", "/api/share-preview?kind=diagnosis&id=:id"],
+    ["/users/:id/recap/:period", "/api/share-preview?kind=recap&id=:id&period=:period"],
     ["/users/:id", "/api/share-preview?kind=user&id=:id"],
     ["/catalogs/:id", "/api/share-preview?kind=catalog&id=:id"],
   ];
@@ -208,6 +210,7 @@ test("share preview uses the original HTML and only the approved share routes", 
   assert.ok(sources.indexOf("/users/:ownerId/tier-lists/:listId") < sources.indexOf("/users/:id"));
   assert.ok(sources.indexOf("/users/:id/best-games") < sources.indexOf("/users/:id"));
   assert.ok(sources.indexOf("/users/:id/diagnosis") < sources.indexOf("/users/:id"));
+  assert.ok(sources.indexOf("/users/:id/recap/:period") < sources.indexOf("/users/:id"));
   assert.ok(sources.indexOf("/s/:code") < sources.indexOf("/(.*)"));
 });
 

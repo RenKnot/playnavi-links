@@ -43,6 +43,7 @@ const PROFILE = {
   layout: "profile", name: "Ao", avatar_url: AVATAR, background_url: null,
   stats: { total: 10, playing: 1, completed: 2, streaming_completed: 3, dropped: 1, want_to_play: 3 },
 };
+const RECAP_IMAGE = { layout: "image", image_url: "https://playnavi.app/share-image/recap/12345678-1234-1234-1234-123456789abc/2026-h1?format=card" };
 const GRID = { layout: "grid", title: "Best", subtitle: "Ranking", ranked: true, cover_urls: [COVER, COVER2], total_count: 12 };
 
 test("validLarge accepts the three layouts and normalizes key order", () => {
@@ -293,6 +294,8 @@ test("two failed reads, a missing large card or a render error answer 503 no-sto
     [[() => Response.json({ status: "error", error: { code: "x" } })], 1, "meta_not_ok"],
     [[okMeta(null)], 1, "meta_invalid"],
     [[okMeta({ ...GAME, cover_url: "https://example.com/x.jpg" })], 1, "meta_invalid"],
+    // TASK-20261106-001: プレイまとめ (layout "image") はこの口で描かない (リンクカードは Web の絵を直接使う)
+    [[okMeta(RECAP_IMAGE)], 1, "meta_invalid"],
   ];
   for (const [answers, expectedCalls, reason] of cases) {
     const { fetchImpl, metaCalls } = metaSequence(answers);
@@ -1192,6 +1195,21 @@ for (const [name, raw] of R11_PATTERNS) {
     assert.ok(body.length <= JPEG_MAX_BYTES, `${body.length} bytes`);
   });
 }
+
+test("validLarge accepts the play recap image layout only for our Web link card URL (TASK-20261106-001)", () => {
+  assert.deepEqual(validLarge({ ...RECAP_IMAGE, extra: 1 }), RECAP_IMAGE);
+  for (const image_url of [
+    "https://playnavi.app/share-image/recap/12345678-1234-1234-1234-123456789abc/2026-h1?format=4x5",
+    "https://playnavi.app/share-image/recap/12345678-1234-1234-1234-123456789abc/2026-h1?format=card&x=1",
+    "https://playnavi.app/share-image/recap/12345678-1234-1234-1234-123456789abc/2026-H1?format=card",
+    "https://playnavi.app/share-image/tier-list/12345678-1234-1234-1234-123456789abc/2026?format=card",
+    "https://images.igdb.com/share-image/recap/12345678-1234-1234-1234-123456789abc/2026?format=card",
+    "https://playnavi.app:8443/share-image/recap/12345678-1234-1234-1234-123456789abc/2026?format=card",
+    null,
+  ]) {
+    assert.equal(validLarge({ layout: "image", image_url }), null, String(image_url));
+  }
+});
 
 // ---------------------------------------------------------------- TASK-20261110-001 改訂 4: 描けない時を無くす
 // 11/10 Emiya「描けないときって何？そんなことありえちゃだめだろ。できるようにしてって話」。描けない理由を全部並べ、

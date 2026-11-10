@@ -114,7 +114,7 @@ test("AI return link rejects unsupported actions and query injection", () => {
   ]) assert.equal(aiReturnTargetFromPath(path), null, path);
 });
 
-test("allowlists the nine canonical target shapes", () => {
+test("allowlists the ten canonical target shapes", () => {
   const cases = [
     [`/users/${UUID_A}/best-games`, "best_games"],
     [`/users/${UUID_A}/diagnosis`, "diagnosis"],
@@ -126,6 +126,10 @@ test("allowlists the nine canonical target shapes", () => {
     [`/users/${UUID_A}/tier-lists/${UUID_B}`, "tier_list"],
     [`/users/${UUID_A}/tier-lists/${UUID_B}?remix=1`, "tier_list"],
     [`/catalogs/${UUID_B}`, "catalog"],
+    // TASK-20261106-001 プレイまとめ (年・半期・月)
+    [`/users/${UUID_A}/recap/2026`, "recap"],
+    [`/users/${UUID_A}/recap/2026-h2`, "recap"],
+    [`/users/${UUID_A}/recap/2026-10`, "recap"],
   ];
 
   for (const [path, type] of cases) {
@@ -166,6 +170,14 @@ test("rejects arbitrary URLs, schemes, queries, fragments, and short paths", () 
     `/users/${UUID_A}/tier-lists/${UUID_B}?remix=1&next=https://evil.example`,
     `/users/${UUID_A}/tier-lists/${UUID_B}?share=1`,
     `/users/${UUID_A}/tier-lists/${UUID_B}#remix`,
+    // recap: lower-case period shapes only, nothing after
+    `/users/${UUID_A}/recap/2026-H1`,
+    `/users/${UUID_A}/recap/2026-h3`,
+    `/users/${UUID_A}/recap/2026-13`,
+    `/users/${UUID_A}/recap/2026-1`,
+    `/users/${UUID_A}/recap/2026/`,
+    `/users/${UUID_A}/recap/2026?x=1`,
+    `/users/${UUID_A}/recap`,
     // moment (TASK-20261017-002): only ?logId=&moment= in this order, two uuids, nothing else.
     `/game/42?moment=${UUID_B}&logId=${UUID_A}`,
     `/game/42?moment=${UUID_B}`,
