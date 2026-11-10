@@ -245,15 +245,16 @@ test("an upstream answering in 2 seconds still produces the specific card", asyn
   });
 });
 
-test("an actual slow HTTP upstream is cut off at about 3 seconds", async () => {
-  assert.equal(UPSTREAM_TIMEOUT_MS, 3000);
-  await withSlowUpstream(4000, async (metaUrl) => {
+test("an actual slow HTTP upstream is cut off at about 5 seconds", async () => {
+  // TASK-20261110-001: 中身サーバの起き上がりは STG 実測 2.38 秒、本番のカードは温まっていないと 3.6 秒 (11/10)
+  assert.equal(UPSTREAM_TIMEOUT_MS, 5000);
+  await withSlowUpstream(6000, async (metaUrl) => {
     const start = performance.now();
-    // share-view も同じ遅い相手。2 つは同時に聞くので合計でも約 3 秒
+    // share-view も同じ遅い相手。2 つは同時に聞くので合計でも約 5 秒
     const response = await invoke({ query: { code: CODE } }, { metaUrl, viewUrl: metaUrl });
     const elapsedMs = performance.now() - start;
     assert.equal(tag(response.body, "og:title"), GENERIC_CARD.title);
-    assert.ok(elapsedMs >= 2900 && elapsedMs < 3400, `elapsed ${elapsedMs}ms`);
+    assert.ok(elapsedMs >= 4900 && elapsedMs < 5400, `elapsed ${elapsedMs}ms`);
   });
 });
 
@@ -470,11 +471,12 @@ test("r5: share-view 404 / 5xx / time-out / wrong shape leave today's HTML byte 
   assert.equal(thrown.body, baseline.body);
 });
 
-test("r5: a share-view slower than 3 seconds is cut off and the card still arrives", async () => {
+// TASK-20261110-001: the limit is UPSTREAM_TIMEOUT_MS (5s, was 3s); a view slower than that is still cut off.
+test("r5: a share-view slower than the upstream limit (5 seconds) is cut off and the card still arrives", async () => {
   const start = performance.now();
-  const response = await invoke(momentRequest, { fetchImpl: upstreamFixture({ view: momentView(), viewDelayMs: 4000 }).fetchImpl, metaUrl: META, viewUrl: VIEW });
+  const response = await invoke(momentRequest, { fetchImpl: upstreamFixture({ view: momentView(), viewDelayMs: UPSTREAM_TIMEOUT_MS + 1000 }).fetchImpl, metaUrl: META, viewUrl: VIEW });
   const elapsed = performance.now() - start;
-  assert.ok(elapsed >= 2900 && elapsed < 3400, `elapsed ${elapsed}ms`);
+  assert.ok(elapsed >= UPSTREAM_TIMEOUT_MS - 100 && elapsed < UPSTREAM_TIMEOUT_MS + 400, `elapsed ${elapsed}ms`);
   assert.equal(embedded(response.body), null);
   assert.equal(tag(response.body, "og:title"), CARD.card.title);
 });

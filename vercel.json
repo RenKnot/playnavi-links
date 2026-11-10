@@ -6,7 +6,8 @@
     },
     "api/og.mjs": {
       "includeFiles": "{logo.png,assets/og/**}",
-      "regions": ["hnd1"]
+      "regions": ["hnd1"],
+      "maxDuration": 20
     }
   },
   "headers": [
@@ -132,7 +133,149 @@
       ]
     }
   ],
+  "redirects": [
+    {
+      "source": "/",
+      "has": [
+        { "type": "host", "value": { "re": "^(?:www\\.)?playnavilab\\.com$" } }
+      ],
+      "destination": "https://playnavi.app/",
+      "statusCode": 301
+    },
+    {
+      "source": "/home",
+      "has": [
+        { "type": "host", "value": { "re": "^(?:www\\.)?playnavilab\\.com$" } }
+      ],
+      "destination": "https://playnavi.app/",
+      "statusCode": 301
+    },
+    {
+      "source": "/news/category/:x*",
+      "has": [
+        { "type": "host", "value": { "re": "^(?:www\\.)?playnavilab\\.com$" } }
+      ],
+      "destination": "https://playnavi.app/news",
+      "statusCode": 301
+    },
+    {
+      "source": "/news/tag/:x*",
+      "has": [
+        { "type": "host", "value": { "re": "^(?:www\\.)?playnavilab\\.com$" } }
+      ],
+      "destination": "https://playnavi.app/news",
+      "statusCode": 301
+    },
+    {
+      "source": "/news",
+      "has": [
+        { "type": "host", "value": { "re": "^(?:www\\.)?playnavilab\\.com$" } }
+      ],
+      "destination": "https://playnavi.app/news",
+      "statusCode": 301
+    },
+    {
+      "source": "/news/:slug",
+      "has": [
+        { "type": "host", "value": { "re": "^(?:www\\.)?playnavilab\\.com$" } }
+      ],
+      "destination": "https://playnavi.app/news/:slug",
+      "statusCode": 301
+    },
+    {
+      "source": "/news/:x+",
+      "has": [
+        { "type": "host", "value": { "re": "^(?:www\\.)?playnavilab\\.com$" } }
+      ],
+      "destination": "https://playnavi.app/news",
+      "statusCode": 301
+    },
+    {
+      "source": "/press",
+      "has": [
+        { "type": "host", "value": { "re": "^(?:www\\.)?playnavilab\\.com$" } }
+      ],
+      "destination": "https://playnavi.app/press",
+      "statusCode": 301
+    },
+    {
+      "source": "/contact",
+      "has": [
+        { "type": "host", "value": { "re": "^(?:www\\.)?playnavilab\\.com$" } }
+      ],
+      "destination": "https://playnavi.app/contact",
+      "statusCode": 301
+    },
+    {
+      "source": "/new-page",
+      "has": [
+        { "type": "host", "value": { "re": "^(?:www\\.)?playnavilab\\.com$" } }
+      ],
+      "destination": "https://playnavi.app/",
+      "statusCode": 301
+    },
+    {
+      "source": "/s/:file(20261102_v5__-se9k\\.zip|20261102_v5__\\.zip|PlayNavi_AppIcon\\.png|PlayNavi_Logo_Transparent\\.png|kv\\.jpg|web_hero_mb\\.mp4)",
+      "has": [
+        { "type": "host", "value": { "re": "^(?:www\\.)?playnavilab\\.com$" } }
+      ],
+      "destination": "https://playnavi.app/press/files/:file",
+      "statusCode": 301
+    },
+    {
+      "source": "/s/:x*",
+      "has": [
+        { "type": "host", "value": { "re": "^(?:www\\.)?playnavilab\\.com$" } }
+      ],
+      "destination": "https://playnavi.app/press",
+      "statusCode": 301
+    },
+    {
+      "source": "/:path((?!(?:terms|privacypolicy|legal|robots\\.txt)$).*)",
+      "has": [
+        { "type": "host", "value": { "re": "^(?:www\\.)?playnavilab\\.com$" } }
+      ],
+      "destination": "https://playnavi.app/",
+      "statusCode": 301
+    },
+    {
+      "source": "/privacypolicy",
+      "has": [
+        { "type": "host", "value": "playnavi.app" }
+      ],
+      "destination": "/privacy",
+      "statusCode": 301
+    }
+  ],
   "rewrites": [
+    {
+      "source": "/terms",
+      "has": [
+        { "type": "host", "value": { "re": "^(?:www\\.)?playnavilab\\.com$" } }
+      ],
+      "destination": "/terms.html"
+    },
+    {
+      "source": "/privacypolicy",
+      "has": [
+        { "type": "host", "value": { "re": "^(?:www\\.)?playnavilab\\.com$" } }
+      ],
+      "destination": "/privacy.html"
+    },
+    {
+      "source": "/legal",
+      "has": [
+        { "type": "host", "value": { "re": "^(?:www\\.)?playnavilab\\.com$" } }
+      ],
+      "destination": "/legal.html"
+    },
+    {
+      "source": "/robots.txt",
+      "has": [
+        { "type": "host", "value": { "re": "^(?:www\\.)?playnavilab\\.com$" } }
+      ],
+      "destination": "/robots-links.txt"
+    },
     {
       "source": "/auth/steam/callback",
       "has": [
@@ -330,12 +473,38 @@
       "destination": "/privacy.html"
     },
     {
+      "source": "/terms",
+      "destination": "/terms.html"
+    },
+    {
+      "source": "/legal",
+      "destination": "/legal.html"
+    },
+    {
       "source": "/help/claude",
       "destination": "/help-claude.html"
     },
     {
       "source": "/help/chatgpt",
       "destination": "/help-chatgpt.html"
+    },
+    {
+      "source": "/robots.txt",
+      "has": [
+        { "type": "host", "value": "playnavi.app" }
+      ],
+      "destination": "/robots-playnavi-app.txt"
+    },
+    {
+      "source": "/robots.txt",
+      "has": [
+        { "type": "host", "value": { "re": "^playnavi-links-(?:[a-z0-9]+|git-bridge-[a-z0-9-]+)-masanobu-iwasakis-projects\\.vercel\\.app$" } }
+      ],
+      "destination": "/robots-playnavi-app.txt"
+    },
+    {
+      "source": "/robots.txt",
+      "destination": "/robots-links.txt"
     },
     {
       "source": "/index.html",

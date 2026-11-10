@@ -8,6 +8,9 @@ export const ALLOWED_IMAGE_HOSTS = new Set([
   "images.igdb.com",
   "irbtguncoatqfikctreq.supabase.co",
   "playnavi.app",
+  // TASK-20261110-001: 37,034 games (production 11/10) have only a Steam cover (library_600x900 / library_capsule,
+  // portrait). Without this host the whole large card was rejected (503) for every record of those games.
+  "shared.akamai.steamstatic.com",
 ]);
 const MAX_TEXT = 200;
 const AXIS_LABEL_MAX = 10;
@@ -23,9 +26,18 @@ const fail = () => { throw new Invalid(); };
 function onlyKeys(object) {
   if (!object || typeof object !== "object" || Array.isArray(object)) fail();
 }
-function text(value, { nullable = false, allowEmpty = false } = {}) {
-  if (value === null && nullable) return null;
-  if (typeof value !== "string" || value.length > MAX_TEXT) fail();
+// TASK-20261110-001 rev 4: a longer text is cut to MAX_TEXT (UTF-16 units, never half of a surrogate pair) instead of
+// failing the whole card. Production has game titles up to 252 characters (4 over 200, 11/10); each of their records
+// answered 503 forever (meta_invalid). The first 200 characters are kept; the layouts shorten what does not fit.
+function clip(value) {
+  if (value.length <= MAX_TEXT) return value;
+  const cut = value.slice(0, MAX_TEXT);
+  return /[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut;
+}
+function text(raw, { nullable = false, allowEmpty = false } = {}) {
+  if (raw === null && nullable) return null;
+  if (typeof raw !== "string") fail();
+  const value = clip(raw);
   if (!allowEmpty && !value.trim()) {
     if (nullable) return null;
     fail();

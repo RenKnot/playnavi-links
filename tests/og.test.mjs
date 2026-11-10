@@ -8,12 +8,21 @@ import sharp from "sharp";
 import { cardText, loadSubsetFont, validLarge } from "../api/_lib/og-card.mjs";
 import { ALLOWED_IMAGE_HOSTS } from "../api/_lib/og-large.mjs";
 import {
+  CARD_FAILED_VALUE,
+  CARD_HEADER,
+  CARD_REASON_HEADER,
+  CARD_REASON_PATTERN,
+  CARD_RENDERED_VALUE,
+  cardFailureReason,
   createOgHandler,
   FALLBACK_CACHE_CONTROL,
   FALLBACK_URL,
+  META_TIMEOUT_MS,
   OG_CACHE_CONTROL,
   OG_MOMENT_CACHE_CONTROL,
   ogTarget,
+  UNAVAILABLE_CACHE_CONTROL,
+  UNAVAILABLE_RETRY_AFTER,
 } from "../api/og.mjs";
 import { largeVersion } from "../api/_lib/og-large.mjs";
 import { renderPreviewHtml } from "../api/_lib/share-preview.mjs";
@@ -56,7 +65,7 @@ test("validLarge accepts the three layouts and normalizes key order", () => {
 test("validLarge rejects wrong types, long text, bad counts and disallowed image hosts", () => {
   const rejects = [
     null, "x", [], {}, { ...GAME, layout: "other" },
-    { ...GAME, title: "" }, { ...GAME, title: 5 }, { ...GAME, title: "x".repeat(201) },
+    { ...GAME, title: "" }, { ...GAME, title: 5 },
     { ...GAME, cover_url: "http://images.igdb.com/a.jpg" },
     { ...GAME, cover_url: "https://example.com/a.jpg" },
     { ...GAME, cover_url: "https://images.igdb.com.evil.example/a.jpg" },
@@ -71,7 +80,6 @@ test("validLarge rejects wrong types, long text, bad counts and disallowed image
     { ...GRID, ranked: "yes" }, { ...GRID, cover_urls: [COVER, COVER, COVER, COVER] },
     { ...GRID, cover_urls: ["https://example.com/a.jpg"] }, { ...GRID, total_count: -3 },
     { ...GRID, subtitle: null }, { ...GRID, owner_avatar_url: "https://example.com/a.png" },
-    { ...GRID, description: "x".repeat(201) },
   ];
   for (const large of rejects) assert.equal(validLarge(large), null, JSON.stringify(large));
 });
@@ -198,6 +206,7 @@ for (const [name, large] of [["game", GAME], ["profile", PROFILE], ["grid", GRID
       assert.equal(response.status, 200);
       assert.equal(response.headers.get("content-type"), "image/png");
       assert.equal(response.headers.get("cache-control"), OG_CACHE_CONTROL);
+      assert.equal(response.headers.get("x-playnavi-card"), CARD_RENDERED_VALUE);
       assert.deepEqual(pngSize(Buffer.from(await response.arrayBuffer())), [1200, 630]);
     });
     const meta = new URL(seen[0]);
@@ -214,29 +223,156 @@ test("image fetch failures degrade to placeholders and still return 200", async 
   });
 });
 
-test("upstream failures, missing large cards and bad parameters redirect to the static fallback", async () => {
+// TASK-20261110-001 不具合 3: 中身サーバ (EF share-preview-meta) の起き上がり (STG 実測 2.38 秒) に当たると 2.5 秒で
+// 時間切れ → 302 → og-fallback.png を CDN が 60 秒覚え、X は数日・Bluesky は投稿に焼き込んで失敗が固定されていた。
+// 新しい決まり: 一時的な失敗 (時間切れ・5xx・通信の失敗) は 1 回だけやり直す。描けなければ 503 + no-store (誰にも
+// 覚えさせない) + X-PlayNavi-Card: failed + X-PlayNavi-Card-Reason: <失敗した段 (固定の語)>。描けた時だけ
+// X-PlayNavi-Card: rendered (アプリの温めと自動投稿が本物の絵と見分ける)。
+const timeoutError = () => new DOMException("The operation was aborted due to timeout", "TimeoutError");
+
+// 中身サーバの答えを呼ばれた順に決める偽の fetch (answers が尽きたら最後の答えを繰り返す)。絵はいつも返す
+function metaSequence(answers) {
+  let calls = 0;
+  const fetchImpl = async (url) => {
+    if (String(url).includes("/functions/v1/share-preview-meta")) {
+      const answer = answers[Math.min(calls, answers.length - 1)];
+      calls += 1;
+      return answer();
+    }
+    return new Response(IMAGE);
+  };
+  return { fetchImpl, metaCalls: () => calls };
+}
+const okMeta = (large = GAME) => () => Response.json({ status: "ok", card: { title: "t", description: "d", image_url: COVER, large } });
+// EF share-preview-meta の見つからない時の形 (playnavi-supabase _shared/shortLinkHttp.ts resolveNotFound)
+const notFoundMeta = () => Response.json({ status: "not_found", error: { code: "short_link_not_found" } }, { status: 404 });
+const failingMeta = (status) => () => new Response("no", { status });
+const throwingMeta = () => { throw timeoutError(); };
+// undici が通信の失敗で投げる形 (DNS・接続拒否・切断)
+const networkMeta = () => { throw new TypeError("fetch failed"); };
+
+async function expectUnavailable(handler, reason, path = `/api/og?code=${CODE}`) {
+  await withServer(handler, async (origin) => {
+    const response = await fetch(`${origin}${path}`, { redirect: "manual" });
+    assert.equal(response.status, 503, path);
+    assert.equal(response.headers.get("cache-control"), UNAVAILABLE_CACHE_CONTROL);
+    assert.equal(response.headers.get("retry-after"), UNAVAILABLE_RETRY_AFTER);
+    assert.equal(response.headers.get("location"), null);
+    assert.equal(response.headers.get("x-playnavi-card"), CARD_FAILED_VALUE);
+    assert.equal(response.headers.get("x-playnavi-card-reason"), reason);
+    assert.match(reason, CARD_REASON_PATTERN);
+    assert.equal((await response.arrayBuffer()).byteLength, 0);
+  });
+}
+
+test("the meta read allows 8 seconds; a first read that times out or answers 5xx is read once more, and the drawn card says so", async () => {
+  assert.equal(META_TIMEOUT_MS, 8000);
+  assert.equal(CARD_HEADER, "X-PlayNavi-Card");
+  assert.equal(CARD_RENDERED_VALUE, "rendered");
+  for (const first of [throwingMeta, failingMeta(502)]) {
+    const { fetchImpl, metaCalls } = metaSequence([first, okMeta()]);
+    await withServer(createOgHandler({ fetchImpl, fontLoader }), async (origin) => {
+      const response = await fetch(`${origin}/api/og?code=${CODE}`, { redirect: "manual" });
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("x-playnavi-card"), CARD_RENDERED_VALUE);
+      assert.equal(response.headers.get("cache-control"), OG_CACHE_CONTROL);
+      assert.deepEqual(pngSize(Buffer.from(await response.arrayBuffer())), [1200, 630]);
+    });
+    assert.equal(metaCalls(), 2);
+  }
+});
+
+test("two failed reads, a missing large card or a render error answer 503 no-store with Retry-After and the failed stage, never the cached fallback", async () => {
+  assert.equal(UNAVAILABLE_CACHE_CONTROL, "no-store");
+  assert.equal(UNAVAILABLE_RETRY_AFTER, "3");
+  assert.equal(CARD_FAILED_VALUE, "failed");
+  assert.equal(CARD_REASON_HEADER, "X-PlayNavi-Card-Reason");
   const cases = [
-    [upstream(GAME, { metaStatus: 404 }).fetchImpl, `/api/og?code=${CODE}`],
-    [upstream(undefined).fetchImpl, `/api/og?code=${CODE}`],
-    [upstream({ ...GAME, cover_url: "https://example.com/x.jpg" }).fetchImpl, `/api/og?code=${CODE}`],
-    [async () => { throw new Error("timeout"); }, `/api/og?code=${CODE}`],
-    [upstream(GAME).fetchImpl, "/api/og?code=bad"],
-    [upstream(GAME).fetchImpl, `/api/og?code=${CODE}&x=1`],
+    [[throwingMeta, throwingMeta], 2, "meta_timeout"],
+    [[networkMeta, networkMeta], 2, "meta_status_0"],
+    [[failingMeta(500), failingMeta(503)], 2, "meta_status_503"],
+    [[() => Response.json({ status: "error", error: { code: "x" } })], 1, "meta_not_ok"],
+    [[okMeta(null)], 1, "meta_invalid"],
+    [[okMeta({ ...GAME, cover_url: "https://example.com/x.jpg" })], 1, "meta_invalid"],
     // TASK-20261106-001: プレイまとめ (layout "image") はこの口で描かない (リンクカードは Web の絵を直接使う)
-    [upstream(RECAP_IMAGE).fetchImpl, `/api/og?code=${CODE}`],
+    [[okMeta(RECAP_IMAGE)], 1, "meta_invalid"],
   ];
-  for (const [fetchImpl, path] of cases) {
+  for (const [answers, expectedCalls, reason] of cases) {
+    const { fetchImpl, metaCalls } = metaSequence(answers);
+    await expectUnavailable(createOgHandler({ fetchImpl, fontLoader }), reason);
+    assert.equal(metaCalls(), expectedCalls, reason);
+  }
+  // 描く処理の例外: 文字が取り寄せられず同梱の字も読めない (配備から抜けた) = font、それ以外 (部品の読み込み等) = render。
+  // rev 4: 取り寄せた字が駄目なだけなら同梱の字で描く (200。下の rev4 の試験)
+  let run = metaSequence([okMeta()]);
+  await expectUnavailable(createOgHandler({
+    fetchImpl: run.fetchImpl,
+    fontLoader: async () => { throw new Error("font down"); },
+    bundledFontLoader: async () => { throw new Error("bundled font missing"); },
+  }), "font");
+  assert.equal(run.metaCalls(), 1);
+  run = metaSequence([okMeta()]);
+  await expectUnavailable(createOgHandler({ fetchImpl: run.fetchImpl, fontLoader, assetsLoader: async () => { throw new Error("assets down"); } }), "render");
+  // 大きすぎる JPEG はその段の語。例外の文や固定の語でない物は外へ出さない (render に丸める)
+  const png = await sharp({ create: { width: 1200, height: 630, channels: 3, background: "#3366cc" } }).png().toBuffer();
+  await assert.rejects(toJpeg(png, 10), (error) => cardFailureReason(error) === "jpeg_too_large");
+  assert.equal(cardFailureReason(Object.assign(new Error("x"), { reason: "boom: secret text" })), "render");
+  assert.equal(cardFailureReason(new Error("x")), "render");
+});
+
+test("not_found is read once (no retry) and answers 503 with its status as the stage", async () => {
+  const { fetchImpl, metaCalls } = metaSequence([notFoundMeta, okMeta()]);
+  await expectUnavailable(createOgHandler({ fetchImpl, fontLoader }), "meta_status_404");
+  assert.equal(metaCalls(), 1);
+});
+
+test("bad parameters redirect to the static fallback without reading upstream, and nobody caches that redirect", async () => {
+  assert.equal(FALLBACK_CACHE_CONTROL, "no-store");
+  for (const path of ["/api/og?code=bad", `/api/og?code=${CODE}&x=1`, "/api/og"]) {
+    const { fetchImpl, metaCalls } = metaSequence([okMeta()]);
     await withServer(createOgHandler({ fetchImpl, fontLoader }), async (origin) => {
       const response = await fetch(`${origin}${path}`, { redirect: "manual" });
       assert.equal(response.status, 302, path);
       assert.equal(response.headers.get("location"), FALLBACK_URL);
       assert.equal(response.headers.get("cache-control"), FALLBACK_CACHE_CONTROL);
     });
+    assert.equal(metaCalls(), 0, path);
   }
-  await withServer(createOgHandler({ fetchImpl: upstream(GAME).fetchImpl, fontLoader }), async (origin) => {
+  await withServer(createOgHandler({ fetchImpl: metaSequence([okMeta()]).fetchImpl, fontLoader }), async (origin) => {
     const response = await fetch(`${origin}/api/og?code=${CODE}`, { method: "POST" });
     assert.equal(response.status, 405);
   });
+});
+
+test("a font fetch that times out or answers non-2xx is retried once (from the stylesheet); a wrong origin is not", async () => {
+  const css = "@font-face { src: url(https://fonts.gstatic.com/s/notosansjp/x.ttf) format('truetype'); }";
+  const fontFetch = (answers) => {
+    const calls = [];
+    const fetchImpl = async (url) => {
+      calls.push(String(url));
+      return answers[Math.min(calls.length - 1, answers.length - 1)]();
+    };
+    return { fetchImpl, calls };
+  };
+  const stylesheet = () => new Response(css);
+  const font = () => new Response(FONT.slice(0));
+  const unavailable = () => new Response("no", { status: 503 });
+  // 1 回目の一覧 (stylesheet) が時間切れ → 2 回目で一覧・書体とも読めて描ける
+  let run = fontFetch([() => { throw timeoutError(); }, stylesheet, font]);
+  assert.equal((await loadSubsetFont("x", 700, run.fetchImpl)).byteLength, FONT.byteLength);
+  assert.equal(run.calls.length, 3);
+  // 一覧は読めたが書体が 503 → 一覧からもう 1 回やり直して描ける
+  run = fontFetch([stylesheet, unavailable, stylesheet, font]);
+  assert.equal((await loadSubsetFont("x", 700, run.fetchImpl)).byteLength, FONT.byteLength);
+  assert.equal(run.calls.length, 4);
+  // 2 回とも駄目なら失敗 (3 回目はしない)
+  run = fontFetch([unavailable]);
+  await assert.rejects(loadSubsetFont("x", 700, run.fetchImpl), /Japanese font stylesheet unavailable/);
+  assert.equal(run.calls.length, 2);
+  // 配信元が違うのはやり直しても同じなので 1 回で止める
+  run = fontFetch([() => new Response("@font-face { src: url(https://example.org/font.ttf) format('truetype'); }")]);
+  await assert.rejects(loadSubsetFont("x", 700, run.fetchImpl), /Unexpected Japanese font origin/);
+  assert.equal(run.calls.length, 1);
 });
 
 test("the static fallback image is a 1200x630 PNG", async () => {
@@ -246,7 +382,8 @@ test("the static fallback image is a 1200x630 PNG", async () => {
 
 test("vercel config routes /api/og to the Tokyo region with its drawn assets", async () => {
   const config = JSON.parse(await readFile(new URL("../vercel.json", import.meta.url), "utf8"));
-  assert.deepEqual(config.functions?.["api/og.mjs"], { includeFiles: "{logo.png,assets/og/**}", regions: ["hnd1"] });
+  // TASK-20261110-001 rev 4: 中身の読み込み 10 秒まで (META_BUDGET_MS) + 描き終わりは 17 秒まで (CARD_DEADLINE_MS) が入る長さ
+  assert.deepEqual(config.functions?.["api/og.mjs"], { includeFiles: "{logo.png,assets/og/**}", regions: ["hnd1"], maxDuration: 20 });
   assert.equal(config.functions?.["api/og-probe.mjs"], undefined);
   assert.equal(JSON.stringify(config).includes("og-probe"), false);
 });
@@ -353,7 +490,6 @@ test("validLarge accepts the moment layout; a spoiler drops text and photo", () 
   assert.deepEqual(validLarge({ ...MOMENT, spoiler: true }), { ...MOMENT, spoiler: true, excerpt: null, photo_url: null });
   const rejects = [
     { ...MOMENT, spoiler: "no" }, { ...MOMENT, heading: "" }, { ...MOMENT, title: null },
-    { ...MOMENT, excerpt: "x".repeat(201) },
     // Only a signed URL of the private photo bucket on an allow-listed host.
     { ...MOMENT, photo_url: COVER },
     { ...MOMENT, photo_url: `https://${STORAGE}${PHOTO_PATH}` },
@@ -1073,4 +1209,222 @@ test("validLarge accepts the play recap image layout only for our Web link card 
   ]) {
     assert.equal(validLarge({ layout: "image", image_url }), null, String(image_url));
   }
+});
+
+// ---------------------------------------------------------------- TASK-20261110-001 改訂 4: 描けない時を無くす
+// 11/10 Emiya「描けないときって何？そんなことありえちゃだめだろ。できるようにしてって話」。描けない理由を全部並べ、
+// links で無くせる物は無くした: 字 (Google Fonts) が取れない → 同梱の字 / 絵文字の取り寄せ (@vercel/og → jsDelivr) が
+// 落ちる・止まる → 同梱の字にある字だけで描き直す / 絵の読み込みの積み重ね・中身の読み直しで関数の上限 (20 秒) を超える
+// → 段ごとの持ち時間 / 題名が 200 字を超える作品 (本番 4 件) → 切って描く。
+const {
+  BUNDLED_FONT_FILES, CARD_DEADLINE_MS, FONT_BUDGET_MS, IMAGE_BUDGET_MS, fontCodePoints, loadBundledFonts,
+  renderCardImage: renderImage, toJpeg: encodeJpeg, JPEG_MAX_BYTES: JPEG_LIMIT,
+} = await import("../api/_lib/og-card.mjs");
+const { CARD_FALLBACK_HEADER, META_BUDGET_MS, metaAttemptTimeout } = await import("../api/og.mjs");
+
+const FONT_DIR = new URL("../assets/og/fonts/", import.meta.url);
+const googleFontHost = (href) => /^https:\/\/fonts\.(googleapis|gstatic)\.com\//.test(href);
+const JP_GAME = { layout: "game", heading: "ひなたさんのプレイ記録", title: "ゼルダの伝説 ティアーズ オブ ザ キングダム", publisher: "任天堂", developer: "Nintendo EPD", cover_url: COVER };
+
+// 中身サーバと絵は答え、Google Fonts だけ落ちている fetch
+function googleFontsDown(large) {
+  const seen = [];
+  const fetchImpl = async (url) => {
+    const href = String(url);
+    seen.push(href);
+    if (googleFontHost(href)) throw new TypeError("fetch failed");
+    if (href.includes("/functions/v1/share-preview-meta")) {
+      return Response.json({ status: "ok", card: { title: "t", description: "d", image_url: COVER, large } });
+    }
+    return new Response(IMAGE);
+  };
+  return { fetchImpl, seen };
+}
+
+// @vercel/og は絵文字を自分で jsDelivr から取る (渡した fetch でなく globalThis.fetch)。その取り寄せを差し替えて試す
+async function withGlobalFetch(answer, run) {
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const href = String(url);
+    if (href.startsWith("https://cdn.jsdelivr.net/") || googleFontHost(href)) return answer(href, init);
+    return real(url, init);
+  };
+  try {
+    return await run();
+  } finally {
+    globalThis.fetch = real;
+  }
+}
+
+test("rev4: Google Fonts down -> the card is still drawn (200 + rendered) with the bundled Noto Sans JP, and later cards skip Google for a while", async () => {
+  const { fetchImpl, seen } = googleFontsDown(JP_GAME);
+  // fontLoader を渡さない = 本番と同じ Google Fonts の経路
+  await withServer(createOgHandler({ fetchImpl }), async (origin) => {
+    const response = await fetch(`${origin}/api/og?code=${CODE}`, { redirect: "manual" });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("x-playnavi-card"), CARD_RENDERED_VALUE);
+    assert.equal(response.headers.get(CARD_FALLBACK_HEADER.toLowerCase()), "font");
+    assert.deepEqual(pngSize(Buffer.from(await response.arrayBuffer())), [1200, 630]);
+    assert.ok(seen.some((href) => href.startsWith("https://fonts.googleapis.com/")), "Google Fonts was tried first");
+    // 落ちていると分かった後の絵は Google を待たずに同梱の字で描く
+    const before = seen.filter(googleFontHost).length;
+    const again = await fetch(`${origin}/api/og?code=${CODE}&v=2`, { redirect: "manual" });
+    assert.equal(again.status, 200);
+    assert.equal(again.headers.get(CARD_FALLBACK_HEADER.toLowerCase()), "font");
+    assert.equal(seen.filter(googleFontHost).length, before, "Google Fonts is not asked again right away");
+  });
+});
+
+test("rev4: the bundled fonts are read only when the fetched font fails (never on a normal card)", async () => {
+  let reads = 0;
+  const bundledFontLoader = async () => { reads += 1; return await loadBundledFonts(); };
+  const ok = metaSequence([okMeta(JP_GAME)]);
+  await withServer(createOgHandler({ fetchImpl: ok.fetchImpl, fontLoader, bundledFontLoader }), async (origin) => {
+    const response = await fetch(`${origin}/api/og?code=${CODE}`, { redirect: "manual" });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get(CARD_FALLBACK_HEADER.toLowerCase()), null);
+  });
+  assert.equal(reads, 0);
+  const failing = metaSequence([okMeta(JP_GAME)]);
+  const brokenFont = async () => { throw new Error("font down"); };
+  await withServer(createOgHandler({ fetchImpl: failing.fetchImpl, fontLoader: brokenFont, bundledFontLoader }), async (origin) => {
+    const response = await fetch(`${origin}/api/og?code=${CODE}`, { redirect: "manual" });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("x-playnavi-card"), CARD_RENDERED_VALUE);
+    assert.equal(response.headers.get(CARD_FALLBACK_HEADER.toLowerCase()), "font");
+  });
+  assert.equal(reads, 1);
+  // 同梱の字まで読めない (配備から抜けた) 時だけ font で 503
+  const gone = metaSequence([okMeta(JP_GAME)]);
+  await expectUnavailable(createOgHandler({ fetchImpl: gone.fetchImpl, fontLoader: brokenFont, bundledFontLoader: async () => { throw new Error("ENOENT"); } }), "font");
+});
+
+test("rev4: a fetched font that is too slow falls back within the font budget", async () => {
+  assert.equal(FONT_BUDGET_MS, 3000);
+  const slowFont = () => new Promise(() => {});
+  const started = Date.now();
+  const { body, contentType, fallbacks } = await renderImage(JP_GAME, { fetchImpl: metaSequence([]).fetchImpl, fontLoader: slowFont, fontBudgetMs: 200 });
+  assert.equal(contentType, "image/png");
+  assert.deepEqual(pngSize(body), [1200, 630]);
+  assert.deepEqual(fallbacks, ["font"]);
+  assert.ok(Date.now() - started < 8000, `${Date.now() - started}ms`);
+});
+
+test("rev4: the bundled fonts are the official static Noto Sans JP 700 / 900 with their OFL and source note, shipped with api/og", async () => {
+  assert.deepEqual(BUNDLED_FONT_FILES, { 700: "NotoSansJP-Bold.otf", 900: "NotoSansJP-Black.otf" });
+  const note = await readFile(new URL("SOURCE.txt", FONT_DIR), "utf8");
+  assert.match(note, /https:\/\/github\.com\/notofonts\/noto-cjk\/releases\/download\/Sans2\.004\/16_NotoSansJP\.zip/);
+  assert.match(await readFile(new URL("OFL.txt", FONT_DIR), "utf8"), /SIL Open Font License,\s+Version 1\.1/);
+  for (const file of [...Object.values(BUNDLED_FONT_FILES), "OFL.txt"]) {
+    const bytes = await readFile(new URL(file, FONT_DIR));
+    const sha = createHash("sha256").update(bytes).digest("hex");
+    assert.ok(note.includes(`${sha}  ${file}`), `${file} sha256 is recorded in SOURCE.txt`);
+  }
+  for (const file of Object.values(BUNDLED_FONT_FILES)) {
+    const bytes = await readFile(new URL(file, FONT_DIR));
+    // 'OTTO' = CFF の静的な OpenType (satori は可変の字を扱えない)
+    assert.equal(bytes.readUInt32BE(0), 0x4f54544f, file);
+    assert.ok(bytes.length < 5_500_000, `${file} ${bytes.length} bytes`);
+  }
+  const config = JSON.parse(await readFile(new URL("../vercel.json", import.meta.url), "utf8"));
+  assert.match(config.functions["api/og.mjs"].includeFiles, /assets\/og\/\*\*/);
+});
+
+test("rev4: every fixed label and the usual Japanese / Latin / symbol text is in the bundled fonts", async () => {
+  const fonts = await loadBundledFonts();
+  const samples = [
+    validLarge(JP_GAME), validLarge(R3_MOMENT), validLarge({ ...R3_REVIEW, spoiler: true }), validLarge(DIAGNOSIS),
+    validLarge({ ...PROFILE, room: undefined }), validLarge({ ...GRID, kind: "catalog" }),
+  ].filter(Boolean);
+  const text = samples.map(cardText).join("") + "ゼルダの伝説 ティアーズ オブ ザ キングダム ABCxyz 0123 ★☆♪♡〜～！？：（）【】「」『』·…‑›×%&@#";
+  for (const weight of [700, 900]) {
+    const covered = fontCodePoints(fonts[weight]);
+    const missing = [...new Set(text)].filter((ch) => ch.trim() && !covered.has(ch.codePointAt(0)));
+    assert.deepEqual(missing, [], `weight ${weight}`);
+  }
+});
+
+test("rev4: an emoji the renderer cannot fetch (jsDelivr down) no longer fails the card: drawn again with the bundled font, without that emoji", async () => {
+  const large = { ...R3_MOMENT, spoiler: false, author_name: "Ao😂", media: [], counts: { photos: 0, videos: 0, text: true } };
+  await withGlobalFetch(() => { throw new TypeError("fetch failed"); }, async () => {
+    const { fetchImpl } = r3Upstream(large);
+    await withServer(createOgHandler({ fetchImpl, fontLoader }), async (origin) => {
+      const response = await fetch(`${origin}/api/og?code=${CODE}`, { redirect: "manual" });
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("x-playnavi-card"), CARD_RENDERED_VALUE);
+      assert.equal(response.headers.get(CARD_FALLBACK_HEADER.toLowerCase()), "text");
+      assert.deepEqual(await jpegSize(Buffer.from(await response.arrayBuffer())), [1200, 630]);
+    });
+  });
+});
+
+test("rev4: an emoji fetch that never answers is cut off by the render time limit and the card is drawn again", async () => {
+  const large = { ...R3_MOMENT, spoiler: false, author_name: "Ao🎮", media: [], counts: { photos: 0, videos: 0, text: true } };
+  await withGlobalFetch(() => new Promise(() => {}), async () => {
+    const started = Date.now();
+    const { body, contentType, fallbacks } = await renderImage(large, { fetchImpl: r3Upstream(large).fetchImpl, fontLoader, renderTimeoutMs: 300 });
+    assert.equal(contentType, "image/jpeg");
+    assert.deepEqual(await jpegSize(body), [1200, 630]);
+    assert.deepEqual(fallbacks, ["text"]);
+    assert.ok(Date.now() - started < 10_000, `${Date.now() - started}ms`);
+  });
+});
+
+test("rev4: image reads share one budget, so many slow images cannot push the card past the function limit", async () => {
+  assert.equal(IMAGE_BUDGET_MS, 3000);
+  // 中断の合図を守る、答えない絵のサーバ
+  const hanging = async (url, init = {}) => new Promise((_, reject) => {
+    init.signal?.addEventListener("abort", () => reject(init.signal.reason));
+  });
+  // AbortSignal.timeout の時計は Node を起こしておかない (本番は受けている通信が起こしておく) ので、試験の間だけ起こしておく
+  const awake = setInterval(() => {}, 100);
+  const started = Date.now();
+  const { body } = await renderImage(GRID, { fetchImpl: hanging, fontLoader, imageBudgetMs: 300 }).finally(() => clearInterval(awake));
+  assert.deepEqual(pngSize(body), [1200, 630]);
+  assert.ok(Date.now() - started < 1800, `${Date.now() - started}ms (one image alone may wait 2000ms)`);
+});
+
+test("rev4: the meta read keeps to its budget so the drawing always has time left inside maxDuration", async () => {
+  assert.equal(META_BUDGET_MS, 10_000);
+  assert.equal(CARD_DEADLINE_MS, 17_000);
+  assert.equal(metaAttemptTimeout(0), META_TIMEOUT_MS);
+  assert.equal(metaAttemptTimeout(500), META_TIMEOUT_MS);
+  assert.equal(metaAttemptTimeout(8000), 2000);
+  // 残りが 1 秒を切ったらもう読まない (読んでも描く時間が無い)
+  assert.equal(metaAttemptTimeout(9200), 0);
+  const config = JSON.parse(await readFile(new URL("../vercel.json", import.meta.url), "utf8"));
+  assert.ok(CARD_DEADLINE_MS + 2000 <= config.functions["api/og.mjs"].maxDuration * 1000);
+});
+
+test("rev4: a title longer than 200 characters (4 games in production, up to 252) is cut, not rejected, and the card is drawn", async () => {
+  const long = "A Normal Quiz Game Where You Try to Solve Questions ".repeat(5).trim();
+  assert.ok(long.length > 200);
+  const large = validLarge({ ...GAME, title: long });
+  assert.equal(large.title, long.slice(0, 200));
+  // サロゲートの対 (絵文字など) を半分で切らない
+  const emoji = validLarge({ ...GAME, title: `${"x".repeat(199)}😂tail` });
+  assert.equal(emoji.title, "x".repeat(199));
+  const { fetchImpl } = upstream({ ...GAME, title: long });
+  await withServer(createOgHandler({ fetchImpl, fontLoader }), async (origin) => {
+    const response = await fetch(`${origin}/api/og?code=${CODE}`, { redirect: "manual" });
+    assert.equal(response.status, 200);
+  });
+});
+
+test("rev4: the JPEG limit cannot be reached: the worst picture (random black / white pixels over the whole card) fits at the first quality", async () => {
+  const raw = Buffer.from(randomBytes(1200 * 630 * 3).map((byte) => (byte & 1 ? 255 : 0)));
+  const png = await sharp(raw, { raw: { width: 1200, height: 630, channels: 3 } }).png().toBuffer();
+  const first = await sharp(png).flatten({ background: "#0B1524" }).jpeg({ quality: 86, mozjpeg: true }).toBuffer();
+  assert.ok(first.length <= JPEG_LIMIT, `${first.length} bytes at quality 86`);
+  assert.ok((await encodeJpeg(png)).length <= JPEG_LIMIT);
+});
+
+// TASK-20261110-001: a game whose only cover is on Steam's CDN must still get a large card (was a 503 for 37,034 games)
+test("a Steam-hosted cover is drawable (shared.akamai.steamstatic.com)", () => {
+  const cover = "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1/library_600x900.jpg?t=1780441045";
+  assert.equal(ALLOWED_IMAGE_HOSTS.has("shared.akamai.steamstatic.com"), true);
+  const large = validLarge({ layout: "game", heading: null, title: "Steam only", publisher: null, developer: null, cover_url: cover });
+  assert.ok(large, "a card with a Steam cover is valid");
+  assert.equal(large.cover_url, cover);
+  assert.equal(validLarge({ layout: "game", heading: null, title: "x", publisher: null, developer: null, cover_url: "https://evil.example.com/steamstatic.com/x.jpg" }), null);
 });

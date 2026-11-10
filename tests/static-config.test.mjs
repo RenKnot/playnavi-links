@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import test from "node:test";
 
 const readJson = async (path) => JSON.parse(await readFile(new URL(path, import.meta.url), "utf8"));
@@ -56,6 +56,12 @@ test("production-only legacy routes and share preview stay ahead of safe fallbac
   const config = await readJson("../vercel.json");
   const sources = config.rewrites.map(({ source }) => source);
   assert.deepEqual(sources, [
+    // TASK-20261107-002: old company-site hosts (playnavilab.com / www) first — the temporary legal-page
+    // exception (200 with the single copy) and robots.txt (tests/company-site.test.mjs)
+    "/terms",
+    "/privacypolicy",
+    "/legal",
+    "/robots.txt",
     "/auth/steam/callback",
     "/auth/steam/callback",
     "/auth/steam/callback",
@@ -90,8 +96,15 @@ test("production-only legacy routes and share preview stay ahead of safe fallbac
     "/catalogs/:id",
     "/surveys/:surveySlug",
     "/privacy",
+    // TASK-20261107-002: the legal pages move off Squarespace to playnavi.app (served like /privacy)
+    "/terms",
+    "/legal",
     "/help/claude",
     "/help/chatgpt",
+    // TASK-20261107-002: robots.txt per host (playnavi.app and its check deployments / everything else)
+    "/robots.txt",
+    "/robots.txt",
+    "/robots.txt",
     // TASK-20260923-002 一般公開: 予約の住所が全部決まった後、最後の受け皿の直前で新しい Web へ中継する (tests/web-gateway.test.mjs)
     "/index.html",
     "/index.html",
@@ -199,7 +212,31 @@ test("share preview uses the original HTML and only the approved share routes", 
   assert.ok(sources.indexOf("/users/:id/diagnosis") < sources.indexOf("/users/:id"));
   assert.ok(sources.indexOf("/users/:id/recap/:period") < sources.indexOf("/users/:id"));
   assert.ok(sources.indexOf("/s/:code") < sources.indexOf("/(.*)"));
-  assert.equal(await readFile(new URL("../robots.txt", import.meta.url), "utf8"), "User-agent: *\nAllow: /\n");
+});
+
+// TASK-20261107-002 (§5-a 2): playnavi.app's robots.txt mirrors the Web's production rules
+// (playnavi-app web/src/app/robots.ts: allow /, disallow /auth/ and /oauth/) and names its sitemap.
+// links.playnavilab.com keeps today's file: Google asks each site's robots.txt to name that site's own
+// sitemap (developers.google.com/search/docs/crawling-indexing/sitemaps/build-sitemap, "cross-submit").
+// A static robots.txt would win over these rewrites on Vercel, so none may exist.
+test("robots.txt is chosen per host: playnavi.app names its sitemap, links keeps allow-all", async () => {
+  const config = await readJson("../vercel.json");
+  await assert.rejects(readFile(new URL("../robots.txt", import.meta.url)), { code: "ENOENT" });
+  const routes = config.rewrites.filter((route) => route.source === "/robots.txt" && !route.has?.[0]?.value?.re?.includes("playnavilab"));
+  const relay = config.rewrites.find((route) => route.source.startsWith("/:path((?!") && route.has?.[0]?.value === "playnavi.app");
+  const checkHost = config.rewrites.find((route) => route.source.startsWith("/:path((?!") && route.has?.[0]?.value?.re);
+  assert.deepEqual(routes, [
+    { source: "/robots.txt", has: [{ type: "host", value: "playnavi.app" }], destination: "/robots-playnavi-app.txt" },
+    { source: "/robots.txt", has: checkHost.has, destination: "/robots-playnavi-app.txt" },
+    { source: "/robots.txt", destination: "/robots-links.txt" },
+  ]);
+  const at = config.rewrites.indexOf(routes[2]);
+  assert.ok(at < config.rewrites.indexOf(relay) && at < config.rewrites.findIndex((route) => route.source === "/(.*)"));
+  assert.equal(
+    await readFile(new URL("../robots-playnavi-app.txt", import.meta.url), "utf8"),
+    "User-agent: *\nAllow: /\nDisallow: /auth/\nDisallow: /oauth/\n\nSitemap: https://playnavi.app/sitemap.xml\n",
+  );
+  assert.equal(await readFile(new URL("../robots-links.txt", import.meta.url), "utf8"), "User-agent: *\nAllow: /\n");
 });
 
 test("AI return path receives the SPA and private document headers", async () => {
@@ -379,7 +416,7 @@ test("playnavi.app/privacy serves the full privacy policy, including the AI conn
   const page = await readFile(new URL("../privacy.html", import.meta.url), "utf8");
   for (const s of ["<title>プライバシーポリシー | PlayNavi</title>", "PlayNavi Lab", "6-2. AI サービスとの連携", "(4) 保持期間", "Connecting AI services", "contact@playnavilab.com"]) assert.ok(page.includes(s), s);
   // 10/29 (TASK-20261028-005): 10/25 の改定 (6-1 に PlayNavi AI・画像から取り込む機能で送る物) を写す。
-  // 公式 www.playnavilab.com/privacypolicy を改定したら、scripts/check-privacy-copy.mjs で差を見てこのページも直す
+  // Squarespace が動いている間は scripts/check-legal-copies.mjs で公式 www.playnavilab.com/privacypolicy と比べる (README「Company site」)
   for (const s of ["最終更新日：2026年10月25日", "(1) PlayNavi AI（話して、または文字を入力して操作を頼む機能）", "(3) 画像から取り込む機能", "これらの機能でも、メールアドレスやパスワードをAIサービスへ送信しません。"]) assert.ok(page.includes(s), s);
   assert.doesNotMatch(page, /<script/i);
 });
@@ -400,6 +437,8 @@ test("playnavi.app/help/claude serves the Claude connection guide with the real 
   assert.equal(config.rewrites[help]?.destination, "/help-claude.html");
   assert.ok(help >= 0 && help < fallback, "help rewrite must come before the catch-all");
   const html = await readFile(new URL("../help-claude.html", import.meta.url), "utf8");
+  // TASK-20261107-002: one link to the Web top, marked via=links (absolute: links.playnavilab.com/ is the links home)
+  assert.match(html, /<p><a href="https:\/\/playnavi\.app\/\?via=links">PCで使う（Web版）<\/a><\/p>/);
   // 10/27: Claude は本番の入口 ai.playnavi.app (playnavi.app/mcp は ChatGPT の審査の間 STG)
   assert.match(html, /https:\/\/ai\.playnavi\.app\/mcp/);
   assert.match(html, /カスタムコネクタを追加/);
@@ -413,43 +452,57 @@ test("playnavi.app/help/claude serves the Claude connection guide with the real 
   assert.match(html, /id="trouble"/);
 });
 
-test("playnavi.app/help/chatgpt serves the ChatGPT early beta guide (TASK-20260930-006 B6)", async () => {
+test("playnavi.app/help/chatgpt serves the ChatGPT guide for the published plugin (TASK-20260930-006, 11/6 公開)", async () => {
   const config = JSON.parse(await readFile(new URL("../vercel.json", import.meta.url), "utf8"));
   const help = config.rewrites.findIndex((r) => r.source === "/help/chatgpt");
   const fallback = config.rewrites.findIndex((r) => r.source === "/(.*)");
   assert.equal(config.rewrites[help]?.destination, "/help-chatgpt.html");
   assert.ok(help >= 0 && help < fallback, "help rewrite must come before the catch-all");
   const html = await readFile(new URL("../help-chatgpt.html", import.meta.url), "utf8");
-  // 本番の入口は Claude と同じ ai.playnavi.app (playnavi.app/mcp は ChatGPT の審査の間 STG)
-  assert.match(html, /https:\/\/ai\.playnavi\.app\/mcp/);
-  assert.doesNotMatch(html, /(?<!ai\.)playnavi\.app\/mcp/, "STG 向きの playnavi.app/mcp を案内しない");
-  // ベータ版: 承認された人だけ。止まった時の文 (EF ai-oauth BETA_NOT_APPROVED_MESSAGE。前の版も今の版も「承認された方だけ」を含む) と同じ言い方で案内する
-  assert.match(html, /ベータ版/);
-  assert.match(html, /承認された方だけ/);
-  // 11/4 17:2x Emiya の iPhone (Safari の chatgpt.com): スマートフォンのブラウザでも追加できる → パソコンだけと書かない
-  assert.match(html, /パソコンでもスマートフォンでもできます/);
-  assert.doesNotMatch(html, /スマートフォンの ChatGPT アプリでは設定できません|パソコンで・/);
-  assert.match(html, /「理解したうえで続けます」/);
-  // 11/4 Emiya の実機 (ChatGPT の画面): 左のメニューの「プラグイン」→ 右上の「追加」(スマートフォンは「＋」)→「カスタム MCP サーバーを追加」
-  assert.match(html, /左のメニュー（スマートフォンは左上のボタン）の「プラグイン」を開き、右上の「追加」（スマートフォンは「＋」）から「カスタム MCP サーバーを追加」/);
-  // 11/4 Emiya「名前とURL入れることと、同意のチェックをつけるっていう3箇所だけ…それ以外のところは見ない&触らない」
-  assert.match(html, /次の 3 か所だけ入力して「作成」を押します/);
-  assert.match(html, /ほかの項目は、触らずにそのままで大丈夫です/);
-  assert.doesNotMatch(html, /接続タイプ|OAuth の詳細設定|アイコン・説明/);
-  assert.doesNotMatch(html, /MCP アプリを作成|「カスタマイズ」→「プラグイン」|Create MCP app/);
-  assert.match(html, /アプリと同じ方法（Apple または Google）でログイン/);
+  // TASK-20261107-002: one link to the Web top, marked via=links (absolute: links.playnavilab.com/ is the links home)
+  assert.match(html, /<p><a href="https:\/\/playnavi\.app\/\?via=links">PCで使う（Web版）<\/a><\/p>/);
+  // 11/6 Emiya「パブリッシュも押しました」: 公開ページ (Emiya が貼った住所) を開くボタンと、プラグインで探す道
+  assert.match(html, /<a class="add" href="https:\/\/chatgpt\.com\/plugins\/plugin_asdk_app_6ac8eb791dc48191b4b611f969f65ad2">ChatGPT で PlayNavi を開く<\/a>/);
+  assert.match(html, /「プラグイン」で「PlayNavi」と探しても開けます/);
+  // 11/6 Emiya「設定の仕方、めちゃくちゃ簡単だと思うので、それがちゃんと伝わるメッセージやUIにしてください。ごちゃごちゃ書いたり、たんぱくにかいたりしてると、つたわらない」
+  // → 最初の画面に「3 ステップ」・URL の入力が要らない・大きなボタン・3 つの手順・「これで完了」。細かい話は下の .more へ
+  assert.match(html, /3 ステップでつながります/);
+  assert.match(html, /URL の入力も、むずかしい設定もいりません/);
+  const three = /<ol class="three" id="steps">([\s\S]*?)<\/ol>/.exec(html)?.[1] ?? "";
+  assert.equal((three.match(/<li>/g) ?? []).length, 3, "exactly three steps");
+  // 11/6 Emiya の録画 (iPhone の ChatGPT): ボタンの名前は「プラグインをインストール」(前の「追加」は実物と違った)
+  assert.match(three.replace(/<[^>]+>/g, ""), /「プラグインをインストール」を押す/);
+  assert.match(three, /<span class="nw">「プラグインを<\/span><span class="nw">インストール」を押す<\/span>/, "the button name only breaks after 「プラグインを」");
+  assert.match(three, /PlayNavi にログイン/);
+  assert.match(three, /「連携する」を押す/);
+  assert.match(html, /これで完了です/);
+  // 11/6 Emiya「セットアップから1つ頼んで見るところまでの動画…編集してくれる？」: 3 つの手順のすぐ下に実際の画面の動画 (SNS の投稿と同じ物)
+  const movie = /<figure class="movie">([\s\S]*?)<\/figure>/.exec(html)?.[1] ?? "";
+  assert.match(movie, /<video src="\/assets\/help\/chatgpt-setup\.mp4" poster="\/assets\/help\/chatgpt-setup-poster\.jpg" controls muted playsinline preload="none"/);
+  assert.ok(html.indexOf('class="three"') < html.indexOf('class="movie"') && html.indexOf('class="movie"') < html.indexOf('class="more"'), "the video sits right under the three steps");
+  for (const asset of ["chatgpt-setup.mp4", "chatgpt-setup-poster.jpg"]) {
+    const size = (await stat(new URL(`../assets/help/${asset}`, import.meta.url))).size;
+    assert.ok(size > 10_000 && size < 10_000_000, `${asset} is ${size} bytes (the page loads it on phones)`);
+  }
+  assert.ok(html.indexOf('class="three"') < html.indexOf('class="more"'), "the details come after the three steps");
+  // 公開の後は、URL を入れる手順も「承認された方だけ」も案内しない (誰でも使える)
+  assert.doesNotMatch(html, /カスタム MCP サーバーを追加|理解したうえで続けます|承認された方だけ|ご利用開始のお知らせが届いた方/);
+  assert.doesNotMatch(html, /<code>https:\/\/(ai\.)?playnavi\.app\/mcp<\/code>/, "the address to type is not part of the steps any more");
+  // ベータ版の手順で足した人: そのまま使える・切り替える時は「個人用」の物を消す
+  assert.match(html, /id="beta"/);
+  assert.match(html, /そのままお使いいただけます/);
+  assert.match(html, /「個人用」にある PlayNavi を削除/);
+  assert.match(html.replace(/<[^>]+>/g, ""), /アプリと同じ方法（Apple か Google）で/);
   assert.match(html, /確定するまで記録は変わりません/);
-  // 11/4 Emiya「強制ではないが利便性のために…推奨する旨を、わかりやすい手順とともに」(ChatGPT の「プラグイン設定 > PlayNavi > 権限」の画面 = 11/4 17:14 の写真)
-  assert.match(html, /（任意・おすすめ）毎回の確認を省く設定にします/);
-  assert.match(html, /「管理」→「権限」を開きます/);
-  assert.match(html, /「すべてのツールを許可」を選びます/);
-  assert.match(html, /「低リスクのツールを許可」）のままでもご利用いただけます/);
-  assert.match(html, /公式プラグインから追加し直して/);
+  // 11/4 Emiya「強制ではないが利便性のために…推奨する旨を、わかりやすい手順とともに」(細かい話の側に残す)
+  assert.match(html, /（任意）毎回の確認を省く/);
+  assert.match(html, /「管理」→「権限」で「すべてのツールを許可」/);
+  // 写真はモーメント 1 件に 10 枚まで送れる (playnavi-supabase mcp/handler.ts MAX_PHOTOS。11/6 に 4 → 10、supabase #751)。前の「送れません」は誤り
+  assert.match(html, /1 件に 10 枚まで送れます/);
+  assert.doesNotMatch(html, /4 枚まで/);
+  assert.doesNotMatch(html, /写真や動画は ChatGPT から送れません/);
   // 11/4 14:50 Emiya「「一覧に載る前〜」…「自分で足す形」…AIが雑に和訳しました、みたいな文章全部やめろ」
   assert.doesNotMatch(html, /一覧に載|自分で足|足す|足した|先行ベータ|つなぎ方|頁/);
-  assert.match(html, /ベータ版に関するご意見/);
-  // 10/31 17:53 Emiya: 感想はできればハッシュタグで SNS へ・難しい人は問い合わせ・リクエスト (アプリのメニューの名前 = app/(drawer)/AppDrawerContent.tsx)
-  assert.match(html, /id="feedback"/);
   assert.match(html, /#PlayNaviChatGPT/);
   assert.match(html, /「問い合わせ・リクエスト」/);
   assert.match(html, /「機能追加リクエスト」/);

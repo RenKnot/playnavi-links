@@ -8,6 +8,9 @@ import {
   aiReturnTargetFromPath,
   surveyPageUrl,
   webInboxUrl,
+  webHandoffUrl,
+  webHomeUrl,
+  webTargetFromPath,
   canonicalTargetFromPath,
   isValidShortCode,
   resolveShortLink,
@@ -360,4 +363,36 @@ test("contract: every return link the app builds today opens unchanged (playnavi
       assert.equal(target.canonicalUrl, link + appended);
     }
   }
+});
+
+// TASK-20261107-002 (Q5): the relay's hand-off to the Web carries via=share; the links home carries via=links.
+test("Web hand-off appends via=share after the canonical query, only for the fixed Web origins", () => {
+  for (const [path, expected] of [
+    ["/game/42", "https://playnavi.app/game/42?via=share"],
+    [`/game/42?logId=${UUID_A}`, `https://playnavi.app/game/42?logId=${UUID_A}&via=share`],
+    [`/game/42?logId=${UUID_A}&moment=${UUID_B}`, `https://playnavi.app/game/42?logId=${UUID_A}&moment=${UUID_B}&via=share`],
+    [`/users/${UUID_A}/tier-lists/${UUID_B}?remix=1`, `https://playnavi.app/users/${UUID_A}/tier-lists/${UUID_B}?remix=1&via=share`],
+    [`/users/${UUID_A}/diagnosis`, `https://playnavi.app/users/${UUID_A}/diagnosis?via=share`],
+  ]) {
+    assert.equal(webHandoffUrl(path, "https://playnavi.app"), expected, path);
+    const url = new URL(expected);
+    assert.deepEqual(url.searchParams.getAll("via"), ["share"], path);
+    // the plain Web target (「Webで見る」), the app link and the canonical link stay without via
+    assert.equal(webTargetFromPath(path, "https://playnavi.app"), expected.replace(/[?&]via=share$/, ""));
+    const target = canonicalTargetFromPath(path);
+    assert.doesNotMatch(`${target.schemeUrl} ${target.canonicalUrl}`, /via=/);
+  }
+  assert.equal(webHandoffUrl("/game/42", "https://playnavi-web-v2-stg.vercel.app"), "https://playnavi-web-v2-stg.vercel.app/game/42?via=share");
+  for (const origin of ["", "https://evil.example", "https://links.playnavilab.com", "https://playnavi-links.vercel.app"]) {
+    assert.equal(webHandoffUrl("/game/42", origin), null, origin);
+    assert.equal(webHomeUrl(origin), null, origin);
+  }
+  for (const path of ["/s/AbCdEf012345_-xy", "/game/42?via=share", "/a?act=inbox", "https://evil.example/game/42"]) {
+    assert.equal(webHandoffUrl(path, "https://playnavi.app"), null, path);
+  }
+});
+
+test("links home points to the Web top with via=links", () => {
+  assert.equal(webHomeUrl("https://playnavi.app"), "https://playnavi.app/?via=links");
+  assert.equal(webHomeUrl("https://playnavi-web-v2-stg.vercel.app"), "https://playnavi-web-v2-stg.vercel.app/?via=links");
 });

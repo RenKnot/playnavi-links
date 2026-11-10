@@ -1,0 +1,24 @@
+Bundled fonts for api/og.mjs (link card images)
+================================================
+
+Used only when the Japanese font cannot be fetched from Google Fonts
+(api/_lib/og-card.mjs loadBundledFonts). Normal renders never read these files.
+
+Font:     Noto Sans JP (Region-specific Subset OTF, Japanese), static weights
+          NotoSansJP-Bold.otf  = weight 700
+          NotoSansJP-Black.otf = weight 900
+Version:  2.004 (name table: "Version 2.004;hotconv 1.0.118;makeotfexe 2.5.65603")
+Source:   https://github.com/notofonts/noto-cjk/releases/tag/Sans2.004
+          asset 16_NotoSansJP.zip
+          https://github.com/notofonts/noto-cjk/releases/download/Sans2.004/16_NotoSansJP.zip
+          (zip sha256 2bbdd2c20f30670b39ca735c96d75f1fdabdb348103e43b820cf17701fd22b18)
+License:  SIL Open Font License 1.1 (OFL.txt = LICENSE from the same zip)
+Fetched:  2026-11-10 (TASK-20261110-001)
+
+sha256
+  1b0edfb500b73a4fa8a4fcaae1bbbd403994e08e73e3e0da37e70d3853f42c5f  NotoSansJP-Bold.otf
+  3aa30b0956510f4205f759ab3079a5b658310ebcda2577f290466ea51c948819  NotoSansJP-Black.otf
+  6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2  OFL.txt
+
+Why static OTF: satori (inside @vercel/og) cannot use variable fonts, and the
+google/fonts repository ships Noto Sans JP only as a variable font.

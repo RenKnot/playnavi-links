@@ -29,6 +29,7 @@
     "none"
   ],
   "client_id_metadata_document_supported": true,
+  "authorization_response_iss_parameter_supported": true,
   "scopes_supported": [
     "playnavi"
   ]
