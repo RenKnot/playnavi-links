@@ -1,5 +1,5 @@
 import { canonicalTargetFromPath, isValidShortCode } from "../assets/link-routing.mjs";
-import { renderCardImage, validLarge, withReason } from "./_lib/og-card.mjs";
+import { CARD_DEADLINE_MS, renderCardImage, validLarge, withReason } from "./_lib/og-card.mjs";
 import { PREVIEW_META_URL } from "./_lib/share-preview.mjs";
 
 export const OG_CACHE_CONTROL = "public, max-age=0, s-maxage=86400, stale-while-revalidate=604800";
@@ -16,6 +16,17 @@ export const FALLBACK_CACHE_CONTROL = "no-store";
 export const META_TIMEOUT_MS = 8000;
 // One read may fail for a passing reason (timeout, 5xx, network); read once more before giving up.
 const META_ATTEMPTS = 2;
+// TASK-20261110-001 rev 4: both reads end within this long after the request came in, so the drawing (fonts, images,
+// a second offline drawing if needed: og-card.mjs CARD_DEADLINE_MS) still fits in vercel.json maxDuration (20s).
+// Before, 8s + 8s of reads + 2 x 5s of font fetching could pass 20s, and Vercel answered with its own error page.
+export const META_BUDGET_MS = 10_000;
+// A read is not started with less than this left (it could not be drawn in time anyway).
+const META_MIN_ATTEMPT_MS = 1000;
+// How long the next read may take, `elapsed` ms after the request came in (0 = do not read again).
+export function metaAttemptTimeout(elapsed) {
+  const left = Math.min(META_TIMEOUT_MS, META_BUDGET_MS - elapsed);
+  return left >= META_MIN_ATTEMPT_MS ? left : 0;
+}
 // TASK-20261110-001: a card that could not be drawn answers 503 with no body. X remembers the first image
 // it sees for days and Bluesky bakes it into the post, so a failure must never be cached (no-store) and must
 // be visible to the app's warm-up (lib/share/linkCardWarmup.ts) and EF social-post, which retry after this.
@@ -28,6 +39,10 @@ export const CARD_HEADER = "X-PlayNavi-Card";
 export const CARD_RENDERED_VALUE = "rendered";
 export const CARD_FAILED_VALUE = "failed";
 export const CARD_REASON_HEADER = "X-PlayNavi-Card-Reason";
+// TASK-20261110-001 rev 4: on a drawn card, the parts it was drawn without ("font" = the bundled font instead of
+// Google Fonts, "text" = drawn again with only the characters the bundled font has, "images" = without images).
+// Absent on a normal card. For the Vercel log and a manual check; readers only look at X-PlayNavi-Card.
+export const CARD_FALLBACK_HEADER = "X-PlayNavi-Card-Fallback";
 export const CARD_REASON_PATTERN = /^(meta_timeout|meta_status_\d{1,3}|meta_not_ok|meta_invalid|font|render|jpeg_too_large)$/;
 const VERSION_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
 
@@ -63,17 +78,19 @@ function thrownMetaReason(error) {
   return "meta_status_0";
 }
 
-async function fetchLarge(target, fetchImpl, metaUrl) {
+async function fetchLarge(target, fetchImpl, metaUrl, started) {
   const url = new URL(metaUrl);
   url.searchParams.set(target.param, target.value);
   let lastError;
   for (let attempt = 1; attempt <= META_ATTEMPTS; attempt += 1) {
+    const timeoutMs = metaAttemptTimeout(Date.now() - started);
+    if (timeoutMs === 0) break;
     try {
       const response = await fetchImpl(url, {
         method: "GET",
         headers: { Accept: "application/json" },
         cache: "no-store",
-        signal: AbortSignal.timeout(META_TIMEOUT_MS),
+        signal: AbortSignal.timeout(timeoutMs),
       });
       // 404 (status "not_found") and other 4xx: retried or not, the answer is the same. 5xx is retried.
       if (response.status !== 200) throw metaFailure(`meta_status_${response.status}`, { permanent: response.status < 500 });
@@ -118,6 +135,7 @@ function unavailable(response, reason) {
 export function createOgHandler({
   fetchImpl = globalThis.fetch,
   fontLoader,
+  bundledFontLoader,
   assetsLoader,
   metaUrl = PREVIEW_META_URL,
 } = {}) {
@@ -130,18 +148,22 @@ export function createOgHandler({
     }
     const target = ogTarget(request.url);
     if (!target) return fallback(response);
+    const started = Date.now();
     try {
-      const large = await fetchLarge(target, fetchImpl, metaUrl);
+      const large = await fetchLarge(target, fetchImpl, metaUrl, started);
       // TASK-20261017-002 r3: a card with the poster's photos is JPEG (<= 900KB, Bluesky thumb limit).
-      const { body, contentType } = await renderCardImage(large, {
+      const { body, contentType, fallbacks } = await renderCardImage(large, {
         fetchImpl,
+        deadline: started + CARD_DEADLINE_MS,
         ...(fontLoader ? { fontLoader } : {}),
+        ...(bundledFontLoader ? { bundledFontLoader } : {}),
         ...(assetsLoader ? { assetsLoader } : {}),
       });
       response.statusCode = 200;
       response.setHeader("Content-Type", contentType);
       response.setHeader("Cache-Control", large.layout === "moment" ? OG_MOMENT_CACHE_CONTROL : OG_CACHE_CONTROL);
       response.setHeader(CARD_HEADER, CARD_RENDERED_VALUE);
+      if (fallbacks.length > 0) response.setHeader(CARD_FALLBACK_HEADER, fallbacks.join(","));
       return response.end(body);
     } catch (error) {
       const reason = cardFailureReason(error);
