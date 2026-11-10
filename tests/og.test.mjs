@@ -8,12 +8,21 @@ import sharp from "sharp";
 import { cardText, loadSubsetFont, validLarge } from "../api/_lib/og-card.mjs";
 import { ALLOWED_IMAGE_HOSTS } from "../api/_lib/og-large.mjs";
 import {
+  CARD_FAILED_VALUE,
+  CARD_HEADER,
+  CARD_REASON_HEADER,
+  CARD_REASON_PATTERN,
+  CARD_RENDERED_VALUE,
+  cardFailureReason,
   createOgHandler,
   FALLBACK_CACHE_CONTROL,
   FALLBACK_URL,
+  META_TIMEOUT_MS,
   OG_CACHE_CONTROL,
   OG_MOMENT_CACHE_CONTROL,
   ogTarget,
+  UNAVAILABLE_CACHE_CONTROL,
+  UNAVAILABLE_RETRY_AFTER,
 } from "../api/og.mjs";
 import { largeVersion } from "../api/_lib/og-large.mjs";
 import { renderPreviewHtml } from "../api/_lib/share-preview.mjs";
@@ -197,6 +206,7 @@ for (const [name, large] of [["game", GAME], ["profile", PROFILE], ["grid", GRID
       assert.equal(response.status, 200);
       assert.equal(response.headers.get("content-type"), "image/png");
       assert.equal(response.headers.get("cache-control"), OG_CACHE_CONTROL);
+      assert.equal(response.headers.get("x-playnavi-card"), CARD_RENDERED_VALUE);
       assert.deepEqual(pngSize(Buffer.from(await response.arrayBuffer())), [1200, 630]);
     });
     const meta = new URL(seen[0]);
@@ -213,27 +223,149 @@ test("image fetch failures degrade to placeholders and still return 200", async 
   });
 });
 
-test("upstream failures, missing large cards and bad parameters redirect to the static fallback", async () => {
+// TASK-20261110-001 不具合 3: 中身サーバ (EF share-preview-meta) の起き上がり (STG 実測 2.38 秒) に当たると 2.5 秒で
+// 時間切れ → 302 → og-fallback.png を CDN が 60 秒覚え、X は数日・Bluesky は投稿に焼き込んで失敗が固定されていた。
+// 新しい決まり: 一時的な失敗 (時間切れ・5xx・通信の失敗) は 1 回だけやり直す。描けなければ 503 + no-store (誰にも
+// 覚えさせない) + X-PlayNavi-Card: failed + X-PlayNavi-Card-Reason: <失敗した段 (固定の語)>。描けた時だけ
+// X-PlayNavi-Card: rendered (アプリの温めと自動投稿が本物の絵と見分ける)。
+const timeoutError = () => new DOMException("The operation was aborted due to timeout", "TimeoutError");
+
+// 中身サーバの答えを呼ばれた順に決める偽の fetch (answers が尽きたら最後の答えを繰り返す)。絵はいつも返す
+function metaSequence(answers) {
+  let calls = 0;
+  const fetchImpl = async (url) => {
+    if (String(url).includes("/functions/v1/share-preview-meta")) {
+      const answer = answers[Math.min(calls, answers.length - 1)];
+      calls += 1;
+      return answer();
+    }
+    return new Response(IMAGE);
+  };
+  return { fetchImpl, metaCalls: () => calls };
+}
+const okMeta = (large = GAME) => () => Response.json({ status: "ok", card: { title: "t", description: "d", image_url: COVER, large } });
+// EF share-preview-meta の見つからない時の形 (playnavi-supabase _shared/shortLinkHttp.ts resolveNotFound)
+const notFoundMeta = () => Response.json({ status: "not_found", error: { code: "short_link_not_found" } }, { status: 404 });
+const failingMeta = (status) => () => new Response("no", { status });
+const throwingMeta = () => { throw timeoutError(); };
+// undici が通信の失敗で投げる形 (DNS・接続拒否・切断)
+const networkMeta = () => { throw new TypeError("fetch failed"); };
+
+async function expectUnavailable(handler, reason, path = `/api/og?code=${CODE}`) {
+  await withServer(handler, async (origin) => {
+    const response = await fetch(`${origin}${path}`, { redirect: "manual" });
+    assert.equal(response.status, 503, path);
+    assert.equal(response.headers.get("cache-control"), UNAVAILABLE_CACHE_CONTROL);
+    assert.equal(response.headers.get("retry-after"), UNAVAILABLE_RETRY_AFTER);
+    assert.equal(response.headers.get("location"), null);
+    assert.equal(response.headers.get("x-playnavi-card"), CARD_FAILED_VALUE);
+    assert.equal(response.headers.get("x-playnavi-card-reason"), reason);
+    assert.match(reason, CARD_REASON_PATTERN);
+    assert.equal((await response.arrayBuffer()).byteLength, 0);
+  });
+}
+
+test("the meta read allows 8 seconds; a first read that times out or answers 5xx is read once more, and the drawn card says so", async () => {
+  assert.equal(META_TIMEOUT_MS, 8000);
+  assert.equal(CARD_HEADER, "X-PlayNavi-Card");
+  assert.equal(CARD_RENDERED_VALUE, "rendered");
+  for (const first of [throwingMeta, failingMeta(502)]) {
+    const { fetchImpl, metaCalls } = metaSequence([first, okMeta()]);
+    await withServer(createOgHandler({ fetchImpl, fontLoader }), async (origin) => {
+      const response = await fetch(`${origin}/api/og?code=${CODE}`, { redirect: "manual" });
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("x-playnavi-card"), CARD_RENDERED_VALUE);
+      assert.equal(response.headers.get("cache-control"), OG_CACHE_CONTROL);
+      assert.deepEqual(pngSize(Buffer.from(await response.arrayBuffer())), [1200, 630]);
+    });
+    assert.equal(metaCalls(), 2);
+  }
+});
+
+test("two failed reads, a missing large card or a render error answer 503 no-store with Retry-After and the failed stage, never the cached fallback", async () => {
+  assert.equal(UNAVAILABLE_CACHE_CONTROL, "no-store");
+  assert.equal(UNAVAILABLE_RETRY_AFTER, "3");
+  assert.equal(CARD_FAILED_VALUE, "failed");
+  assert.equal(CARD_REASON_HEADER, "X-PlayNavi-Card-Reason");
   const cases = [
-    [upstream(GAME, { metaStatus: 404 }).fetchImpl, `/api/og?code=${CODE}`],
-    [upstream(undefined).fetchImpl, `/api/og?code=${CODE}`],
-    [upstream({ ...GAME, cover_url: "https://example.com/x.jpg" }).fetchImpl, `/api/og?code=${CODE}`],
-    [async () => { throw new Error("timeout"); }, `/api/og?code=${CODE}`],
-    [upstream(GAME).fetchImpl, "/api/og?code=bad"],
-    [upstream(GAME).fetchImpl, `/api/og?code=${CODE}&x=1`],
+    [[throwingMeta, throwingMeta], 2, "meta_timeout"],
+    [[networkMeta, networkMeta], 2, "meta_status_0"],
+    [[failingMeta(500), failingMeta(503)], 2, "meta_status_503"],
+    [[() => Response.json({ status: "error", error: { code: "x" } })], 1, "meta_not_ok"],
+    [[okMeta(null)], 1, "meta_invalid"],
+    [[okMeta({ ...GAME, cover_url: "https://example.com/x.jpg" })], 1, "meta_invalid"],
   ];
-  for (const [fetchImpl, path] of cases) {
+  for (const [answers, expectedCalls, reason] of cases) {
+    const { fetchImpl, metaCalls } = metaSequence(answers);
+    await expectUnavailable(createOgHandler({ fetchImpl, fontLoader }), reason);
+    assert.equal(metaCalls(), expectedCalls, reason);
+  }
+  // 描く処理の例外: 文字が取り寄せられない = font、それ以外 (部品の読み込み等) = render
+  let run = metaSequence([okMeta()]);
+  await expectUnavailable(createOgHandler({ fetchImpl: run.fetchImpl, fontLoader: async () => { throw new Error("font down"); } }), "font");
+  assert.equal(run.metaCalls(), 1);
+  run = metaSequence([okMeta()]);
+  await expectUnavailable(createOgHandler({ fetchImpl: run.fetchImpl, fontLoader, assetsLoader: async () => { throw new Error("assets down"); } }), "render");
+  // 大きすぎる JPEG はその段の語。例外の文や固定の語でない物は外へ出さない (render に丸める)
+  const png = await sharp({ create: { width: 1200, height: 630, channels: 3, background: "#3366cc" } }).png().toBuffer();
+  await assert.rejects(toJpeg(png, 10), (error) => cardFailureReason(error) === "jpeg_too_large");
+  assert.equal(cardFailureReason(Object.assign(new Error("x"), { reason: "boom: secret text" })), "render");
+  assert.equal(cardFailureReason(new Error("x")), "render");
+});
+
+test("not_found is read once (no retry) and answers 503 with its status as the stage", async () => {
+  const { fetchImpl, metaCalls } = metaSequence([notFoundMeta, okMeta()]);
+  await expectUnavailable(createOgHandler({ fetchImpl, fontLoader }), "meta_status_404");
+  assert.equal(metaCalls(), 1);
+});
+
+test("bad parameters redirect to the static fallback without reading upstream, and nobody caches that redirect", async () => {
+  assert.equal(FALLBACK_CACHE_CONTROL, "no-store");
+  for (const path of ["/api/og?code=bad", `/api/og?code=${CODE}&x=1`, "/api/og"]) {
+    const { fetchImpl, metaCalls } = metaSequence([okMeta()]);
     await withServer(createOgHandler({ fetchImpl, fontLoader }), async (origin) => {
       const response = await fetch(`${origin}${path}`, { redirect: "manual" });
       assert.equal(response.status, 302, path);
       assert.equal(response.headers.get("location"), FALLBACK_URL);
       assert.equal(response.headers.get("cache-control"), FALLBACK_CACHE_CONTROL);
     });
+    assert.equal(metaCalls(), 0, path);
   }
-  await withServer(createOgHandler({ fetchImpl: upstream(GAME).fetchImpl, fontLoader }), async (origin) => {
+  await withServer(createOgHandler({ fetchImpl: metaSequence([okMeta()]).fetchImpl, fontLoader }), async (origin) => {
     const response = await fetch(`${origin}/api/og?code=${CODE}`, { method: "POST" });
     assert.equal(response.status, 405);
   });
+});
+
+test("a font fetch that times out or answers non-2xx is retried once (from the stylesheet); a wrong origin is not", async () => {
+  const css = "@font-face { src: url(https://fonts.gstatic.com/s/notosansjp/x.ttf) format('truetype'); }";
+  const fontFetch = (answers) => {
+    const calls = [];
+    const fetchImpl = async (url) => {
+      calls.push(String(url));
+      return answers[Math.min(calls.length - 1, answers.length - 1)]();
+    };
+    return { fetchImpl, calls };
+  };
+  const stylesheet = () => new Response(css);
+  const font = () => new Response(FONT.slice(0));
+  const unavailable = () => new Response("no", { status: 503 });
+  // 1 回目の一覧 (stylesheet) が時間切れ → 2 回目で一覧・書体とも読めて描ける
+  let run = fontFetch([() => { throw timeoutError(); }, stylesheet, font]);
+  assert.equal((await loadSubsetFont("x", 700, run.fetchImpl)).byteLength, FONT.byteLength);
+  assert.equal(run.calls.length, 3);
+  // 一覧は読めたが書体が 503 → 一覧からもう 1 回やり直して描ける
+  run = fontFetch([stylesheet, unavailable, stylesheet, font]);
+  assert.equal((await loadSubsetFont("x", 700, run.fetchImpl)).byteLength, FONT.byteLength);
+  assert.equal(run.calls.length, 4);
+  // 2 回とも駄目なら失敗 (3 回目はしない)
+  run = fontFetch([unavailable]);
+  await assert.rejects(loadSubsetFont("x", 700, run.fetchImpl), /Japanese font stylesheet unavailable/);
+  assert.equal(run.calls.length, 2);
+  // 配信元が違うのはやり直しても同じなので 1 回で止める
+  run = fontFetch([() => new Response("@font-face { src: url(https://example.org/font.ttf) format('truetype'); }")]);
+  await assert.rejects(loadSubsetFont("x", 700, run.fetchImpl), /Unexpected Japanese font origin/);
+  assert.equal(run.calls.length, 1);
 });
 
 test("the static fallback image is a 1200x630 PNG", async () => {
@@ -243,7 +375,8 @@ test("the static fallback image is a 1200x630 PNG", async () => {
 
 test("vercel config routes /api/og to the Tokyo region with its drawn assets", async () => {
   const config = JSON.parse(await readFile(new URL("../vercel.json", import.meta.url), "utf8"));
-  assert.deepEqual(config.functions?.["api/og.mjs"], { includeFiles: "{logo.png,assets/og/**}", regions: ["hnd1"] });
+  // TASK-20261110-001: 中身 8 秒 + 文字 5 秒 + 絵 2 秒 + 描く 2 秒が入る長さ
+  assert.deepEqual(config.functions?.["api/og.mjs"], { includeFiles: "{logo.png,assets/og/**}", regions: ["hnd1"], maxDuration: 20 });
   assert.equal(config.functions?.["api/og-probe.mjs"], undefined);
   assert.equal(JSON.stringify(config).includes("og-probe"), false);
 });
