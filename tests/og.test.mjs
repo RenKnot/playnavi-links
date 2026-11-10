@@ -1400,3 +1400,13 @@ test("rev4: the JPEG limit cannot be reached: the worst picture (random black / 
   assert.ok(first.length <= JPEG_LIMIT, `${first.length} bytes at quality 86`);
   assert.ok((await encodeJpeg(png)).length <= JPEG_LIMIT);
 });
+
+// TASK-20261110-001: a game whose only cover is on Steam's CDN must still get a large card (was a 503 for 37,034 games)
+test("a Steam-hosted cover is drawable (shared.akamai.steamstatic.com)", () => {
+  const cover = "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1/library_600x900.jpg?t=1780441045";
+  assert.equal(ALLOWED_IMAGE_HOSTS.has("shared.akamai.steamstatic.com"), true);
+  const large = validLarge({ layout: "game", heading: null, title: "Steam only", publisher: null, developer: null, cover_url: cover });
+  assert.ok(large, "a card with a Steam cover is valid");
+  assert.equal(large.cover_url, cover);
+  assert.equal(validLarge({ layout: "game", heading: null, title: "x", publisher: null, developer: null, cover_url: "https://evil.example.com/steamstatic.com/x.jpg" }), null);
+});

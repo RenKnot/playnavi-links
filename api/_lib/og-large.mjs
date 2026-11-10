@@ -8,6 +8,9 @@ export const ALLOWED_IMAGE_HOSTS = new Set([
   "images.igdb.com",
   "irbtguncoatqfikctreq.supabase.co",
   "playnavi.app",
+  // TASK-20261110-001: 37,034 games (production 11/10) have only a Steam cover (library_600x900 / library_capsule,
+  // portrait). Without this host the whole large card was rejected (503) for every record of those games.
+  "shared.akamai.steamstatic.com",
 ]);
 const MAX_TEXT = 200;
 const AXIS_LABEL_MAX = 10;
