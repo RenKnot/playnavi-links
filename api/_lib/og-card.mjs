@@ -15,7 +15,11 @@ export const W = 1200;
 export const H = 630;
 export const IMAGE_TIMEOUT_MS = 2000;
 export const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
-const FONT_TIMEOUT_MS = 2200;
+// TASK-20261110-001: one try at the Google Fonts stylesheet + file. 2.2s was tuned for a 2.5s meta read;
+// with the meta read at 8s (api/og.mjs META_TIMEOUT_MS) and the function at 20s (vercel.json) a slow font
+// fetch is retried once rather than failing the card.
+const FONT_TIMEOUT_MS = 5000;
+const FONT_ATTEMPTS = 2;
 const MAX_INPUT_PIXELS = 40_000_000;
 
 const COVER = { game: [330, 440], grid: [240, 320], gridCompact: [204, 272], moment: [300, 400] };
@@ -101,7 +105,33 @@ export function cardItems(large) {
 const FONT_CACHE_LIMIT = 200;
 const fontCache = new Map();
 
+// TASK-20261110-001: the stage that failed, as a fixed word api/og.mjs sends back in X-PlayNavi-Card-Reason
+// (never the exception text). A reason already on the error is kept.
+export function withReason(error, reason) {
+  const failure = error instanceof Error ? error : new Error(String(error));
+  if (typeof failure.reason !== "string") failure.reason = reason;
+  return failure;
+}
+
+// A failure that reads the same on a second try (wrong origin, unsupported format or size).
+const permanent = (message) => Object.assign(new Error(message), { permanent: true });
+
+// TASK-20261110-001: a timeout, a network error or a non-2xx answer is retried once, from the stylesheet
+// (each try gets its own timeout). Anything else about the font is final.
 export async function loadSubsetFont(text, weight, fetchImpl = globalThis.fetch) {
+  let lastError;
+  for (let attempt = 1; attempt <= FONT_ATTEMPTS; attempt += 1) {
+    try {
+      return await fetchSubsetFont(text, weight, fetchImpl);
+    } catch (error) {
+      if (error?.permanent === true) throw error;
+      lastError = error;
+    }
+  }
+  throw lastError;
+}
+
+async function fetchSubsetFont(text, weight, fetchImpl) {
   const signal = AbortSignal.timeout(FONT_TIMEOUT_MS);
   const stylesheetUrl = new URL(
     `https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@${weight}&text=${encodeURIComponent(text)}`,
@@ -112,20 +142,20 @@ export async function loadSubsetFont(text, weight, fetchImpl = globalThis.fetch)
   const fontSource = css.match(
     /src:\s*url\(([^)]+)\)\s*format\(['"](truetype|opentype)['"]\)/,
   );
-  if (!fontSource) throw new Error("No supported Japanese font in stylesheet");
+  if (!fontSource) throw permanent("No supported Japanese font in stylesheet");
   const fontUrl = new URL(fontSource[1].replace(/^['"]|['"]$/g, ""));
   if (fontUrl.protocol !== "https:" || fontUrl.hostname !== "fonts.gstatic.com") {
-    throw new Error("Unexpected Japanese font origin");
+    throw permanent("Unexpected Japanese font origin");
   }
   const fontResponse = await fetchImpl(fontUrl, { signal });
   if (!fontResponse.ok) throw new Error("Japanese font unavailable");
   const fontData = await fontResponse.arrayBuffer();
   if (fontData.byteLength < 4 || fontData.byteLength > 500_000) {
-    throw new Error("Invalid Japanese font size");
+    throw permanent("Invalid Japanese font size");
   }
   const magic = new DataView(fontData).getUint32(0);
   if (magic !== 0x00010000 && magic !== 0x4f54544f) {
-    throw new Error("Unsupported Japanese font format");
+    throw permanent("Unsupported Japanese font format");
   }
   return fontData;
 }
@@ -1452,7 +1482,7 @@ export async function toJpeg(png, maxBytes = JPEG_MAX_BYTES) {
     out = await sharp(png).flatten({ background: "#0B1524" }).jpeg({ quality, mozjpeg: true }).toBuffer();
     if (out.length <= maxBytes) return out;
   }
-  throw new Error(`card JPEG exceeds ${maxBytes} bytes`);
+  throw withReason(new Error(`card JPEG exceeds ${maxBytes} bytes`), "jpeg_too_large");
 }
 
 // r10: the record cards (moment / review) are always JPEG, also without photos (blurred cover). The PNG of the cover
@@ -1485,11 +1515,13 @@ export async function renderCard(rawLarge, {
   const large = validLarge(rawLarge);
   if (!large) throw new Error("invalid large card");
   const text = cardText(large);
+  // TASK-20261110-001: a font that could not be fetched is reported as the "font" stage (images never throw).
+  const font = (weight) => fontLoader(text, weight).catch((error) => { throw withReason(error, "font"); });
   const [assets, images, bold, black] = await Promise.all([
     assetsLoader(),
     loadCardImages(large, fetchImpl),
-    fontLoader(text, 700),
-    fontLoader(text, 900),
+    font(700),
+    font(900),
   ]);
   const response = new ImageResponse(cardElement(large, images, assets), {
     width: W,

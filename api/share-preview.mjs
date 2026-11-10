@@ -15,8 +15,11 @@ import {
 const TEMPLATE_PATH = join(process.cwd(), "link.html");
 // The function runs in hnd1 next to the Tokyo Supabase project (vercel.json).
 // Cold Edge Function starts can exceed 1.5s, and a timed-out fetch leaves the
-// generic card in SNS caches, so allow up to 3s before falling back.
-export const UPSTREAM_TIMEOUT_MS = 3000;
+// generic card in SNS caches, so allow up to 5s before falling back.
+// TASK-20261110-001: 3s was raised to 5s — the meta EF's cold start measured 2.38s
+// on STG and a cold production card took 3.6s (11/10); the same reason as
+// api/og.mjs META_TIMEOUT_MS. The page only needs its title, so no retry here.
+export const UPSTREAM_TIMEOUT_MS = 5000;
 const DOCUMENT_HEADERS = {
   "Content-Type": "text/html; charset=utf-8",
   "Cache-Control": "no-store",

@@ -6,7 +6,8 @@
     },
     "api/og.mjs": {
       "includeFiles": "{logo.png,assets/og/**}",
-      "regions": ["hnd1"]
+      "regions": ["hnd1"],
+      "maxDuration": 20
     }
   },
   "headers": [
