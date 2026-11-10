@@ -22,6 +22,25 @@ const FONT_TIMEOUT_MS = 5000;
 const FONT_ATTEMPTS = 2;
 const MAX_INPUT_PIXELS = 40_000_000;
 
+// TASK-20261110-001 rev 4 (11/10 Emiya「描けないときって何？そんなことありえちゃだめだろ」): every stage that used to
+// fail the card has a way to still draw it, and every stage has its own share of the time so the whole drawing ends
+// inside vercel.json maxDuration (20s; api/og.mjs reads the meta first, within META_BUDGET_MS).
+// - The drawing must be done by this long after the request came in (api/og.mjs passes the absolute deadline).
+export const CARD_DEADLINE_MS = 17_000;
+// - Google Fonts (both weights, retry included). Past it, or on any font error, the bundled font is used.
+export const FONT_BUDGET_MS = 3000;
+// - All image reads of one card together (each read still stops at IMAGE_TIMEOUT_MS). A read past it gets nothing
+//   (that slot is drawn as a placeholder): 100 Tier covers from a slow IGDB used to queue 13 rounds of 2s.
+export const IMAGE_BUDGET_MS = 3000;
+// - The first drawing. It waits on the network only for what @vercel/og fetches by itself (emoji from jsDelivr,
+//   fonts for other scripts from Google, with no time limit of their own); past it the card is drawn again offline.
+export const RENDER_TIMEOUT_MS = 4000;
+// Time kept after the reads for the drawing (a second, offline drawing with the bundled font takes ~1.5s).
+const DRAW_RESERVE_MS = 4000;
+const OFFLINE_DRAW_MS = 2500;
+// After Google Fonts failed, the next cards on this instance use the bundled font without waiting for Google.
+const GOOGLE_FONTS_PAUSE_MS = 60_000;
+
 const COVER = { game: [330, 440], grid: [240, 320], gridCompact: [204, 272], moment: [300, 400] };
 // Moment photo (TASK-20261017-002): fitted inside this box, aspect kept.
 const PHOTO_BOX = [640, 520];
@@ -174,6 +193,111 @@ export function cachedFont(text, weight, fetchImpl) {
   }
   return promise;
 }
+
+// The default font source: Google Fonts, skipped for GOOGLE_FONTS_PAUSE_MS after it failed on this instance.
+let googleFontsPausedUntil = 0;
+function googleFont(text, weight, fetchImpl) {
+  if (Date.now() < googleFontsPausedUntil) return Promise.reject(new Error("Google Fonts paused after a failure"));
+  return cachedFont(text, weight, fetchImpl);
+}
+
+// TASK-20261110-001 rev 4: the bundled Noto Sans JP 700 / 900 (assets/og/fonts, SOURCE.txt). Read only when the
+// fetched font could not be used, once per instance; a normal card never touches these ~9.5MB.
+export const BUNDLED_FONT_FILES = Object.freeze({ 700: "NotoSansJP-Bold.otf", 900: "NotoSansJP-Black.otf" });
+let bundledFonts;
+export function loadBundledFonts(root = process.cwd()) {
+  bundledFonts ??= (async () => {
+    const [bold, black] = await Promise.all([700, 900].map(async (weight) => {
+      const bytes = await readFile(join(root, "assets", "og", "fonts", BUNDLED_FONT_FILES[weight]));
+      return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    }));
+    return { 700: bold, 900: black };
+  })().catch((error) => {
+    bundledFonts = undefined;
+    throw error;
+  });
+  return bundledFonts;
+}
+
+// The code points a font draws (its cmap: format 12, else format 4). Used to keep only the characters the bundled
+// font has when the card is drawn offline, so @vercel/og never goes to the network for a missing glyph.
+const codePointCache = new WeakMap();
+export function fontCodePoints(font) {
+  const cached = codePointCache.get(font);
+  if (cached) return cached;
+  const bytes = font instanceof ArrayBuffer ? new Uint8Array(font) : new Uint8Array(font.buffer, font.byteOffset, font.byteLength);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const points = new Set();
+  let cmap = -1;
+  for (let i = 0; i < view.getUint16(4); i += 1) {
+    const entry = 12 + 16 * i;
+    if (view.getUint32(entry) === 0x636d6170) cmap = view.getUint32(entry + 8); // 'cmap'
+  }
+  if (cmap < 0) throw new Error("font has no cmap");
+  let format4 = -1;
+  let format12 = -1;
+  for (let i = 0; i < view.getUint16(cmap + 2); i += 1) {
+    const offset = cmap + view.getUint32(cmap + 4 + 8 * i + 4);
+    const format = view.getUint16(offset);
+    if (format === 12) format12 = offset;
+    else if (format === 4) format4 = offset;
+  }
+  if (format12 >= 0) {
+    for (let g = 0; g < view.getUint32(format12 + 12); g += 1) {
+      const end = view.getUint32(format12 + 20 + 12 * g);
+      for (let c = view.getUint32(format12 + 16 + 12 * g); c <= end; c += 1) points.add(c);
+    }
+  } else if (format4 >= 0) {
+    const segments = view.getUint16(format4 + 6) / 2;
+    for (let s = 0; s < segments; s += 1) {
+      const end = view.getUint16(format4 + 14 + 2 * s);
+      for (let c = view.getUint16(format4 + 16 + 2 * segments + 2 * s); c <= end && c !== 0xffff; c += 1) points.add(c);
+    }
+  } else {
+    throw new Error("font has no usable cmap");
+  }
+  codePointCache.set(font, points);
+  return points;
+}
+
+// The card's words with only the characters the font has (spaces kept). URLs are left alone.
+function coveredOnly(value, points) {
+  if (typeof value === "string") {
+    if (value.startsWith("https://")) return value;
+    return [...value].filter((ch) => /\s/.test(ch) || points.has(ch.codePointAt(0))).join("");
+  }
+  if (Array.isArray(value)) return value.map((item) => coveredOnly(item, points));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, coveredOnly(item, points)]));
+  }
+  return value;
+}
+
+class TimeLimit extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "TimeoutError";
+  }
+}
+// Settles with the promise, or rejects once `ms` have passed (the promise itself keeps running).
+function within(promise, ms, what) {
+  let timer;
+  const limit = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new TimeLimit(`${what} took over ${ms}ms`)), Math.max(0, ms));
+  });
+  return Promise.race([promise, limit]).finally(() => clearTimeout(timer));
+}
+
+// fetch for the card's images: nothing is read after `end` (the slot becomes a placeholder).
+function fetchUntil(fetchImpl, end) {
+  return (url, init = {}) => {
+    const left = end - Date.now();
+    if (left <= 0) return Promise.reject(new TimeLimit("image budget spent"));
+    const limit = AbortSignal.timeout(left);
+    return fetchImpl(url, { ...init, signal: init.signal ? AbortSignal.any([init.signal, limit]) : limit });
+  };
+}
+const noFetch = () => Promise.reject(new Error("images left out"));
 
 // Fixed labels drawn by the layouts plus every dynamic string, deduplicated
 // and sorted so identical character sets share one cache entry.
@@ -1476,6 +1600,9 @@ function roomCard(large, images, assets) {
 }
 
 // Encodes the drawn PNG as JPEG at the highest quality that fits the limit.
+// TASK-20261110-001 rev 4: the limit cannot be reached for a 1200x630 card. The worst picture for JPEG (random black /
+// white pixels over the whole card) is ~607KB at the first quality (86) and ~243KB at the last (40), measured 11/10
+// (tests/og.test.mjs "the JPEG limit cannot be reached"); jpeg_too_large is kept only as a guard.
 export async function toJpeg(png, maxBytes = JPEG_MAX_BYTES) {
   let out = null;
   for (const quality of JPEG_QUALITIES) {
@@ -1495,41 +1622,88 @@ export function servesJpeg(large) {
 export const isR3Collection = (large) =>
   (large.layout === "grid" && (large.kind === "catalog" || Boolean(large.tier_board))) || (large.layout === "profile" && Boolean(large.room));
 
-// Renders a raw `large` payload: { body, contentType }. Record cards and cards that draw the
-// poster's photos are JPEG <= JPEG_MAX_BYTES; the rest stay PNG.
+// Renders a raw `large` payload: { body, contentType, fallbacks }. Record cards and cards that draw the
+// poster's photos are JPEG <= JPEG_MAX_BYTES; the rest stay PNG. `fallbacks` names the ways the card was still
+// drawn when a part was not available ("font" / "text" / "images"; empty for a normal card).
 export async function renderCardImage(rawLarge, options = {}) {
   const large = validLarge(rawLarge);
   if (!large) throw new Error("invalid large card");
-  const png = await renderCard(large, options);
+  const fallbacks = [];
+  const png = await renderCard(large, { ...options, onFallback: (stage) => fallbacks.push(stage) });
   return servesJpeg(large)
-    ? { body: await toJpeg(png), contentType: "image/jpeg" }
-    : { body: png, contentType: "image/png" };
+    ? { body: await toJpeg(png), contentType: "image/jpeg", fallbacks }
+    : { body: png, contentType: "image/png", fallbacks };
 }
 
-// Renders a validated `large` payload to a PNG buffer.
-export async function renderCard(rawLarge, {
-  fetchImpl = globalThis.fetch,
-  fontLoader = (text, weight) => cachedFont(text, weight, fetchImpl),
-  assetsLoader = loadStaticAssets,
-} = {}) {
-  const large = validLarge(rawLarge);
-  if (!large) throw new Error("invalid large card");
-  const text = cardText(large);
-  // TASK-20261110-001: a font that could not be fetched is reported as the "font" stage (images never throw).
-  const font = (weight) => fontLoader(text, weight).catch((error) => { throw withReason(error, "font"); });
-  const [assets, images, bold, black] = await Promise.all([
-    assetsLoader(),
-    loadCardImages(large, fetchImpl),
-    font(700),
-    font(900),
-  ]);
+function drawCard(large, images, assets, fonts) {
   const response = new ImageResponse(cardElement(large, images, assets), {
     width: W,
     height: H,
     fonts: [
-      { name: "Noto Sans JP", data: bold, weight: 700, style: "normal" },
-      { name: "Noto Sans JP", data: black, weight: 900, style: "normal" },
+      { name: "Noto Sans JP", data: fonts[700], weight: 700, style: "normal" },
+      { name: "Noto Sans JP", data: fonts[900], weight: 900, style: "normal" },
     ],
   });
-  return Buffer.from(await response.arrayBuffer());
+  return response.arrayBuffer().then((buffer) => Buffer.from(buffer));
+}
+
+// Renders a validated `large` payload to a PNG buffer.
+// TASK-20261110-001 rev 4: the card is always drawn unless the bundled files themselves are missing.
+//   1. fonts: Google Fonts within FONT_BUDGET_MS, else the bundled Noto Sans JP ("font").
+//   2. images: all reads within IMAGE_BUDGET_MS; a read that fails or is late leaves its slot as a placeholder.
+//   3. drawing: within RENDER_TIMEOUT_MS. If it throws or is late (an emoji @vercel/og could not fetch from jsDelivr,
+//      a font for another script it waits on), it is drawn again with the bundled font and only the characters that
+//      font has, which needs no network ("text"); if that throws too, once more without the images ("images").
+export async function renderCard(rawLarge, {
+  fetchImpl = globalThis.fetch,
+  fontLoader,
+  bundledFontLoader = loadBundledFonts,
+  assetsLoader = loadStaticAssets,
+  deadline = Date.now() + CARD_DEADLINE_MS,
+  fontBudgetMs = FONT_BUDGET_MS,
+  imageBudgetMs = IMAGE_BUDGET_MS,
+  renderTimeoutMs = RENDER_TIMEOUT_MS,
+  onFallback = () => {},
+} = {}) {
+  const large = validLarge(rawLarge);
+  if (!large) throw new Error("invalid large card");
+  const text = cardText(large);
+  const started = Date.now();
+  const readsEnd = Math.min(started + Math.max(imageBudgetMs, fontBudgetMs), deadline - DRAW_RESERVE_MS);
+  // The bundled font missing from the deployment is the one font failure left ("font").
+  const bundled = () => bundledFontLoader().catch((error) => { throw withReason(error, "font"); });
+  const fetched = fontLoader ?? ((value, weight) => googleFont(value, weight, fetchImpl));
+  const fontsPromise = within(
+    Promise.all([fetched(text, 700), fetched(text, 900)]),
+    Math.min(fontBudgetMs, readsEnd - started),
+    "font",
+  ).then(([bold, black]) => ({ 700: bold, 900: black }), async (error) => {
+    if (!fontLoader) googleFontsPausedUntil = Date.now() + GOOGLE_FONTS_PAUSE_MS;
+    console.warn(`OG card: fetched font unavailable (${error?.message ?? error}); drawing with the bundled font`);
+    onFallback("font");
+    return await bundled();
+  });
+  const imageFetch = fetchUntil(fetchImpl, Math.min(started + imageBudgetMs, readsEnd));
+  const [assets, images, fonts] = await Promise.all([assetsLoader(), loadCardImages(large, imageFetch), fontsPromise]);
+
+  try {
+    return await within(drawCard(large, images, assets, fonts),
+      Math.max(1000, Math.min(renderTimeoutMs, deadline - Date.now() - OFFLINE_DRAW_MS)), "drawing");
+  } catch (error) {
+    console.warn(`OG card: drawing failed (${error?.message ?? error}); drawing again offline with the bundled font`);
+  }
+  const offlineFonts = await bundled();
+  const offline = coveredOnly(large, fontCodePoints(offlineFonts[700]));
+  try {
+    onFallback("text");
+    return await drawCard(offline, images, assets, offlineFonts);
+  } catch (error) {
+    console.warn(`OG card: offline drawing failed (${error?.message ?? error}); drawing again without images`);
+  }
+  onFallback("images");
+  try {
+    return await drawCard(offline, await loadCardImages(large, noFetch), assets, offlineFonts);
+  } catch (error) {
+    throw withReason(error, "render");
+  }
 }
