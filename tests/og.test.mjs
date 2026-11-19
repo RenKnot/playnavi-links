@@ -123,7 +123,7 @@ test("validLarge rejects malformed diagnosis payloads", () => {
 
 test("diagnosis card text and every card subset include the ellipsis and drawn labels", () => {
   const text = cardText(DIAGNOSIS);
-  for (const character of "…─ゲーマーDNA対戦没入論理感覚自立仲間集中広範SageSeekrPvPDpLgcFlTm") {
+  for (const character of "…─ゲーマータイプ対戦没入論理感覚自立仲間集中広範SageSeekrPvPDpLgcFlTm") {
     assert.ok(text.includes(character), character);
   }
   assert.ok(cardText(GAME).includes("…"));
@@ -1427,4 +1427,14 @@ test("a Steam-hosted cover is drawable (shared.akamai.steamstatic.com)", () => {
   assert.ok(large, "a card with a Steam cover is valid");
   assert.equal(large.cover_url, cover);
   assert.equal(validLarge({ layout: "game", heading: null, title: "x", publisher: null, developer: null, cover_url: "https://evil.example.com/steamstatic.com/x.jpg" }), null);
+});
+
+// TASK-20261119-002 (11/19 運営者「『DNA診断』は全部撤去。正式名称は『ゲーマータイプ診断』」): 診断のカード・規約の文に旧名を残さない
+test("diagnosis card and legal pages use the gamer type name, never the old DNA name", async () => {
+  // cardText は字の集合 (重ねず並べ替えた物) なので、1 字ずつ見る
+  for (const character of "ゲーマータイプ") assert.ok(cardText(DIAGNOSIS).includes(character), character);
+  for (const file of ["api/_lib/og-card.mjs", "legal.html", "privacy.html"]) {
+    const src = await readFile(new URL(`../${file}`, import.meta.url), "utf8");
+    assert.equal(/ゲーマー\s*DNA|DNA\s*診断/.test(src), false, file);
+  }
 });

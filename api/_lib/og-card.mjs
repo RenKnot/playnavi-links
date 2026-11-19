@@ -303,7 +303,7 @@ const noFetch = () => Promise.reject(new Error("images left out"));
 // and sorted so identical character sets share one cache entry.
 // "…" is drawn by textOverflow: ellipsis, so it must be in every subset.
 const FIXED_TEXT = "0123456789+,.…─販売・開発さんのマイルーム総ログ数本プレイ中クリア実況視聴済断念積みゲーあと作品" +
-  "ゲーマーDNA対戦没入論理感覚自立仲間集中広範";
+  "ゲーマータイプ対戦没入論理感覚自立仲間集中広範";
 export function cardText(large) {
   const parts = [FIXED_TEXT];
   if (large.layout === "game") {
@@ -854,7 +854,7 @@ function diagnosisCard(large, images, assets) {
         border: "2px solid rgba(255,255,255,0.85)", flexShrink: 0 })
       : null,
     div({ fontSize: 26, color: "#E2E8F0", fontWeight: 700, marginLeft: images.owner ? 12 : 0, ...ELLIPSIS },
-      `${large.name}さんのゲーマーDNA`),
+      `${large.name}さんのゲーマータイプ`),
   );
   const typeName = div({ fontSize: typeNameSize(large.type_name), color: accent, fontWeight: 900, lineHeight: 1.2,
     marginTop: 12, lineClamp: 2, overflow: "hidden" }, large.type_name);
