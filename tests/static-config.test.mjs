@@ -417,7 +417,9 @@ test("playnavi.app/privacy serves the full privacy policy, including the AI conn
   for (const s of ["<title>プライバシーポリシー | PlayNavi</title>", "PlayNavi Lab", "6-2. AI サービスとの連携", "(4) 保持期間", "Connecting AI services", "contact@playnavilab.com"]) assert.ok(page.includes(s), s);
   // 10/29 (TASK-20261028-005): 10/25 の改定 (6-1 に PlayNavi AI・画像から取り込む機能で送る物) を写す。
   // Squarespace が動いている間は scripts/check-legal-copies.mjs で公式 www.playnavilab.com/privacypolicy と比べる (README「Company site」)
-  for (const s of ["最終更新日：2026年10月25日", "(1) PlayNavi AI（話して、または文字を入力して操作を頼む機能）", "(3) 画像から取り込む機能", "これらの機能でも、メールアドレスやパスワードをAIサービスへ送信しません。"]) assert.ok(page.includes(s), s);
+  for (const s of ["最終更新日：2026年11月27日", "(1) PlayNavi AI（話して、または文字を入力して操作を頼む機能）", "(3) 画像から取り込む機能", "これらの機能でも、メールアドレスやパスワードをAIサービスへ送信しません。"]) assert.ok(page.includes(s), s);
+  // 11/27 (TASK-20261118-006): Steam の規約 (steamcommunity.com/dev/apiterms §2) が求める「保存する Steam のデータを知らせる」「保存する国をポリシーに書く」を満たす段
+  for (const s of ["Steam 連携で取得する情報", "Steam Web API", "所有ゲームの一覧", "日本（東京）のデータベースに保存します"]) assert.ok(page.includes(s), s);
   assert.doesNotMatch(page, /<script/i);
 });
 
